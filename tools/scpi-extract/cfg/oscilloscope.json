@@ -1,0 +1,7 @@
+{
+  "instrument": "Oscilloscope (Rigol MSO2000A/DS2000A series)",
+  "source": "Transcribed from the Rigol MSO2000A/DS2000A Programming Guide (Feb. 2016). Entries marked with a tick were confirmed on a DS2202 on this bench. Cross-checked against python-ivi rigol/agilentBaseScope and pymeasure for the shared SCPI subset.",
+  "mergeInto": "oscilloscope-original.json",
+  "groups": [{ "file": "parsed/rigol-ds2000a.json" }],
+  "commonCommands": ["*CLS","*ESE","*ESE?","*ESR?","*IDN?","*OPC","*OPC?","*RST","*SAV","*RCL","*SRE","*SRE?","*STB?","*TST?","*WAI"]
+}

@@ -1,0 +1,13 @@
+@* The router. Everything lives under MainLayout; there is no second layout to choose. *@
+<Router AppAssembly="@typeof(App).Assembly">
+    <Found Context="routeData">
+        <RouteView RouteData="@routeData" DefaultLayout="@typeof(MainLayout)" />
+        <FocusOnNavigate RouteData="@routeData" Selector="h1" />
+    </Found>
+    <NotFound>
+        <LayoutView Layout="@typeof(MainLayout)">
+            <h1>Not here</h1>
+            <p>That address does not match a page. Use the navigation on the left.</p>
+        </LayoutView>
+    </NotFound>
+</Router>

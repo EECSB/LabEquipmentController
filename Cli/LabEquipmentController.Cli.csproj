@@ -1,0 +1,50 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    The command-line front end to Core.
+
+    Targets plain net10.0, not net10.0-windows: everything it uses lives in Core, which is
+    itself UI-free and platform-neutral, so this builds and runs on Windows, Linux and
+    macOS alike. That is the point of the project — the WinForms app is Windows-only and
+    always will be, and a bench script on a Raspberry Pi or a CI runner needs the same
+    transports and the same catalogs without it.
+
+    Nothing Windows-only may be referenced from here. System.Drawing (screenshot decoding)
+    and DPAPI (the app's encrypted key store) are the two temptations; both stay in the
+    WinForms project.
+  -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <LangVersion>latest</LangVersion>
+    <RootNamespace>LabEquipmentController.Cli</RootNamespace>
+
+    <!-- The name typed at a shell prompt. Short, because it is typed often. -->
+    <AssemblyName>lec</AssemblyName>
+
+    <Product>Lab Equipment Controller CLI</Product>
+    <AssemblyTitle>Lab Equipment Controller CLI</AssemblyTitle>
+    <Description>Discover and control lab instruments over Ethernet using SCPI, from a terminal.</Description>
+    <Version>1.0.0</Version>
+    <!-- Shipped as a published binary, not as a package. -->
+    <IsPackable>false</IsPackable>
+
+    <!-- Any platform-specific API reached from here is a bug, not a warning. -->
+    <TreatWarningsAsErrors>false</TreatWarningsAsErrors>
+    <WarningsAsErrors>CA1416</WarningsAsErrors>
+    <EnableSingleFileAnalyzer>true</EnableSingleFileAnalyzer>
+    <InvariantGlobalization>true</InvariantGlobalization>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Core\LabEquipmentController.Core.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- The test project drives the parser and the formatters directly. -->
+    <InternalsVisibleTo Include="LabEquipmentController.Tests" />
+  </ItemGroup>
+
+</Project>

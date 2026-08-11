@@ -1,0 +1,12 @@
+{
+  "instrument": "Siglent oscilloscope (SDS1000X-E / SDS2000X Plus / SDS800X HD / SDS3000X HD)",
+  "source": "Transcribed from the Siglent SDS Series Digital Oscilloscope Programming Guide (EN11D, Feb 2023), with the SDS3000X HD guide (EN11F) adding the newer models. This is Siglent's modern standard-SCPI set; the first-generation SDS1000CML/DL and early SDS2000X take a different LeCroy-derived dialect (C1:VDIV, TDIV, TRMD) that is not covered here. Cross-checked against pymeasure siglent_sds1000xhd and teledyne_oscilloscope.",
+  "groups": [
+    { "file": "parsed/siglent-sds.json" },
+    { "file": "parsed/siglent-sds3000hd.json" }
+  ],
+  "commonCommands": [
+    "*CLS", "*ESE", "*ESE?", "*ESR?", "*IDN?", "*OPC", "*OPC?",
+    "*RST", "*SRE", "*SRE?", "*STB?", "*TST?", "*WAI"
+  ]
+}

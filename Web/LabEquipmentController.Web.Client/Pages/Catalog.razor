@@ -1,0 +1,106 @@
+@page "/catalog"
+@inject BenchClient Bench
+
+<h1>Command library</h1>
+<p class="lede">
+    Every command this project knows, transcribed from the manufacturer's own programming guide.
+    A <span class="pill ok">✓</span> marks an entry confirmed against real hardware; a
+    <span class="pill">AI</span> marks one a model read out of a datasheet rather than a person
+    transcribing it.
+</p>
+
+<div class="panel">
+    <div class="row">
+        <label for="cat">Catalog</label>
+        <select id="cat" @onchange="Pick">
+            <option value="">— @_catalogs.Count catalogs, @_totalCommands.ToString("N0") commands —</option>
+            @foreach (var c in _catalogs)
+            {
+                <option value="@c.Family">@c.Manufacturer — @c.Instrument (@c.CommandCount.ToString("N0"))</option>
+            }
+        </select>
+
+        <input class="grow" type="text" @bind="_filter" @bind:event="oninput" @bind:after="Reload"
+               placeholder="Filter by command, description, or the command as you would send it" />
+    </div>
+
+    @if (_selected is not null)
+    {
+        <p class="muted" style="margin:.5rem 0 0">
+            @_selected.Instrument · @_selected.BenchVerified.ToString("N0") of
+            @_selected.CommandCount.ToString("N0") bench-verified
+            @if (_selected.GuideTitle is not null)
+            {
+                <text> · transcribed from </text>
+                @if (_selected.GuideUrl is not null)
+                {
+                    <a href="@_selected.GuideUrl" target="_blank" rel="noopener">@_selected.GuideTitle</a>
+                }
+                else
+                {
+                    @_selected.GuideTitle
+                }
+            }
+        </p>
+    }
+</div>
+
+<div class="panel">
+    @if (_commands.Count == 0)
+    {
+        <p class="muted">@(_selected is null ? "Pick a catalog above." : "Nothing matches that filter.")</p>
+    }
+    else
+    {
+        <div class="scroll" style="max-height:60vh">
+            <table>
+                <thead>
+                    <tr><th style="width:2rem"></th><th>Command</th><th>Category</th><th>Description</th></tr>
+                </thead>
+                <tbody>
+                    @foreach (var c in _commands)
+                    {
+                        <tr>
+                            <td>
+                                @if (c.BenchVerified) { <span class="pill ok" title="Confirmed on real hardware">✓</span> }
+                                else if (c.AiExtracted) { <span class="pill" title="Read from a datasheet by a model">AI</span> }
+                                else if (c.CrossChecked) { <span class="pill" title="Corroborated by an independent driver">•</span> }
+                            </td>
+                            <td class="mono">@c.Syntax</td>
+                            <td class="muted">@c.Category</td>
+                            <td>@c.Description</td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+        <p class="muted" style="margin:.5rem 0 0">Showing @_commands.Count.ToString("N0").</p>
+    }
+</div>
+
+@code {
+    private IReadOnlyList<CatalogSummary> _catalogs = [];
+    private IReadOnlyList<CatalogCommandDto> _commands = [];
+    private CatalogSummary? _selected;
+    private string _filter = "";
+    private int _totalCommands;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _catalogs = await Bench.CatalogsAsync();
+        _totalCommands = _catalogs.Sum(c => c.CommandCount);
+    }
+
+    private async Task Pick(ChangeEventArgs e)
+    {
+        string family = e.Value?.ToString() ?? "";
+        _selected = _catalogs.FirstOrDefault(c => c.Family == family);
+        await Reload();
+    }
+
+    private async Task Reload()
+    {
+        if (_selected is null) { _commands = []; return; }
+        _commands = await Bench.CatalogAsync(_selected.Family, _filter);
+    }
+}

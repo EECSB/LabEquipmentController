@@ -1,0 +1,37 @@
+{
+  "instrument": "Keysight DC power supply (E36300 series)",
+  "source": "Transcribed from the Keysight E36300 Series Programmable DC Power Supplies Programming Guide (9018-04577). Cross-checked against pymeasure keysightE36312A/keysightE3631A and python-ivi agilentE3600A.",
+  "groups": [
+    {
+      "file": "parsed/keysight-e36300.json"
+    }
+  ],
+  "commonCommands": [
+    "*CLS",
+    "*ESE",
+    "*ESE?",
+    "*ESR?",
+    "*IDN?",
+    "*OPC",
+    "*OPC?",
+    "*PSC",
+    "*PSC?",
+    "*RCL",
+    "*RST",
+    "*SAV",
+    "*SRE",
+    "*SRE?",
+    "*STB?",
+    "*TRG",
+    "*TST?",
+    "*WAI"
+  ],
+  "supplements": [
+    {
+      "category": "Output",
+      "syntax": "OUTPut[:STATe] ON | 1 | OFF | 0, (@<chanlist>)",
+      "description": "Enables or disables the specified output. The names CH1, CH2 and CH3 are other names for P6V, P25V and N25V. At *RST all outputs are off.",
+      "example": "OUTPut ON, (@1)"
+    }
+  ]
+}

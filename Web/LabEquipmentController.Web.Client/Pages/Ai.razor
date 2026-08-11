@@ -1,0 +1,185 @@
+@page "/ai"
+@inject BenchClient Bench
+@inject IJSRuntime JS
+
+<h1>AI</h1>
+<p class="lede">
+    Two optional features: draft a script from a description, and read commands out of a datasheet
+    the built-in catalogs do not cover.
+</p>
+
+<div class="panel">
+    @if (_status is null)
+    {
+        <p class="muted">Checking…</p>
+    }
+    else if (!_status.Configured)
+    {
+        <p class="error">@_status.Reason</p>
+        <p class="muted">
+            The key lives in the server's configuration, not in your browser — set
+            <span class="mono">Ai__ApiKey</span> in the environment and restart the container.
+        </p>
+    }
+    else
+    {
+        <div class="row">
+            <span class="pill ok">configured</span>
+            <span class="muted">@_status.Provider · @_status.Model</span>
+        </div>
+        <p class="muted" style="margin:.5rem 0 0">
+            <strong>The key is shared.</strong> It comes from this server's configuration, so anyone
+            who can open this page can spend it. That is fine on a private bench network and wrong
+            on a public one.
+        </p>
+    }
+</div>
+
+@if (_status?.Configured == true)
+{
+    <div class="panel">
+        <h2>Write a script</h2>
+        <p class="muted">
+            The model is handed only the catalogs of the instruments you tick, and told to use
+            nothing else. Anything it invents anyway is listed underneath rather than hidden.
+        </p>
+
+        <div class="row" style="margin:.5rem 0">
+            @foreach (var s in _sessions)
+            {
+                <label class="chip @(_chosen.Contains(s.Id) ? "on" : "")">
+                    <input type="checkbox" checked="@_chosen.Contains(s.Id)"
+                           @onchange="e => Toggle(s.Id, (bool?)e.Value == true)" />
+                    @s.ProfileName
+                </label>
+            }
+            @if (_sessions.Count == 0)
+            {
+                <span class="muted">Connect an instrument first — without a catalog there is nothing to constrain the model to.</span>
+            }
+        </div>
+
+        <div class="row">
+            <input class="grow" type="text" @bind="_request"
+                   placeholder="Sweep 1 kHz to 100 kHz and record the peak-to-peak voltage at each step" />
+            <label class="chip"><input type="checkbox" @bind="_isSequence" /> multi-instrument</label>
+            <button class="primary" @onclick="Write" disabled="@(_busy || _chosen.Count == 0)">Write</button>
+        </div>
+
+        @if (_scriptError is not null) { <p class="error">@_scriptError</p> }
+
+        @if (_script is { Length: > 0 })
+        {
+            <textarea class="code" style="min-height:240px;margin-top:.75rem" readonly>@_script</textarea>
+            @if (_undocumented.Count > 0)
+            {
+                <p class="error">
+                    Not in any catalog, so probably invented:
+                    @string.Join(", ", _undocumented)
+                </p>
+            }
+            <p class="muted">Copy it into the Scripts or Multi-instrument page to run it.</p>
+        }
+    </div>
+
+    <div class="panel">
+        <h2>Read a datasheet</h2>
+        <p class="muted">
+            Upload a PDF, Word file or text guide. What comes back is kept apart from the curated
+            catalogs and marked <span class="pill">AI</span> wherever it appears — a model reading a
+            datasheet is not the same claim as a person transcribing one.
+        </p>
+
+        <div class="row">
+            <input type="file" @ref="_file" accept=".pdf,.docx,.txt" />
+            <input type="text" @bind="_instrumentKey" placeholder="Name for the result, e.g. acme-psu-1000" size="28" />
+            <button class="primary" @onclick="Extract" disabled="@_busy">Extract</button>
+            @if (_busy) { <span class="muted">Reading — a long guide takes minutes.</span> }
+        </div>
+
+        @if (_extractError is not null) { <p class="error">@_extractError</p> }
+
+        @if (_extracted is not null)
+        {
+            <p class="muted">
+                @_extracted.Found found, @_extracted.Rejected rejected
+                @if (_extracted.SavedTo is not null) { <text> · saved to @_extracted.SavedTo</text> }
+            </p>
+            <div class="scroll">
+                <table>
+                    <thead><tr><th>Command</th><th>Category</th><th>Description</th></tr></thead>
+                    <tbody>
+                        @foreach (var c in _extracted.Commands)
+                        {
+                            <tr><td class="mono">@c.Syntax</td><td class="muted">@c.Category</td><td>@c.Description</td></tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        }
+    </div>
+}
+
+@code {
+    private AiStatus? _status;
+    private IReadOnlyList<SessionDto> _sessions = [];
+    private readonly HashSet<string> _chosen = [];
+    private string _request = "";
+    private bool _isSequence;
+    private bool _busy;
+
+    private string? _script;
+    private IReadOnlyList<string> _undocumented = [];
+    private string? _scriptError;
+
+    private ElementReference _file;
+    private string _instrumentKey = "";
+    private AiExtractReply? _extracted;
+    private string? _extractError;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _status = await Bench.AiStatusAsync();
+        _sessions = await Bench.SessionsAsync();
+        foreach (var s in _sessions) _chosen.Add(s.Id);
+    }
+
+    private void Toggle(string id, bool on)
+    {
+        if (on) _chosen.Add(id); else _chosen.Remove(id);
+    }
+
+    private async Task Write()
+    {
+        _busy = true; _scriptError = null; _script = null; _undocumented = [];
+        try
+        {
+            var reply = await Bench.AiScriptAsync(
+                new AiScriptRequest(_request, _chosen.ToList(), _isSequence, null, null));
+            if (reply.Error is not null) { _scriptError = reply.Error; return; }
+            _script = reply.Script;
+            _undocumented = reply.Undocumented;
+        }
+        finally { _busy = false; }
+    }
+
+    private async Task Extract()
+    {
+        _busy = true; _extractError = null; _extracted = null;
+        try
+        {
+            var picked = await JS.InvokeAsync<FilePayload?>("lec.readFile", _file);
+            if (picked is null) { _extractError = "Choose a file first."; return; }
+
+            var reply = await Bench.AiExtractAsync(
+                new AiExtractRequest(picked.name, picked.base64,
+                    _instrumentKey.Length > 0 ? _instrumentKey : Path.GetFileNameWithoutExtension(picked.name)));
+            if (reply.Error is not null) { _extractError = reply.Error; return; }
+            _extracted = reply;
+        }
+        catch (Exception ex) { _extractError = ex.Message; }
+        finally { _busy = false; }
+    }
+
+    private sealed record FilePayload(string name, string base64);
+}

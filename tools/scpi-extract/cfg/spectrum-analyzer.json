@@ -1,0 +1,25 @@
+{
+  "instrument": "Spectrum analyzer (Siglent SSA3000X series)",
+  "source": "Transcribed from the Siglent SSA3000X Series Spectrum Analyzer Programming Guide (PG0703X-E03D). Cross-checked against the Rigol DSA800 Programming Guide for the shared SCPI subset.",
+  "groups": [
+    {
+      "file": "parsed/siglent-ssa3000x.json"
+    }
+  ],
+  "commonCommands": [
+    "*CLS",
+    "*ESE",
+    "*ESE?",
+    "*ESR?",
+    "*IDN?",
+    "*OPC",
+    "*OPC?",
+    "*RST",
+    "*SRE",
+    "*SRE?",
+    "*STB?",
+    "*TRG",
+    "*TST?",
+    "*WAI"
+  ]
+}

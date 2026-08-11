@@ -1,0 +1,54 @@
+# Run the web version against a real bench.
+#
+#   docker compose up --build
+#   then open http://localhost:8080
+#
+# ─── Why host networking ─────────────────────────────────────────────────────────────────
+# Discovery sweeps a subnet. On Docker's default bridge network the container sits on its
+# own private network — 172.17.x.x — so it would sweep that, find nothing, and report an
+# empty bench with no hint as to why. `network_mode: host` gives the container the host's
+# own interfaces, so it scans and reaches instruments exactly as the desktop app does.
+#
+# That mode is Linux-only. On Docker Desktop for Windows or macOS the engine runs inside a
+# VM, so "host" is the VM's network and not your laptop's: discovery will not see the bench.
+# There, run the server directly instead —
+#
+#     dotnet run --project Web/LabEquipmentController.Web
+#
+# — or give the container its own address on the bench VLAN with a macvlan network.
+#
+# ─── The AI key ──────────────────────────────────────────────────────────────────────────
+# Optional. Supply it in the environment or a .env file beside this one; it is one key
+# shared by everyone who can reach the page, which is fine on a bench LAN and wrong on a
+# public one. Leave it unset and the AI pages simply say they are not configured.
+
+services:
+  web:
+    build:
+      context: .
+      dockerfile: Web/Dockerfile
+    image: labequipmentcontroller-web:latest
+    container_name: lec-web
+    restart: unless-stopped
+
+    network_mode: host
+
+    environment:
+      # Ignored under host networking (the app binds this port on the host directly), but
+      # correct if you switch to bridge.
+      ASPNETCORE_URLS: http://+:8080
+      # Uncomment or set in .env to turn the AI pages on.
+      # Ai__ApiKey: ${LEC_AI_KEY}
+      # Ai__Provider: Gemini
+      # Ai__Model: gemini-2.5-flash
+      Ai__ApiKey: ${LEC_AI_KEY:-}
+      Ai__Provider: ${LEC_AI_PROVIDER:-Gemini}
+      Ai__Model: ${LEC_AI_MODEL:-}
+
+    volumes:
+      # Catalogs a model extracted from a datasheet, kept outside the image so replacing
+      # the container does not throw them away.
+      - lec-data:/data
+
+volumes:
+  lec-data:

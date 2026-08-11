@@ -1,0 +1,111 @@
+{
+  "instrument": "DC electronic load (Chroma 63600 series, modular)",
+  "source": "Transcribed from the Chroma Programmable DC Electronic Load 63600 Series Operation & Programming Manual (V2.2). A separate catalog from the 63200A: only 53% of these command headers appear in the 63200A set, so a 63600 handed that catalog would find nearly half its buttons rejected. The 63600 is modular, and CHANnel selects the load module a channel-specific command applies to. Rebuilt from the guide in August 2026, which added 23 commands the earlier pass had missed and corrected four entries: DIO:OUT2 takes <NR1> and not ON, and the malformed 'SYSTem:ERRor?.' and 'CONFigure:SHORt:KEY? enable.' are gone. Three entries are supplements because the guide defeats the parser rather than the reverse - MODE and MODE? are bare mnemonics, and CONFigure:VOLTage:RANGe has its own syntax line misprinted 'RANGEe'. Four headers are excluded as fragments of the syntax diagrams they were read out of. A later pass recovered the PROGram:DATA:LIST? and STEP? query forms the first rebuild had dropped — the guide wraps them inside their own “<space>” token — along with the clean CONFigure:SHORt:KEY? and SYSTem:ERRor?; their malformed predecessors are gone.",
+  "manufacturer": "Chroma",
+  "guide": {
+    "title": "Programmable DC Electronic Load 63600 Series Operation & Programming Manual",
+    "edition": "V2.2",
+    "vendor": "Chroma",
+    "url": "https://www.chromausa.com/document-library/manuals-63600-series/",
+    "fileName": "Chroma_63600_ElectronicLoad_OperationProgrammingManual.pdf"
+  },
+  "groups": [
+    {
+      "file": "parsed/chroma-63600.json",
+      "exclude": "^(APPLY:NO|:FETCh|:MEASure|:STATus|CONFigure:VOLTage:RANGe)$"
+    }
+  ],
+  "typos": {
+    "RANGEe": "RANGe"
+  },
+  "supplements": [
+    {
+      "category": "IEEE 488.2 Common",
+      "syntax": "*CLS",
+      "description": "The *CLS command executes the following actions: 1. Clear these registers <1> Channel Status Event registers for all channels <2> Channel Summary Event register <3> Questionable Status Event register <4> Standard Event Status Event register <5> Operation Status Event register 2. Clear the Error Queue 3. If \"Clear Status Command\" immediately follows a program message terminator (<nl>), the \"Output Queue\" and the MAV bit are also cleared."
+    },
+    {
+      "category": "IEEE 488.2 Common",
+      "syntax": "*ESE <NR1>",
+      "description": "This command sets the condition of the Standard Event Status Enable register to determine which event (see *ESR?) is allowed to set the ESB (Event Summary Bit) for the Status Byte register. A \"1\" in the bit position enables the corresponding event. All of the events that enabled by Standard Event Status register are logically ORed to cause the Status Byte register ESB (bit 5) to be set. See descriptions of these three registers in Chapter 6."
+    },
+    {
+      "category": "IEEE 488.2 Common",
+      "syntax": "*ESE?",
+      "description": "This command sets the condition of the Standard Event Status Enable register to determine which event (see *ESR?) is allowed to set the ESB (Event Summary Bit) for the Status Byte register. A \"1\" in the bit position enables the corresponding event. All of the events that enabled by Standard Event Status register are logically ORed to cause the Status Byte register ESB (bit 5) to be set. See descriptions of these three registers in Chapter 6.",
+      "isQuery": true
+    },
+    {
+      "category": "IEEE 488.2 Common",
+      "syntax": "*ESR?",
+      "description": "This query reads the Standard Event Status register. Reading the register clears it. See detailed explanation of this register in Chapter 6. Standard Event Status Event Register Bit Position 7 6 5 4 3 2 10 Condition PON 0 CME EXE DDE QYE 0 0 Bit Weight 128 64 32 16 8 4 2 1"
+    },
+    {
+      "category": "IEEE 488.2 Common",
+      "syntax": "*IDN?",
+      "description": "This query requests the Electronic Frame (63600) to identify itself."
+    },
+    {
+      "category": "IEEE 488.2 Common",
+      "syntax": "*OPC",
+      "description": "This command causes the interface to set the OPC bit (bit 0) of the Standard Event Status register when the Electronic Frame (63600) has completed all pending operations."
+    },
+    {
+      "category": "IEEE 488.2 Common",
+      "syntax": "*OPC?",
+      "description": "This query returns an ASCII \"1\" when all pending operations are completed."
+    },
+    {
+      "category": "IEEE 488.2 Common",
+      "syntax": "*RCL <NR1>",
+      "description": "This command restores the electronic load to a state that was previously stored in memory with the *SAV command to the specified location (see *SAV)."
+    },
+    {
+      "category": "IEEE 488.2 Common",
+      "syntax": "*RDT?",
+      "description": "This command returns the types of Electronic Frame (63600). If channel does not exist, it returns 0. If channel exists, it returns the types like 63610-80-20, 63630-80-60, 63630-80-60, 63640-80-80..."
+    },
+    {
+      "category": "IEEE 488.2 Common",
+      "syntax": "*RST",
+      "description": "This command forces an ABORt, *CLS, LOAD=PROT=CLE command."
+    },
+    {
+      "category": "IEEE 488.2 Common",
+      "syntax": "*SAV <NR1>",
+      "description": "This command stores the present state of the single electronic load and all channel states of multiple loads in a specified memory location."
+    },
+    {
+      "category": "IEEE 488.2 Common",
+      "syntax": "*SRE 20",
+      "description": "This command sets the condition of the Service Request Enable register to determine which event of the Status Byte register (see *STB) is allowed to set the MSS (Master Status Summary) bit. A \"1\" in the bit position is logically ORed to cause the Status Byte register Bit 6 (the Master Summary Status Bit) to be set. See details regarding the Status Byte register in Chapter 6. Setting Syntax *SRE<space><NR1> Setting Parameters:<NR1>, 0 ~ 255"
+    },
+    {
+      "category": "IEEE 488.2 Common",
+      "syntax": "*SRE?",
+      "description": "This command sets the condition of the Service Request Enable register to determine which event of the Status Byte register (see *STB) is allowed to set the MSS (Master Status Summary) bit. A \"1\" in the bit position is logically ORed to cause the Status Byte register Bit 6 (the Master Summary Status Bit) to be set. See details regarding the Status Byte register in Chapter 6. Setting Syntax *SRE<space><NR1> Setting Parameters:<NR1>, 0 ~ 255",
+      "isQuery": true
+    },
+    {
+      "category": "IEEE 488.2 Common",
+      "syntax": "*STB?",
+      "description": "This query reads the Status Byte register. Note that the MSS (Master Summary Status) bit instead of RQS bit is returned in Bit 6. This bit indicates if the electronic load has at least one reason for requesting service. *STB? does not clear the Status Byte register, which is cleared only when subsequent action has cleared all its set bits. Refer to Chapter 6 for more information about this register. Status Byte Register Bit Position 7 6 5 4 3 2 10 Condition 0 MSS ESB MAV QUES CSUM 0 0 Bit Weight 128 64 32 16 8 4 21"
+    },
+    {
+      "category": "Configure",
+      "syntax": "CONFigure:VOLTage:RANGe <CRD | NR1>",
+      "description": "Set the voltage measurement range in CC mode."
+    },
+    {
+      "category": "System",
+      "syntax": "MODE <NRf>",
+      "description": "This command sets the operational mode for the electronic load. Values are a mode and range together — CCL, CCM, CCH for constant current at low, middle and high range, and likewise CR, CV, CP, dynamic (CCD), battery (BAT), sweep (SWD), OCP and the rest."
+    },
+    {
+      "category": "System",
+      "syntax": "MODE?",
+      "description": "Query the operational mode and range of the electronic load.",
+      "isQuery": true
+    }
+  ]
+}

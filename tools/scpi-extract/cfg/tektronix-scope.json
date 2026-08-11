@@ -1,0 +1,8 @@
+{
+  "instrument": "Tektronix oscilloscope (MDO/MSO/DPO 3000 & 4000 series)",
+  "source": "Transcribed from the Tektronix MDO4000C/MDO4000B/MDO4000/MSO4000B/DPO4000B/MDO3000 Programmer Manual, with the MSO4000/DPO4000 Programmer Manual (077-0248-01) adding the earlier models. Categories are the guide's own command Groups. Cross-checked against Tektronix' tm_devices, python-ivi tektronix* and pymeasure for the shared subset.",
+  "groups": [
+    { "file": "parsed/tek-mdo4000.json" },
+    { "file": "parsed/tek-mso4000.json" }
+  ]
+}

@@ -1,0 +1,34 @@
+{
+  "instrument": "Rohde & Schwarz DC power supply (NGL200 / NGM200 / NGE100 / HMP)",
+  "source": "Transcribed from the R&S NGL200/NGM200 Power Supply Series User Manual (1178.8736.02), with the NGE100 User Manual and the HMP Series SCPI Programmers Manual adding the older lines. Cross-checked against pymeasure rohdeschwarz hmp.",
+  "groups": [
+    {
+      "file": "parsed/rs-ngl200.json"
+    },
+    {
+      "file": "parsed/rs-nge100.json"
+    },
+    {
+      "file": "parsed/rs-hmp.json"
+    }
+  ],
+  "commonCommands": [
+    "*CLS",
+    "*ESE",
+    "*ESE?",
+    "*ESR?",
+    "*IDN?",
+    "*OPC",
+    "*OPC?",
+    "*OPT?",
+    "*RCL",
+    "*RST",
+    "*SAV",
+    "*SRE",
+    "*SRE?",
+    "*STB?",
+    "*TRG",
+    "*TST?",
+    "*WAI"
+  ]
+}

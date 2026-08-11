@@ -1,0 +1,176 @@
+@page "/scripts"
+@implements IAsyncDisposable
+@inject BenchClient Bench
+
+<h1>Scripts</h1>
+<p class="lede">
+    A small line-oriented language: SCPI lines, <span class="mono">DELAY</span>,
+    <span class="mono">PRINT</span>, <span class="mono">REPEAT … END</span>, capture with
+    <span class="mono">-&gt;</span> and record with <span class="mono">RECORD</span>. It runs on the
+    server, so closing this tab does not stop it.
+</p>
+
+<SessionPicker Sessions="_sessions" Selected="_sessionId" SelectedChanged="Select" />
+
+<div class="panel">
+    <div class="row">
+        <label for="ex">Examples</label>
+        <select id="ex" @onchange="LoadExample">
+            <option value="">— pick one —</option>
+            @foreach (var e in _examples)
+            {
+                <option value="@e.Name">@e.Name</option>
+            }
+        </select>
+        <span class="spacer"></span>
+        <button class="primary" @onclick="Run" disabled="@(_running || _sessionId is null)">Run</button>
+        <button @onclick="Stop" disabled="@(!_running)">Stop</button>
+    </div>
+    <p class="muted" style="margin:.5rem 0 0">
+        Examples are chosen for the connected instrument's family — a multimeter is never offered a
+        generator's commands.
+    </p>
+</div>
+
+<div class="split">
+    <div class="panel">
+        <h2>Script</h2>
+        <textarea class="code" @bind="_script" @bind:event="oninput" spellcheck="false"></textarea>
+    </div>
+
+    <div class="panel">
+        <h2>Output</h2>
+        <div class="console">
+            @foreach (var line in _output)
+            {
+                <div class="@Css(line.Kind)">@line.Text</div>
+            }
+        </div>
+        @if (_rows.Count > 0)
+        {
+            <h2>Recorded</h2>
+            <div class="scroll">
+                <table>
+                    <thead>
+                        <tr>
+                            @foreach (var c in _columns) { <th>@c</th> }
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var r in _rows)
+                        {
+                            <tr>
+                                @foreach (var v in r.Values) { <td class="mono">@v</td> }
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        }
+    </div>
+</div>
+
+@code {
+    private IReadOnlyList<SessionDto> _sessions = [];
+    private IReadOnlyList<ExampleDto> _examples = [];
+    private string? _sessionId;
+    private string _script = "*IDN?\n";
+    private bool _running;
+    private string? _runId;
+    private HubConnection? _hub;
+
+    private readonly List<ScriptOutputLine> _output = [];
+    private readonly List<RecordedRow> _rows = [];
+    private IReadOnlyList<string> _columns = [];
+
+    protected override async Task OnInitializedAsync()
+    {
+        _sessions = await Bench.SessionsAsync();
+        _sessionId = _sessions.FirstOrDefault()?.Id;
+        await LoadExamples();
+    }
+
+    private async Task Select(string? id)
+    {
+        _sessionId = id;
+        await LoadExamples();
+    }
+
+    private async Task LoadExamples()
+    {
+        var s = _sessions.FirstOrDefault(x => x.Id == _sessionId);
+        _examples = s is null ? [] : await Bench.ScriptExamplesAsync(s.Family);
+    }
+
+    private void LoadExample(ChangeEventArgs e)
+    {
+        var chosen = _examples.FirstOrDefault(x => x.Name == e.Value?.ToString());
+        if (chosen is not null) _script = chosen.Script;
+    }
+
+    private async Task Run()
+    {
+        if (_sessionId is null) return;
+        _output.Clear();
+        _rows.Clear();
+
+        await Listen();
+        var summary = await Bench.RunScriptAsync(_sessionId, _script);
+        if (summary.Failed)
+        {
+            _output.Add(new ScriptOutputLine(summary.Error ?? "Could not start.", "Error"));
+            return;
+        }
+        _runId = summary.RunId;
+        _columns = summary.Columns;
+        _running = true;
+        await _hub!.InvokeAsync("Watch", _runId);
+    }
+
+    private async Task Stop()
+    {
+        if (_runId is not null) await Bench.StopAsync(_runId);
+    }
+
+    /// <summary>Attach the hub handlers once; runs come and go, the connection stays.</summary>
+    private async Task Listen()
+    {
+        if (_hub is not null) return;
+        _hub = await Bench.HubAsync();
+
+        _hub.On<string, ScriptOutputLine>("RunOutput", (id, line) =>
+        {
+            if (id != _runId) return;
+            _output.Add(line);
+            InvokeAsync(StateHasChanged);
+        });
+        _hub.On<string, RecordedRow>("RunRow", (id, row) =>
+        {
+            if (id != _runId) return;
+            _rows.Add(row);
+            InvokeAsync(StateHasChanged);
+        });
+        _hub.On<string, bool, string?>("RunFinished", (id, failed, error) =>
+        {
+            if (id != _runId) return;
+            _running = false;
+            if (error is not null) _output.Add(new ScriptOutputLine(error, "Error"));
+            _output.Add(new ScriptOutputLine(failed ? "--- stopped ---" : "--- done ---", "Info"));
+            InvokeAsync(StateHasChanged);
+        });
+    }
+
+    private static string Css(string kind) => kind switch
+    {
+        "Error" => "err",
+        "Command" => "echo",
+        "Info" => "info",
+        _ => "",
+    };
+
+    public async ValueTask DisposeAsync()
+    {
+        if (_hub is not null && _runId is not null)
+            try { await _hub.InvokeAsync("Unwatch", _runId); } catch { /* going away anyway */ }
+    }
+}

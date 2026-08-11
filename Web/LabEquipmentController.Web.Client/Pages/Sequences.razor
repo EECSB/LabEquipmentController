@@ -1,0 +1,212 @@
+@page "/sequences"
+@implements IAsyncDisposable
+@inject BenchClient Bench
+
+<h1>Multi-instrument scripts</h1>
+<p class="lede">
+    One script driving several instruments at once. <span class="mono">DEVICE</span> names an alias,
+    <span class="mono">WITH</span> scopes lines to it, and <span class="mono">FOR</span> sweeps —
+    which is the measurement a single-instrument script cannot express.
+</p>
+
+<div class="panel">
+    <div class="row">
+        <label for="ex">Examples</label>
+        <select id="ex" @onchange="LoadExample">
+            <option value="">— pick one —</option>
+            @foreach (var e in _examples)
+            {
+                <option value="@e.Name">@e.Name</option>
+            }
+        </select>
+        <span class="spacer"></span>
+        <button @onclick="Resolve">Check devices</button>
+        <button class="primary" @onclick="Run" disabled="@(_running || _requirements.Count == 0)">Run</button>
+        <button @onclick="Stop" disabled="@(!_running)">Stop</button>
+    </div>
+
+    @if (_requirements.Count > 0)
+    {
+        <h2>Bindings</h2>
+        <table>
+            <thead><tr><th>Alias</th><th>Model the script asks for</th><th>Instrument</th></tr></thead>
+            <tbody>
+                @foreach (var r in _requirements)
+                {
+                    <tr>
+                        <td class="mono">@r.Alias</td>
+                        <td class="mono">@r.Model</td>
+                        <td>
+                            <select value="@Bound(r.Alias)" @onchange="e => Bind(r.Alias, e.Value?.ToString())">
+                                <option value="">— choose —</option>
+                                @foreach (var s in _sessions)
+                                {
+                                    <option value="@s.Id">@s.ProfileName — @s.Address</option>
+                                }
+                            </select>
+                        </td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+        <p class="muted" style="margin:.5rem 0 0">
+            The script names models, not addresses, so a saved script survives DHCP moving an
+            instrument. Pick which open connection plays each part.
+        </p>
+    }
+    @if (_error is not null)
+    {
+        <p class="error">@_error</p>
+    }
+</div>
+
+<div class="split">
+    <div class="panel">
+        <h2>Script</h2>
+        <textarea class="code" @bind="_script" @bind:event="oninput" spellcheck="false"></textarea>
+    </div>
+
+    <div class="panel">
+        <h2>Output</h2>
+        <div class="console">
+            @foreach (var line in _output)
+            {
+                <div class="@Css(line.Kind)">@line.Text</div>
+            }
+        </div>
+        @if (_rows.Count > 0)
+        {
+            <h2>Recorded</h2>
+            <div class="scroll">
+                <table>
+                    <thead>
+                        <tr>@foreach (var c in _columns) { <th>@c</th> }</tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var r in _rows)
+                        {
+                            <tr>@foreach (var v in r.Values) { <td class="mono">@v</td> }</tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        }
+    </div>
+</div>
+
+@code {
+    private IReadOnlyList<SessionDto> _sessions = [];
+    private IReadOnlyList<ExampleDto> _examples = [];
+    private IReadOnlyList<SequenceRequirement> _requirements = [];
+    private readonly Dictionary<string, string> _bindings = new(StringComparer.OrdinalIgnoreCase);
+    private string _script = "";
+    private string? _error;
+    private bool _running;
+    private string? _runId;
+    private HubConnection? _hub;
+
+    private readonly List<ScriptOutputLine> _output = [];
+    private readonly List<RecordedRow> _rows = [];
+    private IReadOnlyList<string> _columns = [];
+
+    protected override async Task OnInitializedAsync()
+    {
+        _sessions = await Bench.SessionsAsync();
+        _examples = await Bench.SequenceExamplesAsync();
+    }
+
+    private string? Bound(string alias) => _bindings.TryGetValue(alias, out var v) ? v : null;
+
+    private void Bind(string alias, string? sessionId)
+    {
+        if (string.IsNullOrEmpty(sessionId)) _bindings.Remove(alias);
+        else _bindings[alias] = sessionId;
+    }
+
+    private async Task LoadExample(ChangeEventArgs e)
+    {
+        var chosen = _examples.FirstOrDefault(x => x.Name == e.Value?.ToString());
+        if (chosen is null) return;
+        _script = chosen.Script;
+        await Resolve();
+    }
+
+    private async Task Resolve()
+    {
+        _error = null;
+        _requirements = await Bench.RequirementsAsync(_script);
+        if (_requirements.Count == 0) _error = "This script declares no DEVICE lines, so there is nothing to bind.";
+
+        // Pre-bind anything whose model obviously matches a connected instrument; the user
+        // can override. Saves the common case of picking three from three.
+        foreach (var r in _requirements)
+        {
+            if (_bindings.ContainsKey(r.Alias)) continue;
+            var match = _sessions.FirstOrDefault(s =>
+                s.Identity.Contains(r.Model, StringComparison.OrdinalIgnoreCase)
+                || s.ProfileName.Contains(r.Model, StringComparison.OrdinalIgnoreCase));
+            if (match is not null) _bindings[r.Alias] = match.Id;
+        }
+    }
+
+    private async Task Run()
+    {
+        _error = null;
+        _output.Clear();
+        _rows.Clear();
+
+        await Listen();
+        var summary = await Bench.RunSequenceAsync(_script, _bindings);
+        if (summary.Failed) { _error = summary.Error; return; }
+
+        _runId = summary.RunId;
+        _columns = summary.Columns;
+        _running = true;
+        await _hub!.InvokeAsync("Watch", _runId);
+    }
+
+    private async Task Stop()
+    {
+        if (_runId is not null) await Bench.StopAsync(_runId);
+    }
+
+    private async Task Listen()
+    {
+        if (_hub is not null) return;
+        _hub = await Bench.HubAsync();
+        _hub.On<string, ScriptOutputLine>("RunOutput", (id, line) =>
+        {
+            if (id != _runId) return;
+            _output.Add(line);
+            InvokeAsync(StateHasChanged);
+        });
+        _hub.On<string, RecordedRow>("RunRow", (id, row) =>
+        {
+            if (id != _runId) return;
+            _rows.Add(row);
+            InvokeAsync(StateHasChanged);
+        });
+        _hub.On<string, bool, string?>("RunFinished", (id, failed, error) =>
+        {
+            if (id != _runId) return;
+            _running = false;
+            if (error is not null) _output.Add(new ScriptOutputLine(error, "Error"));
+            _output.Add(new ScriptOutputLine(failed ? "--- stopped ---" : "--- done ---", "Info"));
+            InvokeAsync(StateHasChanged);
+        });
+    }
+
+    private static string Css(string kind) => kind switch
+    {
+        "Error" => "err",
+        "Command" => "echo",
+        "Info" => "info",
+        _ => "",
+    };
+
+    public async ValueTask DisposeAsync()
+    {
+        if (_hub is not null && _runId is not null)
+            try { await _hub.InvokeAsync("Unwatch", _runId); } catch { /* going away anyway */ }
+    }
+}

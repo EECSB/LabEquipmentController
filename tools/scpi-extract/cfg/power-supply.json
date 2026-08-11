@@ -1,0 +1,49 @@
+{
+  "instrument": "DC power supply (Rigol DP800 series)",
+  "source": "Transcribed from the Rigol DP800 Series Programming Guide (Dec. 2015, PGH03108-1110). Cross-checked against python-ivi rigolDP800/rigolBaseDCPwr and the OriginalCircuit RigolDP800Instrument driver.",
+  "groups": [
+    {
+      "file": "parsed/rigol-dp800.json"
+    }
+  ],
+  "supplements": [
+    {
+      "category": "Apply",
+      "syntax": ":APPLy {CH1|CH2|CH3}[,<volt>|MINimum|MAXimum|DEF[,<curr>|MINimum|MAXimum|DEF]]",
+      "description": "Select the specified channel as the current channel and set the voltage/current of this channel.",
+      "example": ":APPLy CH1,5,1"
+    },
+    {
+      "category": "Apply",
+      "syntax": ":APPLy [<volt>|MINimum|MAXimum|DEF[,<curr>|MINimum|MAXimum|DEF]]",
+      "description": "Set the voltage/current of the current channel."
+    },
+    {
+      "category": "Apply",
+      "syntax": ":APPLy? [CH1|CH2|CH3[,CURRent|VOLTage]]",
+      "description": "Query the voltage/current of the specified channel.",
+      "example": ":APPLy? CH1"
+    }
+  ],
+  "commonCommands": [
+    "*CLS",
+    "*ESE",
+    "*ESE?",
+    "*ESR?",
+    "*IDN?",
+    "*OPC",
+    "*OPC?",
+    "*OPT?",
+    "*PSC",
+    "*PSC?",
+    "*RCL",
+    "*RST",
+    "*SAV",
+    "*SRE",
+    "*SRE?",
+    "*STB?",
+    "*TRG",
+    "*TST?",
+    "*WAI"
+  ]
+}

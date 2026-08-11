@@ -1,0 +1,87 @@
+@* A line chart, drawn as inline SVG.
+
+   Same reasoning as the CLI's plotter: SVG is markup, so the component builds it directly
+   with no charting library, no JavaScript interop and nothing to download. It scales with
+   the panel, prints, and works identically in every browser. *@
+
+@if (_points.Count >= 2)
+{
+    <svg viewBox="0 0 @W @H" class="plot" width="100%" height="200" role="img"
+         aria-label="Recorded readings over time">
+        <rect width="@W" height="@H" fill="none" />
+        @for (int i = 0; i <= 4; i++)
+        {
+            var y = Top + (H - Top - Bottom) * i / 4.0;
+            <line x1="@F(Left)" y1="@F(y)" x2="@F(W - Right)" y2="@F(y)" stroke="currentColor" stroke-opacity="0.15" />
+        }
+        <text x="@F(Left - 6)" y="@F(Top + 4)" text-anchor="end" font-size="10" fill="currentColor" opacity=".7">@Label(_max)</text>
+        <text x="@F(Left - 6)" y="@F(H - Bottom)" text-anchor="end" font-size="10" fill="currentColor" opacity=".7">@Label(_min)</text>
+        <path d="@_path" fill="none" stroke="#1f6feb" stroke-width="1.6" />
+        @foreach (var (x, y) in _dots)
+        {
+            <circle cx="@F(x)" cy="@F(y)" r="2" fill="#1f6feb" />
+        }
+    </svg>
+    <p class="muted" style="margin:.25rem 0 .75rem">
+        @_points.Count readings · @Label(_min) to @Label(_max)
+    </p>
+}
+
+@code {
+    /// <summary>Anything with a numeric Value and an At timestamp.</summary>
+    [Parameter] public System.Collections.IEnumerable? Rows { get; set; }
+
+    private const double W = 600, H = 200, Left = 52, Right = 10, Top = 10, Bottom = 18;
+
+    private readonly List<double> _points = [];
+    private readonly List<(double X, double Y)> _dots = [];
+    private string _path = "";
+    private double _min, _max;
+
+    protected override void OnParametersSet()
+    {
+        _points.Clear();
+        _dots.Clear();
+        _path = "";
+        if (Rows is null) return;
+
+        foreach (var row in Rows)
+        {
+            // Duck-typed on purpose: the console's readings and a script run's rows are
+            // different shapes, and a shared interface for two call sites is more ceremony
+            // than the reflection costs here — these lists are tens of items, not millions.
+            var prop = row?.GetType().GetProperty("Value");
+            if (prop?.GetValue(row) is not string text) continue;
+            if (double.TryParse(text, System.Globalization.NumberStyles.Float,
+                                System.Globalization.CultureInfo.InvariantCulture, out double v))
+                _points.Add(v);
+        }
+        if (_points.Count < 2) return;
+
+        _min = _points.Min();
+        _max = _points.Max();
+        // A dead-flat trace has no range to scale against; give it one rather than dividing
+        // by zero and drawing the line off the top of the box.
+        if (_max - _min < 1e-12) { _min -= 0.5; _max += 0.5; }
+
+        var sb = new System.Text.StringBuilder();
+        for (int i = 0; i < _points.Count; i++)
+        {
+            double x = Left + (W - Left - Right) * i / (_points.Count - 1.0);
+            double y = H - Bottom - (H - Top - Bottom) * (_points[i] - _min) / (_max - _min);
+            sb.Append(i == 0 ? 'M' : 'L').Append(F(x)).Append(' ').Append(F(y)).Append(' ');
+            if (_points.Count <= 60) _dots.Add((x, y));
+        }
+        _path = sb.ToString().Trim();
+    }
+
+    private static string F(double v) => v.ToString("0.##", System.Globalization.CultureInfo.InvariantCulture);
+
+    private static string Label(double v)
+    {
+        double a = Math.Abs(v);
+        return a != 0 && (a < 1e-3 || a >= 1e6)
+            ? v.ToString("0.###e+0", System.Globalization.CultureInfo.InvariantCulture)
+            : v.ToString(a >= 100 ? "0.##" : "0.####", System.Globalization.CultureInfo.InvariantCulture);
+    }
+}

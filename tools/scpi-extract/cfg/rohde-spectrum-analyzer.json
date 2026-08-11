@@ -1,0 +1,67 @@
+{
+  "instrument": "Spectrum analyzer (Rohde & Schwarz FPC1000 / FPC1500)",
+  "source": "Transcribed from the R&S FPC Spectrum Analyzer User Manual (1178.4130.02 ─ 08), which documents the FPC1000, FPC1500 and their options. Commands are drawn from the manual's own per-chapter command indexes, so the set covers the spectrum, receiver, analog and digital demodulation and VNA applications; the manual marks which need an option, and the tracking generator (SOURce) is FPC1500 only. Suffixes are left as the manual writes them — <n> for a window, <m> for a marker, <t> for a trace — rather than expanded. Adopted as a rebuild in August 2026: the shipped catalog’s descriptions came from an older parser generation, and of the 326 that changed, 306 are the guide’s own sentence with a glued “Prerequisites for this command” block or other trailing material now cut at the sentence, 7 are margin hyphen breaks mended, and the remainder were read one by one — among them a shipped description that was a dotted contents line. The rebuild also restores commands the older parse missed: ABORt, the CALCulate<n>:LIMit<k>:DEFine pair — first adopted truncated at its margin break, completed later the same month when the indented wrapped-clause join landed, the rule-generated video-bandwidth auto queries, and the parameterised spelling of the harmonic-distortion query. CALCulate<n>:MARKer<m>:AOFF? is excluded by name: the manual documents AOFF per application, one occurrence carries the event sentence out of the parser’s reach, and the query it generates is the fourth exception this catalog’s history already records. The IEEE 488.2 entries are curated, as the FSW’s and FSU’s are.",
+  "manufacturer": "Rohde & Schwarz",
+  "guide": {
+    "title": "R&S FPC Spectrum Analyzer User Manual",
+    "edition": "1178.4130.02 ─ 08",
+    "vendor": "Rohde & Schwarz",
+    "url": "https://www.rohde-schwarz.com/manual/fpc/",
+    "fileName": "RohdeSchwarz_FPC_SpectrumAnalyzer_UserManual.pdf"
+  },
+  "groups": [
+    {
+      "file": "parsed/rs-fpc.json",
+      "exclude": "^CALCulate<n>:MARKer<m>:AOFF\\?$"
+    }
+  ],
+  "supplements": [
+    {
+      "category": "IEEE 488.2 Common",
+      "syntax": "*CAL?",
+      "description": "Initiates a calibration of the instrument and subsequently queries the calibration status. Responses greater than 0 indicate errors.",
+      "isQuery": true
+    },
+    {
+      "category": "IEEE 488.2 Common",
+      "syntax": "*IST?",
+      "description": "Returns the contents of the IST flag in decimal form. The IST flag is the status bit which is sent during a parallel poll.",
+      "isQuery": true
+    },
+    {
+      "category": "IEEE 488.2 Common",
+      "syntax": "*PCB <Address>",
+      "description": "Indicates the controller address to which remote control is returned after termination of the triggered action. Range 0 to 30."
+    },
+    {
+      "category": "IEEE 488.2 Common",
+      "syntax": "*PRE <Value>",
+      "description": "Sets the parallel poll enable register to the indicated value. Range 0 to 255."
+    },
+    {
+      "category": "IEEE 488.2 Common",
+      "syntax": "*PRE?",
+      "description": "Returns the contents of the parallel poll enable register in decimal form.",
+      "isQuery": true
+    }
+  ],
+  "commonCommands": [
+    "*CLS",
+    "*ESE",
+    "*ESE?",
+    "*ESR?",
+    "*IDN?",
+    "*OPC",
+    "*OPC?",
+    "*OPT?",
+    "*PSC",
+    "*PSC?",
+    "*RST",
+    "*SRE",
+    "*SRE?",
+    "*STB?",
+    "*TRG",
+    "*TST?",
+    "*WAI"
+  ]
+}

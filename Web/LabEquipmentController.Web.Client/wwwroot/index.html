@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Lab Equipment Controller</title>
+    <base href="/" />
+    <link rel="stylesheet" href="app.css" />
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><text y='13' font-size='13'>∿</text></svg>" />
+</head>
+<body>
+    <div id="app">
+        <div class="booting">Loading…</div>
+    </div>
+
+    <div id="blazor-error-ui">
+        Something went wrong. Reload the page.
+        <a href="" class="reload">Reload</a>
+        <span class="dismiss">🗙</span>
+    </div>
+
+    <script src="_framework/blazor.webassembly.js"></script>
+    <script>
+        // Two things the browser can do that a .NET component cannot ask for directly.
+        window.lec = {
+            download: (name, mime, base64) => {
+                const a = document.createElement('a');
+                a.href = `data:${mime};base64,${base64}`;
+                a.download = name;
+                document.body.appendChild(a);
+                a.click();
+                a.remove();
+            },
+            // Reading an uploaded file as base64 so it can be posted as JSON. The datasheets
+            // are PDFs of tens of megabytes, so this is done in the browser rather than
+            // building a multipart pipeline for one endpoint.
+            readFile: (input) => new Promise((resolve, reject) => {
+                const file = input.files[0];
+                if (!file) { resolve(null); return; }
+                const reader = new FileReader();
+                reader.onload = () => resolve({ name: file.name, base64: reader.result.split(',')[1] });
+                reader.onerror = () => reject(reader.error);
+                reader.readAsDataURL(file);
+            }),
+            scrollToEnd: (el) => { if (el) el.scrollTop = el.scrollHeight; }
+        };
+    </script>
+</body>
+</html>

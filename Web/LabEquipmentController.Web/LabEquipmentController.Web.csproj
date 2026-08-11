@@ -1,0 +1,38 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <!--
+    The server half: it hosts the Blazor client's static files, exposes the API the browser
+    calls, and is the only place in this application that opens a socket to an instrument.
+    Everything instrument-shaped comes from Core, unchanged — the same transports, the same
+    catalogs, the same script runners the desktop app uses.
+
+    net10.0, not net10.0-windows: this is built to run in a Linux container.
+  -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>LabEquipmentController.Web</RootNamespace>
+    <IsPackable>false</IsPackable>
+    <!-- A Windows-only API reached from here would not survive the container. -->
+    <WarningsAsErrors>CA1416</WarningsAsErrors>
+    <UserSecretsId>labequipmentcontroller-web</UserSecretsId>
+    <DockerDefaultTargetOS>Linux</DockerDefaultTargetOS>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.AspNetCore.Components.WebAssembly.Server" Version="10.0.11" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\Core\LabEquipmentController.Core.csproj" />
+    <!-- The browser project is referenced so its static assets are served and its DTOs are
+         the same objects on both sides of the wire. -->
+    <ProjectReference Include="..\LabEquipmentController.Web.Client\LabEquipmentController.Web.Client.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="LabEquipmentController.Tests" />
+  </ItemGroup>
+
+</Project>

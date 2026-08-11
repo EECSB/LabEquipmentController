@@ -1,0 +1,15 @@
+{
+  "instrument": "GW Instek oscilloscope (GDS-2000 series)",
+  "source": "Transcribed from the GW Instek GDS-2000 Series Programming Manual. The newer GDS-1000B/2000E/3000 lines share most of this set but add commands of their own. Cross-checked against pymeasure texio (which drives GW Instek hardware under the Texio brand).",
+  "groups": [
+    {
+      "file": "parsed/gwinstek-gds2000.json"
+    }
+  ],
+  "commonCommands": [
+    "*IDN?",
+    "*RCL",
+    "*RST",
+    "*SAV"
+  ]
+}

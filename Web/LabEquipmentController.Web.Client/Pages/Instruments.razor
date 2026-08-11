@@ -1,0 +1,181 @@
+@page "/"
+@inject BenchClient Bench
+@inject NavigationManager Nav
+
+<h1>Instruments</h1>
+<p class="lede">
+    Sweep the bench network for anything that answers <span class="mono">*IDN?</span>, then open a
+    console on it. The scan runs on the server, not in your browser.
+</p>
+
+<div class="panel">
+    <div class="row">
+        <label for="iface">Interface</label>
+        <select id="iface" @bind="_interfaceAddress">
+            @foreach (var i in _interfaces)
+            {
+                <option value="@i.Address">@i.Address/@i.PrefixLength — @i.Name (@i.HostCount hosts)</option>
+            }
+        </select>
+
+        <label for="range">IP range</label>
+        <input id="range" type="text" @bind="_range" placeholder="20-60, or blank for the whole subnet" size="26" />
+
+        <label for="ports">Ports</label>
+        <input id="ports" type="text" @bind="_ports" placeholder="5025,111" size="12" />
+
+        <button class="primary" @onclick="Scan" disabled="@_scanning">
+            @(_scanning ? "Scanning…" : "Scan")
+        </button>
+        <span class="muted">@_scanStatus</span>
+    </div>
+
+    @if (_interfaces.Count == 0)
+    {
+        <p class="error">
+            The server can see no usable network interface. In Docker that almost always means the
+            container is on a bridge network instead of the host's — see the compose file.
+        </p>
+    }
+</div>
+
+@if (_devices.Count > 0)
+{
+    <div class="panel">
+        <h2>Found</h2>
+        <table>
+            <thead>
+                <tr><th>Address</th><th>Port</th><th>Transport</th><th>Identity</th><th></th></tr>
+            </thead>
+            <tbody>
+                @foreach (var d in _devices)
+                {
+                    <tr>
+                        <td class="mono">@d.Address</td>
+                        <td class="mono">@d.Port</td>
+                        <td>@d.Transport</td>
+                        <td class="mono">@d.Identity</td>
+                        <td><button @onclick="() => Connect(Endpoint(d))" disabled="@_connecting">Connect</button></td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+}
+
+<div class="panel">
+    <h2>Connect by address</h2>
+    <div class="row">
+        <input type="text" @bind="_address" placeholder="192.168.1.20, host:5025, vxi://host, or a VISA resource" size="52" />
+        <button @onclick="() => Connect(_address)" disabled="@_connecting">Connect</button>
+        @if (_connectError is not null)
+        {
+            <span class="error">@_connectError</span>
+        }
+    </div>
+</div>
+
+<div class="panel">
+    <h2>Open connections</h2>
+    @if (_sessions.Count == 0)
+    {
+        <p class="muted">None. Connect something above — every other page works from these.</p>
+    }
+    else
+    {
+        <table>
+            <thead>
+                <tr><th>Address</th><th>Instrument</th><th>Identity</th><th>Catalog</th><th></th></tr>
+            </thead>
+            <tbody>
+                @foreach (var s in _sessions)
+                {
+                    <tr>
+                        <td class="mono">@s.Address<br /><span class="pill">@s.Transport</span></td>
+                        <td>@s.ProfileName<br /><span class="muted">@s.Family</span></td>
+                        <td class="mono">@s.Identity</td>
+                        <td>
+                            @if (s.CatalogName is null)
+                            {
+                                <span class="muted">none</span>
+                            }
+                            else
+                            {
+                                @($"{s.CatalogCommandCount:N0} commands")
+                            }
+                        </td>
+                        <td class="row tight">
+                            <button @onclick="() => OpenConsole(s.Id)">Console</button>
+                            <button class="danger" @onclick="() => Disconnect(s.Id)">Close</button>
+                        </td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    }
+</div>
+
+@code {
+    private IReadOnlyList<LocalInterfaceDto> _interfaces = [];
+    private IReadOnlyList<DeviceDto> _devices = [];
+    private IReadOnlyList<SessionDto> _sessions = [];
+    private string? _interfaceAddress;
+    private string _range = "";
+    private string _ports = "";
+    private string _address = "";
+    private string _scanStatus = "";
+    private string? _connectError;
+    private bool _scanning;
+    private bool _connecting;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _interfaces = await Bench.InterfacesAsync();
+        _interfaceAddress = _interfaces.FirstOrDefault(i => i.HasGateway)?.Address ?? _interfaces.FirstOrDefault()?.Address;
+        _sessions = await Bench.SessionsAsync();
+    }
+
+    private static string Endpoint(DeviceDto d) =>
+        // Port 111 is the portmapper, which means VXI-11; anything else is a raw socket.
+        d.Port == 111 ? $"vxi://{d.Address}" : $"{d.Address}:{d.Port}";
+
+    private async Task Scan()
+    {
+        _scanning = true;
+        _scanStatus = "";
+        _devices = [];
+        try
+        {
+            var report = await Bench.ScanAsync(new ScanRequest(_interfaceAddress, _range, _ports));
+            _devices = report.Devices;
+            _scanStatus = report.Error
+                ?? $"{report.Devices.Count} found across {report.Scanned:N0} address(es)"
+                   + (report.Capped ? " (range was cut short at 65,536)" : "");
+        }
+        finally { _scanning = false; }
+    }
+
+    private async Task Connect(string address)
+    {
+        if (string.IsNullOrWhiteSpace(address)) return;
+        _connecting = true;
+        _connectError = null;
+        try
+        {
+            var (session, error) = await Bench.ConnectAsync(address);
+            if (session is null) { _connectError = error; return; }
+            _sessions = await Bench.SessionsAsync();
+        }
+        finally { _connecting = false; }
+    }
+
+    private async Task Disconnect(string id)
+    {
+        await Bench.DisconnectAsync(id);
+        _sessions = await Bench.SessionsAsync();
+    }
+
+    // A method rather than an inline lambda: an interpolated string inside a Razor attribute
+    // needs quotes the attribute has already claimed, and the parser gives up on it.
+    private void OpenConsole(string id) => Nav.NavigateTo($"console?session={id}");
+}

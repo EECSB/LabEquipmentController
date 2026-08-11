@@ -1,0 +1,872 @@
+{
+  "instrument": "Triple-output DC power supply (B&K Precision 9130B series: 9130B, 9131B, 9132B)",
+  "source": "Transcribed from the B&K Precision 9130B Series Programmable Triple Output Power Supply Programming Manual, revision V051415 — the reference the 9130B user manual points to and does not contain. Two rules were needed. (1) The manual lists its commands twice: a command index near the front, then a described entry for each. Where the two disagree the described entry is transcribed, because that is where the manual states 'Command syntax', and the disagreement is flagged. (2) Where the manual prints something that looks like a typo, the entry carries it exactly as printed and is flagged with what it probably meant — correcting it silently would be inventing SCPI, and no instrument was available to settle it. Twenty-two entries carry such a flag. A guide sweep reports seven entries as absent and all seven are in the manual, hidden by its typesetting rather than missing: OUTPut: PARallel [:STATe] and [SOURce:]VOLTage [:LEVel]:DOWN[:IMMediate][:AMPLitude] are printed with stray spaces after the colon and before the bracket, which this catalog does not carry through, and SYSTem:MODUle?, SYSTem:TRAcking, SYSTem:PARAllel and INSTrument:COMbine:OFF appear in the command summary as bare :MODUle?, :TRAcking, :PARAllel and :COMbine:OFF under a heading on a line of its own. Nothing here is bench-verified: no 9130B has been on this bench.",
+  "manufacturer": "B&K Precision",
+  "guide": {
+    "title": "9130B Series Programmable Triple Output Power Supply Programming Manual",
+    "edition": "V051415 — 9130B / 9131B / 9132B",
+    "vendor": "B&K Precision",
+    "url": "https://www.bkprecision.com/products/power-supplies/9130B",
+    "fileName": "BKPrecision_9130B_PowerSupply_ProgrammingManual.pdf"
+  },
+  "commands": [
+    {
+      "category": "IEEE 488.2 Common",
+      "syntax": "*CLS",
+      "description": "Clears the standard event register, query event register, operation event register, status byte register and the error code."
+    },
+    {
+      "category": "IEEE 488.2 Common",
+      "syntax": "*ESE <NRf>",
+      "description": "Edits the value of the standard event enable register. The parameter determines which bit of the standard event register is 1, which sets the ESB bit of the status byte register to 1. Parameters 0-255. Power-on value: see *PSC.",
+      "example": "*ESE 128"
+    },
+    {
+      "category": "IEEE 488.2 Common",
+      "syntax": "*ESE?",
+      "description": "Returns the value of the standard event enable register as <NR1>.",
+      "isQuery": true
+    },
+    {
+      "category": "IEEE 488.2 Common",
+      "syntax": "*ESR?",
+      "description": "Reads the value of the standard event register, which is cleared to zero once the query has been carried out. Its bit definitions are the same as the standard event enable register.",
+      "isQuery": true
+    },
+    {
+      "category": "IEEE 488.2 Common",
+      "syntax": "*IDN?",
+      "description": "Reads the identity of the power supply. The reply has four comma-separated segments.",
+      "example": "*IDN?  ->  B&K Precision, 9130B, 123456, V1.06-V1.04",
+      "isQuery": true
+    },
+    {
+      "category": "IEEE 488.2 Common",
+      "syntax": "*OPC",
+      "description": "Sets the OPC bit of the standard event register to 1 once every command sent before it has been carried out."
+    },
+    {
+      "category": "IEEE 488.2 Common",
+      "syntax": "*OPC?",
+      "description": "Returns <NR1> once every command sent before it has been carried out.",
+      "isQuery": true
+    },
+    {
+      "category": "IEEE 488.2 Common",
+      "syntax": "*PSC <bool>",
+      "description": "Controls what happens to the enable registers when the unit is repowered. 1 or ON: the status byte, operation event, query event and standard event enable registers are set to zero at power-on. 0 or OFF: their values are saved to NVM and recalled at power-on. Parameter 0|1|ON|OFF.",
+      "guideMisprint": "Documented twice, and the two entries disagree on the parameter type: the first prints '*PSC <bool>' and the second '*PSC <NR1>'. Both list the same accepted values (0|1|ON|OFF), so the difference is probably only in how they are written down."
+    },
+    {
+      "category": "IEEE 488.2 Common",
+      "syntax": "*PSC?",
+      "description": "Returns 0 or 1 — whether the enable registers are cleared at power-on.",
+      "isQuery": true
+    },
+    {
+      "category": "IEEE 488.2 Common",
+      "syntax": "*RST",
+      "description": "Resets the power supply to its default settings: OUTP OFF, CURR MAX, VOLT MIN, VOLT:PROT MAX, VOLT:PROT:STAT OFF.",
+      "guideMisprint": "The guide prints the syntax line as '*RST>', with a stray closing angle bracket. The heading and the reset behaviour are unambiguous; the '>' is not part of the command."
+    },
+    {
+      "category": "IEEE 488.2 Common",
+      "syntax": "*SRE <NRf>",
+      "description": "Edits the value of the status byte enable register. The parameter determines which bit of the status byte register is 1, which sets its RQS bit to 1. Parameters 0-255. Power-on value: see *PSC.",
+      "example": "*SRE 128"
+    },
+    {
+      "category": "IEEE 488.2 Common",
+      "syntax": "*SRE?",
+      "description": "Returns the value of the status byte enable register as <NR1>.",
+      "isQuery": true
+    },
+    {
+      "category": "IEEE 488.2 Common",
+      "syntax": "*STB?",
+      "description": "Reads the value of the status byte register, which is cleared once the query has been carried out.",
+      "isQuery": true
+    },
+    {
+      "category": "IEEE 488.2 Common",
+      "syntax": "*TRG",
+      "description": "Generates a trigger signal when the trigger source is in command mode. The same function as the [SYSTem:]TRIGger command."
+    },
+    {
+      "category": "IEEE 488.2 Common",
+      "syntax": "*SAV <NRf>",
+      "description": "Saves the present setting — current setup, voltage setup, maximum voltage and stepped voltage — to a storage location. Parameter 1-36.",
+      "example": "*SAV 3"
+    },
+    {
+      "category": "IEEE 488.2 Common",
+      "syntax": "*RCL <NRf>",
+      "description": "Recalls a saved setting from a storage location. Parameter 1-36.",
+      "example": "*RCL 3"
+    },
+    {
+      "category": "IEEE 488.2 Common",
+      "syntax": "*TST?",
+      "description": "Runs a self-test and reports errors. Returns <NR1>: zero means the power supply passed, non-zero means there is an error.",
+      "isQuery": true
+    },
+    {
+      "category": "IEEE 488.2 Common",
+      "syntax": "*WAI",
+      "description": "Prohibits the instrument from executing any new command until every pending overlapped command has completed.",
+      "guideMisprint": "The guide prints the syntax line as 'WAI?' — no leading asterisk, and a question mark on a command that returns nothing. The heading prints '*WAI', which is the IEEE 488.2 spelling and almost certainly what the instrument accepts."
+    },
+
+    {
+      "category": "System",
+      "syntax": "SYSTem:ERRor?",
+      "description": "Reads the error code and error text of the power supply. Returns (NR1), (SRD).",
+      "example": "SYST:ERR?",
+      "isQuery": true
+    },
+    {
+      "category": "System",
+      "syntax": "SYSTem:VERSion?",
+      "description": "Queries the software version, for example 1.02. Returns <NR2>.",
+      "example": "SYST:VERS?",
+      "isQuery": true
+    },
+    {
+      "category": "System",
+      "syntax": "SYSTem:REMote",
+      "description": "Puts the instrument into remote control mode.",
+      "example": "SYST:REM"
+    },
+    {
+      "category": "System",
+      "syntax": "SYSTem:LOCal",
+      "description": "Returns the instrument to front-panel control.",
+      "example": "SYST:LOC"
+    },
+    {
+      "category": "System",
+      "syntax": "SYSTem:BEEPer",
+      "description": "Sounds the instrument's beeper."
+    },
+    {
+      "category": "System",
+      "syntax": "SYSTem:RWLock[:STATe]",
+      "description": "Sets whether the front panel's LOCAL key is available.",
+      "example": "SYST:RWL",
+      "guideMisprint": "The guide describes this as setting whether the LOCAL key is available but then prints 'Parameter: None', and its example sends the header alone. A lock/unlock setting normally takes a boolean; the manual never says what this one takes."
+    },
+    {
+      "category": "System",
+      "syntax": "SYSTem:COMMunicate:GPIB:RDEVice:ADDRess {<NR1>}",
+      "description": "Sets the GPIB device address used for communication. Parameter 0~30."
+    },
+    {
+      "category": "System",
+      "syntax": "SYSTem:COMMunicate:GPIB:RDEVice:ADDRess?",
+      "description": "Returns the GPIB device address as <NR1>.",
+      "isQuery": true
+    },
+    {
+      "category": "System",
+      "syntax": "SYSTem:INTerface {<NR1>}",
+      "description": "Selects the communication interface. The right cable has to be connected before this is used. Parameters RS232, USB, GPIB.",
+      "guideMisprint": "The syntax line takes {<NR1>}, an integer, while the parameter line lists the keywords RS232, USB and GPIB. One of the two is wrong and the manual never resolves it."
+    },
+    {
+      "category": "System",
+      "syntax": "SYSTem:MEMory:GROUP {<NR1>}",
+      "description": "Exchanges storage groups. There are 36 storage locations in total: four groups of nine. Parameter: group number 1-4."
+    },
+    {
+      "category": "System",
+      "syntax": "SYSTem:MEMory:GROUP?",
+      "description": "Returns the selected storage group.",
+      "isQuery": true
+    },
+    {
+      "category": "System",
+      "syntax": "SYSTem:MODUle?",
+      "description": "Listed in the manual's command index under SYSTem. The manual gives it no described entry, so what it returns is not documented.",
+      "isQuery": true
+    },
+    {
+      "category": "System",
+      "syntax": "SYSTem:TRAcking",
+      "description": "Listed in the manual's command index under SYSTem. The manual gives it no described entry, so its parameters are not documented. Channel tracking is described under INSTrument:COMbine:TRACk and OUTPut:TRACk[:STATe]."
+    },
+    {
+      "category": "System",
+      "syntax": "SYSTem:PARAllel",
+      "description": "Listed in the manual's command index under SYSTem. The manual gives it no described entry, so its parameters are not documented. Parallel combination is described under INSTrument:COMbine:PARAllel and OUTPut:PARallel[:STATe]."
+    },
+
+    {
+      "category": "Status",
+      "syntax": "STATus:PRESet",
+      "description": "Resets the status registers."
+    },
+    {
+      "category": "Status",
+      "syntax": "STATus:QUEStionable[:EVENt]?",
+      "description": "Reads the value of the query event register, which is cleared once the query has been carried out. Returns <NR1>. Bits 0 and 1 are CV and CC; bit 9 is OV.",
+      "isQuery": true
+    },
+    {
+      "category": "Status",
+      "syntax": "STATus:QUEStionable:CONDition?",
+      "description": "Reads the query condition register. When one of its values changes, the matching bit of the query event register is set to 1. Returns <NR1>.",
+      "isQuery": true
+    },
+    {
+      "category": "Status",
+      "syntax": "STATus:QUEStionable:ENABle <NRf>",
+      "description": "Edits the query event enable register. The parameter determines which bit of the query event register is set to 1, which sets the QUES bit of the status byte register to 1. Parameter 0~255. Power-on value: see *PSC.",
+      "example": "STATus:QUEStionable:ENABle 128"
+    },
+    {
+      "category": "Status",
+      "syntax": "STATus:QUEStionable:ENABle?",
+      "description": "Returns the query event enable register as <NR1>.",
+      "isQuery": true
+    },
+    {
+      "category": "Status",
+      "syntax": "STATus:QUEStionable:INSTrument[:EVENt]?",
+      "description": "Queries the channel event register. Returns <NRf>.",
+      "isQuery": true
+    },
+    {
+      "category": "Status",
+      "syntax": "STATus:QUEStionable:INSTrument:ENABle",
+      "description": "Modifies the instrument query enable register. Parameter: register value."
+    },
+    {
+      "category": "Status",
+      "syntax": "STATus:QUEStionable:INSTument:ENABle?",
+      "description": "Returns the instrument query enable register value.",
+      "isQuery": true,
+      "guideMisprint": "'INSTument' is missing an r. Both the command index and the described entry print it that way, and both print 'INSTrument' for the set form directly above it. The instrument almost certainly wants STATus:QUEStionable:INSTrument:ENABle?"
+    },
+    {
+      "category": "Status",
+      "syntax": "STATus:QUEStionable:INSTrument:ISUMmary1[:EVENt]?",
+      "description": "Queries the instrument event register of channel 1.",
+      "isQuery": true
+    },
+    {
+      "category": "Status",
+      "syntax": "STATus:QUEStionable:INSTrument:ISUMmary1:ENABle",
+      "description": "Modifies the query enable register of channel 1. Parameter: register value."
+    },
+    {
+      "category": "Status",
+      "syntax": "STATus:QUEStionable:INSTument:ISUMmary1:ENABle?",
+      "description": "Returns the query enable register of channel 1.",
+      "isQuery": true,
+      "guideMisprint": "'INSTument' is missing an r, in both the index and the described entry, while the set form above it prints 'INSTrument'. Probably STATus:QUEStionable:INSTrument:ISUMmary1:ENABle?"
+    },
+    {
+      "category": "Status",
+      "syntax": "STATus:QUEStionable:INSTrument:ISUMmary1:CONDition?",
+      "description": "Queries the query status register of channel 1.",
+      "isQuery": true
+    },
+    {
+      "category": "Status",
+      "syntax": "STATus:QUEStionable:INSTrument:ISUMmary2[:EVENt]?",
+      "description": "Queries the instrument event register of channel 2.",
+      "isQuery": true
+    },
+    {
+      "category": "Status",
+      "syntax": "STATus:QUEStionable:INSTrument:ISUMmary2:ENABle",
+      "description": "Modifies the query enable register of channel 2. Parameter: register value."
+    },
+    {
+      "category": "Status",
+      "syntax": "STATus:QUEStionable:INSTument:ISUMmary2:ENABle?",
+      "description": "Returns the query enable register of channel 2.",
+      "isQuery": true,
+      "guideMisprint": "'INSTument' is missing an r, in both the index and the described entry, while the set form above it prints 'INSTrument'. Probably STATus:QUEStionable:INSTrument:ISUMmary2:ENABle?"
+    },
+    {
+      "category": "Status",
+      "syntax": "STATus:QUEStionable:INSTrument:ISUMmary2:CONDition?",
+      "description": "Queries the query status register of channel 2.",
+      "isQuery": true
+    },
+    {
+      "category": "Status",
+      "syntax": "STATus:QUEStionable:INSTrument:ISUMmary3[:EVENt]?",
+      "description": "Queries the instrument event register of channel 3.",
+      "isQuery": true
+    },
+    {
+      "category": "Status",
+      "syntax": "STATus:QUEStionable:INSTrument:ISUMmary3:ENABle",
+      "description": "Modifies the query enable register of channel 3. Parameter: register value."
+    },
+    {
+      "category": "Status",
+      "syntax": "STATus:QUEStionable:INSTument:ISUMmary3:ENABle?",
+      "description": "Returns the query enable register of channel 3.",
+      "isQuery": true,
+      "guideMisprint": "'INSTument' is missing an r, in both the index and the described entry, while the set form above it prints 'INSTrument'. Probably STATus:QUEStionable:INSTrument:ISUMmary3:ENABle?"
+    },
+    {
+      "category": "Status",
+      "syntax": "STATus:QUEStionable:INSTrument:ISUMmary3:CONDition?",
+      "description": "Queries the query status register of channel 3.",
+      "isQuery": true
+    },
+    {
+      "category": "Status",
+      "syntax": "STATus:OPERation[:EVENt]?",
+      "description": "Reads the operation event register, which is cleared once the query has been carried out. Returns <NR1>. Bit 0 is CAL and bit 1 is ON.",
+      "isQuery": true,
+      "guideMisprint": "The command index prints this as ':EVENt]?' — the opening bracket is missing. The described entry prints it correctly as STATus:OPERation[:EVENt]?, which is what this entry carries."
+    },
+    {
+      "category": "Status",
+      "syntax": "STATus:OPERation:CONDition?",
+      "description": "Reads the operation condition register. When one of its bits changes, the matching bit of the operation event register is set to 1. Returns <NR1>.",
+      "isQuery": true
+    },
+    {
+      "category": "Status",
+      "syntax": "STATus:OPERation:ENABle <NRf>",
+      "description": "Edits the operation event enable register. Parameter 0~255. Power-on value: see *PSC.",
+      "example": "STATus:OPERation:ENABle 128"
+    },
+    {
+      "category": "Status",
+      "syntax": "STATus:OPERation:ENABle?",
+      "description": "Returns the operation event enable register as <NR1>.",
+      "isQuery": true
+    },
+    {
+      "category": "Status",
+      "syntax": "STATus:OPERation:INSTrument[:EVENt]?",
+      "description": "Queries the instrument operation event register.",
+      "isQuery": true
+    },
+    {
+      "category": "Status",
+      "syntax": "STATus:OPERation:INSTrument:ENABle",
+      "description": "Modifies the operation enable register. Parameter: register value."
+    },
+    {
+      "category": "Status",
+      "syntax": "STATus:OPERation:INSTrument:ENABle?",
+      "description": "Returns the operation enable register value.",
+      "isQuery": true
+    },
+    {
+      "category": "Status",
+      "syntax": "STATus:OPERation:INSTrument:ISUMmary1[:EVENt]?",
+      "description": "Queries the operation event register of channel 1.",
+      "isQuery": true
+    },
+    {
+      "category": "Status",
+      "syntax": "STATus:OPERation:INSTrument:ISUMmary1:ENABle",
+      "description": "Modifies the operation enable register of channel 1. Parameter: register value."
+    },
+    {
+      "category": "Status",
+      "syntax": "STATus:OPERation:INSTrument:ISUMmay1:ENABle?",
+      "description": "Returns the operation enable register of channel 1.",
+      "isQuery": true,
+      "guideMisprint": "'ISUMmay1' is missing an r, in both the index and the described entry, while the set form directly above prints 'ISUMmary1'. Probably STATus:OPERation:INSTrument:ISUMmary1:ENABle?"
+    },
+    {
+      "category": "Status",
+      "syntax": "STATus:OPERation:INSTrument:ISUMmary1:CONDition?",
+      "description": "Queries the operation status register of channel 1.",
+      "isQuery": true
+    },
+    {
+      "category": "Status",
+      "syntax": "STATus:OPERation:INSTrument:ISUMmary2[:EVENt]?",
+      "description": "Queries the operation event register of channel 2.",
+      "isQuery": true
+    },
+    {
+      "category": "Status",
+      "syntax": "STATus:OPERation:INSTrument:ISUMmary2:ENABle",
+      "description": "Modifies the operation enable register of channel 2. Parameter: register value."
+    },
+    {
+      "category": "Status",
+      "syntax": "STATus:OPERation:INSTrument:ISUMmay2:ENABle?",
+      "description": "Returns the operation enable register of channel 2.",
+      "isQuery": true,
+      "guideMisprint": "'ISUMmay2' is missing an r, in both the index and the described entry, while the set form directly above prints 'ISUMmary2'. Probably STATus:OPERation:INSTrument:ISUMmary2:ENABle?"
+    },
+    {
+      "category": "Status",
+      "syntax": "STATus:OPERation:INSTrument:ISUMmary2:CONDition?",
+      "description": "Queries the operation status register of channel 2.",
+      "isQuery": true
+    },
+    {
+      "category": "Status",
+      "syntax": "STATus:OPERation:INSTrument:ISUMmary3[:EVENt]?",
+      "description": "Queries the operation event register of channel 3.",
+      "isQuery": true
+    },
+    {
+      "category": "Status",
+      "syntax": "STATus:OPERation:INSTrument:ISUMmary3:ENABle",
+      "description": "Modifies the operation enable register of channel 3. Parameter: register value."
+    },
+    {
+      "category": "Status",
+      "syntax": "STATus:OPERation:INSTrument:ISUMmay3:ENABle?",
+      "description": "Returns the operation enable register of channel 3.",
+      "isQuery": true,
+      "guideMisprint": "'ISUMmay3' is missing an r, in both the index and the described entry, while the set form directly above prints 'ISUMmary3'. Probably STATus:OPERation:INSTrument:ISUMmary3:ENABle?"
+    },
+    {
+      "category": "Status",
+      "syntax": "STATus:OPERation:INSTrument:ISUMmary3:CONDition?",
+      "description": "Queries the operation status register of channel 3.",
+      "isQuery": true
+    },
+
+    {
+      "category": "Output",
+      "syntax": "OUTPut[:STATe][:ALL] <bool>",
+      "description": "Turns the power supply output on or off. Parameter 0|1|ON|OFF. *RST value: OFF."
+    },
+    {
+      "category": "Output",
+      "syntax": "OUTPut:STATe[:ALL]?",
+      "description": "Returns the output state as 0 or 1.",
+      "isQuery": true
+    },
+    {
+      "category": "Output",
+      "syntax": "OUTPut:TIMer[:STATe] <bool>",
+      "description": "Turns the output timer on or off. Parameter 0|1|ON|OFF. *RST value: OFF."
+    },
+    {
+      "category": "Output",
+      "syntax": "OUTPut:TIMer:STATe?",
+      "description": "Returns the output timer state as 0 or 1.",
+      "isQuery": true
+    },
+    {
+      "category": "Output",
+      "syntax": "OUTPut:TIMer:DELay",
+      "description": "Sets the output timer. Parameter 0.1-99999.9, in seconds.",
+      "guideMisprint": "The command index calls this node ':TIMer:DATA', the described entry calls it ':TIMer:DELay', and the entry's own query line is 'OUTPut:TIMer:DATA?'. So the guide gives the setting one name and the query another. Both spellings are worth trying."
+    },
+    {
+      "category": "Output",
+      "syntax": "OUTPut:TIMer:DATA?",
+      "description": "Returns the output timer setting, in seconds.",
+      "isQuery": true
+    },
+    {
+      "category": "Output",
+      "syntax": "OUTPut:TRACk[:STATe] <bool>",
+      "description": "Sets channel 1 and channel 2 to track each other. Parameter 0|1|ON|OFF. If channel 3 is already in series, parallel or sync with channel 1 or 2, this command reports an error."
+    },
+    {
+      "category": "Output",
+      "syntax": "[SOURce:]OUTPut:TRACk[:STATe]?",
+      "description": "Returns whether channel 1 and channel 2 are tracking.",
+      "isQuery": true
+    },
+    {
+      "category": "Output",
+      "syntax": "OUTPut:SERies[:STATe] <bool>",
+      "description": "Puts channel 1 and channel 2 in series. Parameter 0|1|ON|OFF. If channel 3 is already in series, parallel or sync with channel 1 or 2, this command reports an error."
+    },
+    {
+      "category": "Output",
+      "syntax": "OUTPut:SERies[:STATe]?",
+      "description": "Returns whether channel 1 and channel 2 are in series.",
+      "isQuery": true
+    },
+    {
+      "category": "Output",
+      "syntax": "OUTPut:PARallel[:STATe] <bool>",
+      "description": "Puts channel 1 and channel 2 in parallel. Parameter 0|1|ON|OFF. If channel 3 is already in series, parallel or sync with channel 1 or 2, this command reports an error."
+    },
+    {
+      "category": "Output",
+      "syntax": "OUTPut:PARallel[:STATe]?",
+      "description": "Returns whether channel 1 and channel 2 are in parallel.",
+      "isQuery": true
+    },
+
+    {
+      "category": "Channel",
+      "syntax": "[SOURce:]CHANnel:OUTPut[:STATe] {<NRf>}",
+      "description": "Turns the selected channel's output on or off. The channel has to be selected with INSTrument first. Parameter 0|1|ON|OFF."
+    },
+    {
+      "category": "Channel",
+      "syntax": "[SOURce:]CHANnel:OUTPut[:STATe]?",
+      "description": "Returns the selected channel's output state.",
+      "isQuery": true
+    },
+    {
+      "category": "Channel",
+      "syntax": "CHANnel?",
+      "description": "Listed in the manual's command index above CHANnel:OUTPut. The manual gives it no described entry, so what it returns is not documented.",
+      "isQuery": true
+    },
+    {
+      "category": "Channel",
+      "syntax": "INSTrument[:SELect] {<NR1>}",
+      "description": "Selects the channel that subsequent commands act on. Parameter CH1|CH2|CH3.",
+      "example": "INST CH2"
+    },
+    {
+      "category": "Channel",
+      "syntax": "INSTrument[:SELect]?",
+      "description": "Returns the selected channel.",
+      "isQuery": true
+    },
+    {
+      "category": "Channel",
+      "syntax": "INSTrument:NSELect {<NR1>}",
+      "description": "Selects the channel by number instead of by name — otherwise the same as INSTrument[:SELect]. Parameter 1-3."
+    },
+    {
+      "category": "Channel",
+      "syntax": "INSTrument:NSELect?",
+      "description": "Returns the selected channel number.",
+      "isQuery": true
+    },
+    {
+      "category": "Channel",
+      "syntax": "INSTrument:COMbine:SERies {<NR2>}",
+      "description": "Puts the named channels in series, separated by commas. Parameter 1 CH1|CH2, parameter 2 CH1|CH2. NONE disables series mode.",
+      "example": "INST:COM:SER CH1, CH2"
+    },
+    {
+      "category": "Channel",
+      "syntax": "INSTrument:COMbine:PARAllel {<NR2>}",
+      "description": "Puts the named channels in parallel. Parameter 1 CH1|CH2|CH3|OFF, parameter 2 CH1|CH2|CH3, optional parameter 3 CH1|CH2|CH3. NONE disables parallel mode.",
+      "example": "INST:COM:PARA CH1,CH2"
+    },
+    {
+      "category": "Channel",
+      "syntax": "INSTrument:COMbine:TRACk",
+      "description": "Synchronises the named channels. Parameter 1 CH1|CH2|CH3, parameter 2 CH1|CH2|CH3, optional parameter 3 CH1|CH2|CH3. NONE disables tracking mode.",
+      "example": "INST:COM:TRAC CH1,CH2,CH3",
+      "guideMisprint": "The entry's heading prints 'TRACk' and its syntax line prints 'TRAck' — which change the short form from TRAC to TRA. The manual's own example sends 'INST:COM:TRAC', so TRACk is the spelling this entry carries."
+    },
+    {
+      "category": "Channel",
+      "syntax": "INSTrument:COMbine:OFF",
+      "description": "Listed in the manual's command index under INSTrument:COMbine. The manual gives it no described entry. The series, parallel and track entries each say that NONE disables their mode, which may be what this does for all of them."
+    },
+    {
+      "category": "Channel",
+      "syntax": "INSTrument:COMbine?",
+      "description": "Listed in the manual's command index under INSTrument:COMbine. The manual gives it no described entry, so what it returns is not documented.",
+      "isQuery": true
+    },
+    {
+      "category": "Channel",
+      "syntax": "INSTrument:COUPle[:TRIGger]",
+      "description": "Names the channels that *TRG affects, separated by commas. With no channel assigned, *TRG affects only the present channel. Parameter CH1|CH2|CH3.",
+      "example": "INSTrument:COUPle:TRIGger CH1, CH2"
+    },
+    {
+      "category": "Channel",
+      "syntax": "INSTrument:COUPle[:TRIGger]?",
+      "description": "Returns the channels that *TRG affects.",
+      "isQuery": true
+    },
+
+    {
+      "category": "Voltage",
+      "syntax": "[SOURce:]VOLTage[:LEVel][:IMMediate][:AMPLitude] <NRf>",
+      "description": "Sets the output voltage of the selected channel. Parameter MIN TO MAX|MIN|MAX|UP|DOWN|DEF, in kV, V or mV. *RST value: MAX."
+    },
+    {
+      "category": "Voltage",
+      "syntax": "[SOURce:]VOLTage[:LEVel]?",
+      "description": "Returns the voltage setting as <NR2>. Takes an optional MIN or MAX.",
+      "isQuery": true
+    },
+    {
+      "category": "Voltage",
+      "syntax": "[SOURce:]VOLTage[:LEVel]:UP[:IMMediate][:AMPLitude]",
+      "description": "Adds one step to the voltage of the present channel."
+    },
+    {
+      "category": "Voltage",
+      "syntax": "[SOURce:]VOLTage[:LEVel]:DOWN[:IMMediate][:AMPLitude]",
+      "description": "Subtracts one step from the voltage of the present channel."
+    },
+    {
+      "category": "Voltage",
+      "syntax": "[SOURce:]VOLTage[:LEVel][:IMMediate]:STEP[:INCRement]",
+      "description": "Sets the voltage step size. Parameter: a voltage in kV, V, mV or uV."
+    },
+    {
+      "category": "Voltage",
+      "syntax": "[SOURce:]VOLTage[:LEVel][:IMMediate]:STEP[:INCRement]?",
+      "description": "Returns the voltage step size.",
+      "isQuery": true
+    },
+    {
+      "category": "Voltage",
+      "syntax": "[SOURce:]VOLTage[:LEVel]:TRIGgered[:IMMediate][:INCRement]",
+      "description": "Sets the voltage applied on a trigger. Parameter: a voltage, or Min|Max|Def|Up|Down, in kV, V, mV or uV.",
+      "guideMisprint": "The command index prints this node as '[:LEVel]:TRIGgered[:AMPLitude]' and the described entry as '[:LEVel]:TRIGgered[:IMMediate][:INCRement]'. The described form is carried here. The index's form matches how the same node is written for CURRent in neither place, so the two disagree twice over."
+    },
+    {
+      "category": "Voltage",
+      "syntax": "[SOURce:]VOLTage[:LEVel]:TRIGgered[:IMMediate][:INCRement]?",
+      "description": "Returns the triggered voltage setting.",
+      "isQuery": true
+    },
+    {
+      "category": "Voltage",
+      "syntax": "[SOURce:]VOLTage:PROTection[:LEVel]",
+      "description": "Sets the software over-voltage limit. Parameter MIN TO MAX|MIN|MAX, in V or mV. *RST value: MAX.",
+      "example": "VOLT:PROT 30V"
+    },
+    {
+      "category": "Voltage",
+      "syntax": "[SOURce:]VOLTage:PROTection[:LEVel]?",
+      "description": "Returns the over-voltage limit as <NR2>. Takes an optional MIN or MAX.",
+      "example": "VOLT:PROT? MAX",
+      "isQuery": true
+    },
+    {
+      "category": "Voltage",
+      "syntax": "[SOURce:]VOLTage:PROTection:STATe <bool>",
+      "description": "Turns over-voltage protection on or off. Parameter 0|1|ON|OFF. *RST value: OFF.",
+      "example": "VOLT:PROT:STAT ON"
+    },
+    {
+      "category": "Voltage",
+      "syntax": "[SOURce:]VOLTage:PROTection:STATe?",
+      "description": "Returns whether over-voltage protection is on, as 0 or 1.",
+      "example": "VOLT:PROT:STAT?",
+      "isQuery": true
+    },
+    {
+      "category": "Voltage",
+      "syntax": "[SOURce:]VOLTage:PROTection:TRIPed?",
+      "description": "Queries whether over-voltage protection has tripped.",
+      "isQuery": true,
+      "guideMisprint": "'TRIPed' has one p. The index and the described entry agree, so it may genuinely be what the firmware accepts, but SCPI-99 and every other vendor spell this node TRIPped. Try VOLT:PROT:TRIPP? if the printed form is rejected."
+    },
+    {
+      "category": "Voltage",
+      "syntax": "[SOURce:]VOLTage:PROTection:CLEar",
+      "description": "Clears the present over-voltage protection status."
+    },
+    {
+      "category": "Voltage",
+      "syntax": "[SOURce:]VOLTage:LIMIT[:LEVel]",
+      "description": "Sets the upper limit on the output voltage. Parameter: a voltage, or Min|Max|Def."
+    },
+    {
+      "category": "Voltage",
+      "syntax": "[SOURce:]VOLTage:LIMIT[:LEVel]?",
+      "description": "Returns the output voltage upper limit.",
+      "isQuery": true
+    },
+
+    {
+      "category": "Current",
+      "syntax": "[SOURce:]CURRent[:LEVel][:IMMediate][:AMPLitude] <NRf>",
+      "description": "Sets the output current of the selected channel. Parameter MIN TO MAX|MIN|MAX|UP|DOWN|DEF, in A or mA. *RST value: MIN.",
+      "example": "CURR 3A"
+    },
+    {
+      "category": "Current",
+      "syntax": "[SOURce:]CURRent[:LEVel][:IMMediate][:AMPLitude]?",
+      "description": "Returns the current setting as <NR2>. Takes an optional MIN or MAX.",
+      "example": "CURR? MAX",
+      "isQuery": true
+    },
+    {
+      "category": "Current",
+      "syntax": "[SOURce:]CURRent[:LEVel]:UP[:IMMediate][:AMPLitude]",
+      "description": "Adds one step to the current of the present channel."
+    },
+    {
+      "category": "Current",
+      "syntax": "[SOURce:]CURRent[:LEVel]:DOWN[:IMMediate][:AMPLitude]",
+      "description": "Subtracts one step from the current of the present channel."
+    },
+    {
+      "category": "Current",
+      "syntax": "[SOURce:]CURRent[:LEVel][:IMMediate]:STEP[:INCRement]",
+      "description": "Sets the current step size. Parameter: a current in A, mA or uA."
+    },
+    {
+      "category": "Current",
+      "syntax": "[SOURce:]CURRent[:LEVel][:IMMediate]:STEP[:INCRement]?",
+      "description": "Returns the current step size.",
+      "isQuery": true
+    },
+    {
+      "category": "Current",
+      "syntax": "[SOURce:]CURRent[:LEVel]:TRIGgered[:IMMediate][:INCRement]",
+      "description": "Sets the current applied on a trigger. Parameter: a current, or Min|Max|Def|Up|Down, in A, mA or uA."
+    },
+    {
+      "category": "Current",
+      "syntax": "[SOURce:]CURRent[:LEVel]:TRIGgered[:IMMediate][:INCRement]?",
+      "description": "Returns the triggered current setting.",
+      "isQuery": true
+    },
+
+    {
+      "category": "Measure",
+      "syntax": "MEASure[:SCALar]:VOLTage[:DC]?",
+      "description": "Reads the output voltage of the selected channel. Returns <NR2> in volts.",
+      "example": "MEAS:VOLT?",
+      "isQuery": true,
+      "guideMisprint": "The command index prints this node as '[:VOLTage][:DC]?', making VOLTage optional, while the described entry prints ':VOLTage[:DC]?', making it required. The described form is carried here; the ALL variant below is the one place the index's optional form is used."
+    },
+    {
+      "category": "Measure",
+      "syntax": "FETCh[:VOLTage][:DC]?",
+      "description": "Reads the output voltage. Printed as a second heading on the MEASure:VOLTage entry, so the manual documents the two as the same command. It appears nowhere in the command index.",
+      "isQuery": true
+    },
+    {
+      "category": "Measure",
+      "syntax": "MEASure[:SCALar]:CURRent[:DC]?",
+      "description": "Reads the output current of the selected channel.",
+      "isQuery": true
+    },
+    {
+      "category": "Measure",
+      "syntax": "FETCh:CURRent[:DC]?",
+      "description": "Reads the output current. Printed as a second heading on the MEASure:CURRent entry, so the manual documents the two as the same command. It appears nowhere in the command index.",
+      "isQuery": true
+    },
+    {
+      "category": "Measure",
+      "syntax": "MEASure[:SCALar]:POWer[:DC]?",
+      "description": "Reads the output power of the selected channel. Returns <NR2> in watts.",
+      "example": "MEAS:POW?",
+      "isQuery": true
+    },
+    {
+      "category": "Measure",
+      "syntax": "MEASure[:SCALar]:CURRent:ALL[:DC]?",
+      "description": "Reads the current of all three channels at once. Returns <CH1 current>, <CH2 current>, <CH3 current>.",
+      "isQuery": true
+    },
+    {
+      "category": "Measure",
+      "syntax": "MEASure[:SCALar][:VOLTage]:ALL[:DC]?",
+      "description": "Reads the voltage of all three channels at once. Returns <CH1 voltage>, <CH2 voltage>, <CH3 voltage>.",
+      "isQuery": true
+    },
+
+    {
+      "category": "Display",
+      "syntax": "DISPlay[:WINDow][:STATe]",
+      "description": "Turns the display on or off. Parameter ON|OFF."
+    },
+    {
+      "category": "Display",
+      "syntax": "DISPlay[:WINDow][:STATe]?",
+      "description": "Returns the display state.",
+      "isQuery": true
+    },
+    {
+      "category": "Display",
+      "syntax": "DISPlay[:WINDow]:TEXT[:DATA]",
+      "description": "Shows a string on the display. Parameter: a character string in double quotes."
+    },
+    {
+      "category": "Display",
+      "syntax": "DISPlay[:WINDow]:TEXT[:DATA]?",
+      "description": "Returns the string shown on the display.",
+      "isQuery": true
+    },
+    {
+      "category": "Display",
+      "syntax": "DISPlay[:WINDow]:TEXT:CLEar",
+      "description": "Clears the string from the display and returns it to its normal state."
+    },
+
+    {
+      "category": "Trigger",
+      "syntax": "TRIGger[:IMMediate]",
+      "description": "Listed in the manual's command index as the parent of the trigger delay nodes. The manual gives it no described entry; *TRG is documented as the way to generate a trigger."
+    },
+    {
+      "category": "Trigger",
+      "syntax": "TRIGger:DELay {<NR1>}",
+      "description": "Sets the delay between the instrument receiving a trigger signal and acting on it. Parameter 0.1-99999.9, in seconds.",
+      "guideMisprint": "The command index prints this node as ':DELey' and ':DELey?' — an e for the a. The described entry prints 'DELay' throughout, which is the SCPI spelling and what this entry carries."
+    },
+    {
+      "category": "Trigger",
+      "syntax": "TRIGger:DELay?",
+      "description": "Returns the trigger delay, in seconds.",
+      "isQuery": true
+    },
+
+    {
+      "category": "Apply",
+      "syntax": "[SOURce:]APPLY <CH1|CH2|CH3>[,<voltage>][,<current>]",
+      "description": "Selects a channel and sets its voltage and current in one command. Parameter 1 CH1|CH2|CH3, optional parameter 2 a voltage or Max|Min|Def|Up|Down, optional parameter 3 a current or Max|Min|Def|Up|Down.",
+      "example": "APPL CH1,1,2"
+    },
+    {
+      "category": "Apply",
+      "syntax": "[SOURce:]APPLY? <CH1|CH2|CH3>",
+      "description": "Returns the voltage and current of the named channel as <voltage>, <current>.",
+      "isQuery": true
+    },
+    {
+      "category": "Apply",
+      "syntax": "[SOURce:]APPLY:VOLTage[:LEVel][:IMMediate][:AMPLitude]",
+      "description": "Sets the voltage of all three channels at once, without changing the selected channel. Parameter 1 the voltage of channel 1, optional parameters 2 and 3 the voltages of channels 2 and 3, in volts.",
+      "example": "APPL:VOLT 3,3,1"
+    },
+    {
+      "category": "Apply",
+      "syntax": "[SOURce:]APPLy:VOLTage[:LEVel][:IMMediate][:AMPLitude]?",
+      "description": "Returns the voltage of all three channels as <CH1 voltage>, <CH2 voltage>, <CH3 voltage>.",
+      "isQuery": true,
+      "guideMisprint": "The manual writes this subsystem as 'APPLY' in every heading and 'APPLy' in the query lines. Only one of the two can be right, since they imply different short forms — APPLY has none, APPLy shortens to APPL, and the manual's own examples all use APPL."
+    },
+    {
+      "category": "Apply",
+      "syntax": "[SOURce:]APPLY:CURRent[:LEVel][:IMMediate][:AMPLitude]",
+      "description": "Sets the current of all three channels at once, without changing the selected channel. Parameter 1 the current of channel 1, optional parameters 2 and 3 the currents of channels 2 and 3, in amps.",
+      "example": "APPL:CURR 1,1,0.6"
+    },
+    {
+      "category": "Apply",
+      "syntax": "[SOURce:]APPLy:CURRent[:LEVel][:IMMediate][:AMPLitude]?",
+      "description": "Returns the current of all three channels as <CH1 current>, <CH2 current>, <CH3 current>.",
+      "isQuery": true,
+      "guideMisprint": "The manual writes this subsystem as 'APPLY' in every heading and 'APPLy' in the query lines. Only one of the two can be right, since they imply different short forms — APPLY has none, APPLy shortens to APPL, and the manual's own examples all use APPL."
+    },
+    {
+      "category": "Apply",
+      "syntax": "[SOURce:]APPLY:OUTput",
+      "description": "Sets the output state of all three channels at once, without changing the selected channel.",
+      "example": "APPL:OUT 1,1,0",
+      "guideMisprint": "The parameters are described as 'Current of channel 1/2/3' with 'Unit: A', copied from the APPLY:CURRent entry above it. The heading, the example and the query's reply all say this command carries output states, not currents."
+    },
+    {
+      "category": "Apply",
+      "syntax": "[SOURce:]APPLY:OUTput?",
+      "description": "Returns the output state of all three channels as <CH1 output state>, <CH2 output state>, <CH3 output state>.",
+      "isQuery": true
+    }
+  ]
+}

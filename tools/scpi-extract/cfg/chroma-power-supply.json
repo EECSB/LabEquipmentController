@@ -1,0 +1,16 @@
+{
+  "instrument": "Chroma DC power supply (62000L / 62000P series)",
+  "source": "Transcribed from the Chroma 62000L Series Programmable DC Power Supply User's Manual (v1.0, March 2017), Remote Control Reference. The 62000P series shares this command set. Three commands are printed with typographical errors in the guide — 'VOLTaget:PROTection', 'VOLTaget:PROTecton:TRIPped?' and 'CURRent:PROTecton:TRIPped?' — and are corrected here to the spellings the same manual uses everywhere else. Cross-checked against python-ivi chroma62000p and chromaBaseDCPwr.",
+  "groups": [
+    { "file": "parsed/chroma-62000l.json" }
+  ],
+  "typos": {
+    "VOLTaget:": "VOLTage:",
+    "PROTecton:": "PROTection:"
+  },
+  "supplements": [
+    { "category": "Source — Voltage", "syntax": "VOLTage {<voltage>|MINimum|MAXimum|UP|DOWN}", "description": "Set the CV limit level of the power supply. If the output is on, this changes the output to the newly programmed CV limit level. UP and DOWN move it by one VOLTage:STEP.", "example": "VOLTage 5" },
+    { "category": "Source — Current", "syntax": "CURRent {<current>|MINimum|MAXimum|UP|DOWN}", "description": "Set the CC limit level of the power supply. If the output is on, this changes the output to the newly programmed CC limit level. UP and DOWN move it by one CURRent:STEP.", "example": "CURRent 1" }
+  ],
+  "commonCommands": ["*CLS", "*ESE", "*ESE?", "*ESR?", "*IDN?", "*OPC", "*OPC?", "*RCL", "*RST", "*SAV", "*SRE", "*SRE?", "*STB?", "*TRG", "*TST?", "*WAI"]
+}

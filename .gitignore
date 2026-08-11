@@ -1,0 +1,71 @@
+# Build output
+[Bb]in/
+[Oo]bj/
+[Dd]ebug/
+[Rr]elease/
+x64/
+x86/
+[Ww][Ii][Nn]32/
+[Aa][Rr][Mm]/
+[Aa][Rr][Mm]64/
+
+# Visual Studio
+.vs/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+*.userprefs
+
+# Rider / VS Code
+.idea/
+.vscode/
+
+# NuGet
+*.nupkg
+*.snupkg
+packages/
+project.lock.json
+project.assets.json
+
+# Secrets — API keys for the AI extraction feature, used in development and testing.
+# Never commit these. .env.example carries the variable names with no values.
+.env
+.env.*
+!.env.example
+*.key
+appsettings.*.local.json
+
+# Vendor programming guides kept as a local reference, and the web pages and forum threads
+# archived while hunting for them. Free to download from the vendor, which is not a licence
+# to redistribute — so a local collection lives here and stays here. More so for the forum
+# threads: those are their authors' words, not the vendors'.
+#
+# The two committed files in this folder are the indexes — README.md for the guides,
+# ARCHIVED-PAGES.md for the saved pages. The guides and pages themselves never are.
+#
+# At any depth, not just the top: the guides are now filed under a folder per manufacturer,
+# and `datasheets/*.pdf` matches one level only — moving them into those folders would have
+# quietly un-ignored all of them.
+datasheets/**/*.pdf
+datasheets/**/*.zip
+datasheets/**/*.html
+
+# scpi-extract working files. The pipeline's inputs and intermediates, not its output:
+# manuals/ holds the pdftotext dumps of vendor guides (same reason the PDFs are ignored
+# above), parsed/ and built-*.json are regenerated from those in one command. What is
+# committed is cfg/<family>.json — the recipe — and the catalog it produces in
+# Core/CommandData/.
+tools/scpi-extract/manuals/
+tools/scpi-extract/parsed/
+tools/scpi-extract/built-*.json
+
+# Test run artefacts
+Tests/TestResults/
+
+# Misc
+*.log
+*.tmp
+[Tt]humbs.db
+.DS_Store
+bench-reports/

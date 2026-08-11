@@ -1,0 +1,119 @@
+# Build and test on all three platforms.
+#
+# The point of the matrix is not thoroughness for its own sake: this project claims the
+# CLI runs on Windows, Linux and macOS, and that claim was previously only ever checked by
+# cross-compiling on Windows and looking at the file header. Here it is actually run.
+#
+# The WinForms app is Windows-only and always will be, so the solution is built whole only
+# on Windows; elsewhere the portable projects are built directly, which is exactly what the
+# README tells a Linux contributor to do.
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-and-test:
+    name: ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      # One platform failing should not hide the result on the other two.
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Build the whole solution (Windows)
+        if: runner.os == 'Windows'
+        run: dotnet build LabEquipmentController.slnx -c Release
+
+      - name: Build the portable projects (Linux, macOS)
+        if: runner.os != 'Windows'
+        run: |
+          dotnet build Core/LabEquipmentController.Core.csproj -c Release
+          dotnet build Cli/LabEquipmentController.Cli.csproj -c Release
+          dotnet build Web/LabEquipmentController.Web/LabEquipmentController.Web.csproj -c Release
+
+      - name: Test
+        run: dotnet test Tests/LabEquipmentController.Tests.csproj -c Release --logger "console;verbosity=normal"
+
+      # Running the CLI is the part that cannot be faked by a cross-compile: it proves the
+      # catalogs load, the resources resolve and nothing reached for a Windows-only API.
+      - name: Run the CLI
+        run: |
+          dotnet run --project Cli/LabEquipmentController.Cli.csproj -c Release -- version
+          dotnet run --project Cli/LabEquipmentController.Cli.csproj -c Release -- catalog "*IDN?" --limit 3
+          dotnet run --project Cli/LabEquipmentController.Cli.csproj -c Release -- interfaces
+
+      - name: Draw a plot
+        shell: bash
+        run: |
+          printf 'Hz,Vout\n1000,1.9\n2000,1.8\n5000,1.2\n' > sweep.csv
+          dotnet run --project Cli/LabEquipmentController.Cli.csproj -c Release -- plot sweep.csv --out sweep.svg --quiet
+          test -s sweep.svg
+          grep -q '<svg' sweep.svg
+
+      - name: Publish the CLI for this platform
+        run: dotnet publish Cli/LabEquipmentController.Cli.csproj -c Release -p:PublishSingleFile=true --self-contained false -o cli-out
+
+      - name: Toolchain tests
+        run: node tools/scpi-extract/tests.js
+
+  docker:
+    name: build the web container
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      # The image is the deliverable for the web version, so a Dockerfile that no longer
+      # builds should fail here rather than on somebody's bench. Built, not pushed — there
+      # is nowhere agreed to push it to yet.
+      - name: Build the image
+        run: docker build -f Web/Dockerfile -t labequipmentcontroller-web:ci .
+
+      - name: Check it starts and serves both halves
+        run: |
+          docker run -d --name lec-ci -p 8080:8080 labequipmentcontroller-web:ci
+          for i in $(seq 1 30); do
+            if curl -fsS http://localhost:8080/api/catalogs > /dev/null 2>&1; then break; fi
+            sleep 2
+          done
+          # The API and the browser half are served by the same process; a container that
+          # answers one and 404s the other is the failure this catches.
+          curl -fsS http://localhost:8080/api/catalogs | head -c 200
+          curl -fsS http://localhost:8080/ | grep -q "Lab Equipment Controller"
+          curl -fsS http://localhost:8080/_framework/blazor.webassembly.js > /dev/null
+          docker rm -f lec-ci
+
+  pack:
+    name: pack the NuGet package
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: '10.0.x'
+
+      # Packing on every change catches a broken package long before a release does — a
+      # missing licence expression or readme only shows up at pack time.
+      - name: Pack
+        run: dotnet pack Core/LabEquipmentController.Core.csproj -c Release -o artifacts
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: nupkg
+          path: artifacts/*.*nupkg
+          if-no-files-found: error

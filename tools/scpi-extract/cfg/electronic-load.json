@@ -1,0 +1,25 @@
+{
+  "instrument": "DC electronic load (Siglent SDL1000X series)",
+  "source": "Transcribed from the Siglent SDL1000X Programmable DC Electronic Load Programming Guide (E02B). Cross-checked against OriginalCircuit RigolDL3000Instrument for the shared SCPI subset.",
+  "groups": [
+    {
+      "file": "parsed/siglent-sdl1000x.json"
+    }
+  ],
+  "commonCommands": [
+    "*CLS",
+    "*ESE",
+    "*ESE?",
+    "*ESR?",
+    "*IDN?",
+    "*OPC",
+    "*OPC?",
+    "*RST",
+    "*SRE",
+    "*SRE?",
+    "*STB?",
+    "*TRG",
+    "*TST?",
+    "*WAI"
+  ]
+}

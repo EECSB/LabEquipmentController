@@ -1,0 +1,28 @@
+<Project Sdk="Microsoft.NET.Sdk.BlazorWebAssembly">
+
+  <!--
+    The browser half. It holds the UI and nothing else: no transport, no catalogs, no
+    instrument logic. A browser cannot open a TCP socket to port 5025 and never will, so
+    every instrument operation is an HTTP call or a SignalR message to the server, which
+    does the actual talking. That split is the whole reason this app exists alongside the
+    WinForms one — the desktop app is where the sockets are, this is where the sockets are
+    somewhere else.
+
+    The contracts in Contracts/ are shared by referencing this project from the server, the
+    usual hosted-WebAssembly arrangement, so a DTO cannot drift between the two halves.
+  -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>LabEquipmentController.Web.Client</RootNamespace>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.AspNetCore.Components.WebAssembly" Version="10.0.11" />
+    <PackageReference Include="Microsoft.AspNetCore.Components.WebAssembly.DevServer" Version="10.0.11" PrivateAssets="all" />
+    <PackageReference Include="Microsoft.AspNetCore.SignalR.Client" Version="10.0.11" />
+  </ItemGroup>
+
+</Project>

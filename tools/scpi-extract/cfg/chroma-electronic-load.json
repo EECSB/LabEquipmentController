@@ -1,0 +1,21 @@
+{
+  "instrument": "Electronic load (Chroma 63200A series)",
+  "source": "Transcribed from the Chroma 63200A Series High Power Electronic Load Operation & Programming Manual. The manual marks each command Channel-Specific or Global; channel-specific ones act on whichever channel CHANnel has selected. This is the 63200A command set — the modular 63600 series and the AC loads of the 63800 series are separate manuals and are not covered here. Rebuilt from the guide in August 2026. pdftotext floats this manual’s value column a row against its labels — the heading carries the Type value and the Type line the description — and reading the content by shape rather than by label recovered the commands that skew had been hiding. Two malformed entries are gone: “SYSTem:ERRor?.” and a CONFigure:AUTO:ON that had swallowed prose into its parameters. The guide misprints “[ADVance]:SINE:IAC?” with the colon outside the bracket and heads one entry “[ADVance:]OCP: LATCh” with a stray space; the first is corrected by the typos map and the second mended at parse, both deliberately. Query Syntax 1 and 2 give two spellings for the PROGram:DATA queries; the catalog keeps the first.",
+  "manufacturer": "Chroma",
+  "guide": {
+    "title": "63200A Series High Power Electronic Load Operation & Programming Manual",
+    "edition": "October 2024",
+    "vendor": "Chroma",
+    "url": "https://www.chromaate.com/en/product/DC_Electronic_Load_63200A_Series_205",
+    "fileName": "Chroma_63200A_ElectronicLoad_ProgrammingManual.pdf"
+  },
+  "groups": [
+    {
+      "file": "parsed/chroma-63200a.json"
+    }
+  ],
+  "typos": {
+    "[ADVance]:": "[ADVance:]"
+  },
+  "mergeInto": "../../Core/CommandData/chroma-electronic-load.json"
+}

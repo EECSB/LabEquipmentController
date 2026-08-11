@@ -1,0 +1,29 @@
+{
+  "instrument": "Waveform generator (Rigol DG1000Z series, standard SCPI)",
+  "source": "Transcribed from the Rigol DG1000Z Series Function/Arbitrary Waveform Generator Programming Guide. Cross-checked against pymeasure rigol_dg800 and agilent33500/33220A for the shared SCPI subset.",
+  "groups": [
+    {
+      "file": "parsed/rigol-dg1000z.json"
+    }
+  ],
+  "commonCommands": [
+    "*CLS",
+    "*ESE",
+    "*ESE?",
+    "*ESR?",
+    "*IDN?",
+    "*OPC",
+    "*OPC?",
+    "*OPT?",
+    "*PSC",
+    "*PSC?",
+    "*RCL",
+    "*RST",
+    "*SAV",
+    "*SRE",
+    "*SRE?",
+    "*STB?",
+    "*TRG",
+    "*WAI"
+  ]
+}

@@ -1,0 +1,173 @@
+@page "/capture"
+@inject BenchClient Bench
+@inject IJSRuntime JS
+
+<h1>Capture</h1>
+<p class="lede">
+    Pull a trace or a screen off the instrument. The scaling from raw bytes to volts and seconds is
+    different for every manufacturer, and the server applies that instrument's own arithmetic.
+</p>
+
+<SessionPicker Sessions="_sessions" Selected="_sessionId" SelectedChanged="Select" />
+
+@if (_session is null)
+{
+    <div class="panel"><p class="muted">Connect an instrument first.</p></div>
+}
+else
+{
+    <div class="panel">
+        <div class="row">
+            <label for="ch">Channel</label>
+            <input id="ch" type="number" min="1" max="4" @bind="_channel" style="width:5rem" />
+            <button class="primary" @onclick="Waveform" disabled="@(_busy || !_session.SupportsWaveform)">Capture waveform</button>
+            <button @onclick="Screenshot" disabled="@(_busy || !_session.SupportsScreenshot)">Capture screen</button>
+            @if (_busy) { <span class="muted">Reading…</span> }
+        </div>
+        @if (!_session.SupportsWaveform)
+        {
+            <p class="muted" style="margin:.5rem 0 0">
+                No waveform-transfer dialect is documented for @_session.ProfileName, so that button
+                is off rather than sending something that might not be understood.
+            </p>
+        }
+    </div>
+
+    @if (_error is not null)
+    {
+        <div class="panel"><p class="error">@_error</p></div>
+    }
+
+    @if (_wave is { Time.Count: > 1 })
+    {
+        <div class="panel">
+            <div class="row">
+                <h2 style="margin:0">Waveform</h2>
+                <span class="spacer"></span>
+                <span class="muted">
+                    @_wave.Time.Count.ToString("N0") points · Vpp @Sig(_vpp) V · span @Sig(_span) s
+                </span>
+                <button @onclick="SaveWave">Save CSV</button>
+            </div>
+            <svg viewBox="0 0 900 320" width="100%" height="320" style="background:#05070a;border-radius:6px"
+                 role="img" aria-label="Captured waveform">
+                <path d="@_trace" fill="none" stroke="#22c55e" stroke-width="1.2" />
+            </svg>
+        </div>
+    }
+
+    @if (_shot is { Bytes: > 0 })
+    {
+        <div class="panel">
+            <div class="row">
+                <h2 style="margin:0">Screen</h2>
+                <span class="spacer"></span>
+                <span class="muted">@_shot.Bytes.ToString("N0") bytes · @_shot.ContentType · from @_shot.Command</span>
+                <button @onclick="SaveShot">Save image</button>
+            </div>
+            <img src="data:@_shot.ContentType;base64,@_shot.Base64" alt="Instrument screen" style="max-width:100%;border-radius:6px" />
+            <p class="muted" style="margin:.5rem 0 0">
+                The format is the instrument's choice — a Rigol sends BMP, a Tektronix set to PNG
+                sends PNG — so it is read from the bytes rather than assumed.
+            </p>
+        </div>
+    }
+}
+
+@code {
+    private IReadOnlyList<SessionDto> _sessions = [];
+    private SessionDto? _session;
+    private string? _sessionId;
+    private int _channel = 1;
+    private bool _busy;
+    private string? _error;
+    private WaveformDto? _wave;
+    private ScreenshotDto? _shot;
+    private string _trace = "";
+    private double _vpp, _span;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _sessions = await Bench.SessionsAsync();
+        _sessionId = _sessions.FirstOrDefault(s => s.SupportsWaveform)?.Id ?? _sessions.FirstOrDefault()?.Id;
+        _session = _sessions.FirstOrDefault(s => s.Id == _sessionId);
+    }
+
+    private void Select(string? id)
+    {
+        _sessionId = id;
+        _session = _sessions.FirstOrDefault(s => s.Id == id);
+        _wave = null; _shot = null; _error = null;
+    }
+
+    private async Task Waveform()
+    {
+        if (_session is null) return;
+        _busy = true; _error = null; _shot = null;
+        try
+        {
+            _wave = await Bench.WaveformAsync(_session.Id, _channel);
+            if (_wave.Error is not null) { _error = _wave.Error; _wave = null; return; }
+            Draw(_wave);
+        }
+        finally { _busy = false; }
+    }
+
+    private void Draw(WaveformDto w)
+    {
+        double min = w.Voltage.Min(), max = w.Voltage.Max();
+        _vpp = max - min;
+        _span = w.Time.Count > 1 ? w.Time[^1] - w.Time[0] : 0;
+        if (max - min < 1e-12) { min -= 0.5; max += 0.5; }
+
+        // Every sample is drawn — a scope hands back 1,400 points and dropping some of them
+        // is how a glitch disappears from a trace that was captured to find it.
+        var sb = new System.Text.StringBuilder();
+        for (int i = 0; i < w.Voltage.Count; i++)
+        {
+            double x = 900.0 * i / (w.Voltage.Count - 1);
+            double y = 310 - 300 * (w.Voltage[i] - min) / (max - min);
+            sb.Append(i == 0 ? 'M' : 'L')
+              .Append(x.ToString("0.##", System.Globalization.CultureInfo.InvariantCulture)).Append(' ')
+              .Append(y.ToString("0.##", System.Globalization.CultureInfo.InvariantCulture)).Append(' ');
+        }
+        _trace = sb.ToString().Trim();
+    }
+
+    private async Task Screenshot()
+    {
+        if (_session is null) return;
+        _busy = true; _error = null; _wave = null;
+        try
+        {
+            _shot = await Bench.ScreenshotAsync(_session.Id);
+            if (_shot.Error is not null) { _error = _shot.Error; _shot = null; }
+        }
+        finally { _busy = false; }
+    }
+
+    private async Task SaveWave()
+    {
+        if (_wave is null) return;
+        var sb = new System.Text.StringBuilder("Time (s),Voltage (V)\r\n");
+        for (int i = 0; i < _wave.Time.Count; i++)
+            sb.Append(_wave.Time[i].ToString("G17", System.Globalization.CultureInfo.InvariantCulture)).Append(',')
+              .Append(_wave.Voltage[i].ToString("G17", System.Globalization.CultureInfo.InvariantCulture)).Append("\r\n");
+        await JS.InvokeVoidAsync("lec.download", "waveform.csv", "text/csv",
+            Convert.ToBase64String(System.Text.Encoding.UTF8.GetBytes(sb.ToString())));
+    }
+
+    private async Task SaveShot()
+    {
+        if (_shot is null) return;
+        string ext = _shot.ContentType switch
+        {
+            "image/png" => ".png", "image/bmp" => ".bmp",
+            "image/jpeg" => ".jpg", "image/gif" => ".gif", _ => ".bin",
+        };
+        await JS.InvokeVoidAsync("lec.download", "screen" + ext, _shot.ContentType, _shot.Base64);
+    }
+
+    private static string Sig(double v) =>
+        v.ToString(Math.Abs(v) >= 0.01 ? "0.###" : "0.###e+0", System.Globalization.CultureInfo.InvariantCulture);
+}

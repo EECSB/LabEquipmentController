@@ -1,0 +1,29 @@
+@inherits LayoutComponentBase
+
+<div class="shell">
+    <nav class="side">
+        <div class="brand">
+            <span class="mark">∿</span>
+            <span>Lab Equipment Controller</span>
+        </div>
+
+        <NavLink class="nav" href="" Match="NavLinkMatch.All">Instruments</NavLink>
+        <NavLink class="nav" href="console">Console</NavLink>
+        <NavLink class="nav" href="scripts">Scripts</NavLink>
+        <NavLink class="nav" href="sequences">Multi-instrument</NavLink>
+        <NavLink class="nav" href="capture">Capture</NavLink>
+        <NavLink class="nav" href="catalog">Command library</NavLink>
+        <NavLink class="nav" href="ai">AI</NavLink>
+
+        @* The desktop app carries this warning on its examples; a web UI that anyone on the
+           bench network can open needs it more, not less. *@
+        <div class="warn">
+            These pages drive <strong>real equipment</strong>. Some commands source voltage,
+            sink current or enable outputs — check what is wired up before running a sweep.
+        </div>
+    </nav>
+
+    <main class="content">
+        @Body
+    </main>
+</div>

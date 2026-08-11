@@ -1,0 +1,28 @@
+{
+  "instrument": "Keysight oscilloscope (InfiniiVision 3000/3000T X-Series)",
+  "source": "Transcribed from the Keysight InfiniiVision 3000T X-Series Oscilloscopes Programmer's Guide (9018-07265). Cross-checked against python-ivi agilentBaseInfiniiVision and pymeasure keysightDSOX1102G.",
+  "groups": [
+    {
+      "file": "parsed/keysight-3000tx.json"
+    }
+  ],
+  "commonCommands": [
+    "*CLS",
+    "*ESE",
+    "*ESE?",
+    "*ESR?",
+    "*IDN?",
+    "*OPC",
+    "*OPC?",
+    "*OPT?",
+    "*RCL",
+    "*RST",
+    "*SAV",
+    "*SRE",
+    "*SRE?",
+    "*STB?",
+    "*TRG",
+    "*TST?",
+    "*WAI"
+  ]
+}

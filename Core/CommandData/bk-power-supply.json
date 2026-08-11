@@ -1,0 +1,526 @@
+{
+  "instrument": "DC power supply (B&K Precision 9200B series: 9201B, 9202B, 9205B, 9206B)",
+  "source": "Transcribed from the B&K Precision 9200B Series Multi-Range DC Power Supply User Manual, chapter 5 Remote Commands. The reference is in the user manual itself. The 9130B is a different instrument with its own separately-issued programming manual and its own catalog, so it is not covered here. Re-transcribed by hand in August 2026: the earlier machine-assisted pass had paired eleven entries with a neighbour's description, dropped both STEP query forms and the whole VOLTage:TRIGgered pair, and carried five commands only in the abbreviated spelling their syntax lines use, which stops the full spelling in the headings from matching. Sixteen entries carry a guideMisprint note where the manual itself is wrong. Where the manual settles its own slip it is followed — section 5.1 states that there is a space between a command and its parameter, so the three entries it prints without one are written with it, and said so.",
+  "manufacturer": "B&K Precision",
+  "guide": {
+    "title": "9200B Series Multi-Range DC Power Supply User Manual",
+    "edition": "9201B / 9202B / 9205B / 9206B",
+    "vendor": "B&K Precision",
+    "url": "https://bkpmedia.s3.amazonaws.com/downloads/manuals/en-us/9200_Series_manual.pdf",
+    "fileName": "BKPrecision_9200B_PowerSupply_UserManual.pdf"
+  },
+  "commands": [
+    {
+      "category": "IEEE 488.2 Common",
+      "syntax": "*CLS",
+      "description": "Clears the standard event register, query event register, operation event register, status byte register and the error code."
+    },
+    {
+      "category": "IEEE 488.2 Common",
+      "syntax": "*ESE <NR1>",
+      "description": "Sets the standard event enable register. The parameter determines which bit of the standard event register is 1, which enables the ESB bit of the status byte register. Parameter 0~255. Power-on value: see *PSC.",
+      "example": "*ESE 128"
+    },
+    {
+      "category": "IEEE 488.2 Common",
+      "syntax": "*ESE?",
+      "description": "Returns the standard event enable register as <NR1>.",
+      "isQuery": true
+    },
+    {
+      "category": "IEEE 488.2 Common",
+      "syntax": "*ESR?",
+      "description": "Reads the standard event status register, which is reset once the query has been executed. Its bit definitions are the same as the standard event status enable register.",
+      "isQuery": true
+    },
+    {
+      "category": "IEEE 488.2 Common",
+      "syntax": "*IDN?",
+      "description": "Reads the identity of the power supply: manufacturer, model, serial number and software version, separated by commas.",
+      "example": "*IDN?  ->  B&K Precision, 9205B, 602203010697410001, V1.09-V1.04",
+      "isQuery": true
+    },
+    {
+      "category": "IEEE 488.2 Common",
+      "syntax": "*OPC",
+      "description": "Sets the OPC bit of the standard event register to 1 once every command sent before it has been executed."
+    },
+    {
+      "category": "IEEE 488.2 Common",
+      "syntax": "*OPC?",
+      "description": "Returns <NR1> once every command sent before it has been executed.",
+      "isQuery": true
+    },
+    {
+      "category": "IEEE 488.2 Common",
+      "syntax": "*PSC <bool>",
+      "description": "Controls what happens to the enable registers when the supply is reset. 1 or ON: the operation event enable, quest event enable and standard event status registers are reset. 0 or OFF: the status byte, operation event enable, quest event enable and standard event status enable registers are stored in non-volatile memory and recalled at reset. Parameter 0|1|ON|OFF."
+    },
+    {
+      "category": "IEEE 488.2 Common",
+      "syntax": "*PSC?",
+      "description": "Returns <NR1> — whether the enable registers are cleared at reset.",
+      "isQuery": true,
+      "guideMisprint": "The guide prints 'Query syntax: *PSC', with no question mark, which reads as a second set command rather than the query it is labelled as. Every other query in the chapter ends in '?'."
+    },
+    {
+      "category": "IEEE 488.2 Common",
+      "syntax": "*RST",
+      "description": "Resets the power supply to its default settings."
+    },
+    {
+      "category": "IEEE 488.2 Common",
+      "syntax": "*SRE <NR1>",
+      "description": "Sets the status byte enable register. The parameter determines which bit of the status byte register is 1, which sets its RQS bit to 1. Its bit definitions are the same as the status byte register. Parameter 0~255."
+    },
+    {
+      "category": "IEEE 488.2 Common",
+      "syntax": "*SRE?",
+      "description": "Returns the status byte enable register as <NR1>.",
+      "isQuery": true
+    },
+    {
+      "category": "IEEE 488.2 Common",
+      "syntax": "*STB?",
+      "description": "Reads the status byte register.",
+      "isQuery": true
+    },
+    {
+      "category": "IEEE 488.2 Common",
+      "syntax": "*TRG",
+      "description": "Generates a trigger signal when the trigger source is BUS. The same function as the TRIGger command.",
+      "guideMisprint": "The guide labels this one 'Query syntax: *TRG' and then gives it 'Returned parameter: None'. It is a command, not a query — the heading and the description both treat it as one, and *TRG has no query form in IEEE 488.2."
+    },
+    {
+      "category": "IEEE 488.2 Common",
+      "syntax": "*SAV <NRf>",
+      "description": "Saves the present setup — current, voltage, maximum and minimum voltage, OVP and OCP — to a memory location. The memory holds 8 groups of 9, so 72 setups. Parameter 1~72.",
+      "guideMisprint": "The guide prints '*SAV<NRf>' with no space. Its own section 5.1 states that there is a space between a command and its numerical parameter, so the space is written here."
+    },
+    {
+      "category": "IEEE 488.2 Common",
+      "syntax": "*RCL <NRf>",
+      "description": "Recalls a setup previously saved to the given memory location. Parameter 1~72.",
+      "guideMisprint": "The guide prints '*RCL<NRf>' with no space. Its own section 5.1 states that there is a space between a command and its numerical parameter, so the space is written here."
+    },
+
+    {
+      "category": "Status",
+      "syntax": "STATus:QUEStionable[:EVENt]?",
+      "description": "Reads the query event register, which is cleared once the query has been executed. Returns <NRf>.",
+      "isQuery": true
+    },
+    {
+      "category": "Status",
+      "syntax": "STATus:QUEStionable:CONDition?",
+      "description": "Reads the query condition register. When one of its bits changes, the matching bit of the query event register is set to 1. Returns <NRf>.",
+      "isQuery": true
+    },
+    {
+      "category": "Status",
+      "syntax": "STATus:QUEStionable:ENABle <NRf>",
+      "description": "Sets the quest event enable register. The parameter determines which bit of the quest event register is 1, which enables QUES. Parameter 0~65535. Default: see *PSC.",
+      "example": "STATus:QUEStionable:ENABle 128"
+    },
+    {
+      "category": "Status",
+      "syntax": "STATus:QUEStionable:ENABle?",
+      "description": "Returns the quest event enable register as <NRf>.",
+      "isQuery": true
+    },
+    {
+      "category": "Status",
+      "syntax": "STATus:OPERation[:EVENt]?",
+      "description": "Reads the operation event register. Bit 0 is CAL (calibration mode, factory use), bit 1 is the output state — a decimal 2 in the reply means the output is on, and the bit flags only the on state — and bit 2 is WTG, waiting for a trigger, which only applies in list mode.",
+      "isQuery": true,
+      "guideMisprint": "Documented only in the status-register section, in prose: 'For the Operate Event register, you send STAT:OPER? for the query'. It appears in none of the command sections, so its full spelling and whether it takes the optional [:EVENt] node are inferred from the QUEStionable branch, which the guide does document."
+    },
+
+    {
+      "category": "System",
+      "syntax": "SYSTem:ERRor?",
+      "description": "Reads one error message from the error queue, oldest first. The queue holds 20; beyond that the last entry is replaced by -350 'too many errors'. An empty queue returns 0, 'no error'. *CLS clears the queue and *RST does not. Returns <NR1>,<SRD>.",
+      "isQuery": true
+    },
+    {
+      "category": "System",
+      "syntax": "SYSTem:VERSion?",
+      "description": "Queries the SCPI version, as a string 'YYYY.V' — the year of the version, then the software version within that year.",
+      "isQuery": true
+    },
+    {
+      "category": "System",
+      "syntax": "SYSTem:REMote",
+      "description": "Switches to remote (PC) control over RS-232. Every front-panel key except LOCAL is locked. Sending commands without first switching to remote control may give unpredictable results."
+    },
+    {
+      "category": "System",
+      "syntax": "SYSTem:LOCal",
+      "description": "Switches the instrument back to local (front-panel) control."
+    },
+    {
+      "category": "System",
+      "syntax": "SYSTem:RWLock",
+      "description": "The same as SYSTem:REMote, and also disables the LOCAL button."
+    },
+    {
+      "category": "System",
+      "syntax": "SYSTem:INTerface <USB|RS232>",
+      "description": "Selects the communication interface."
+    },
+
+    {
+      "category": "Trigger",
+      "syntax": "TRIGger[:IMMediate]",
+      "description": "Generates a trigger signal when the trigger source is BUS. The same function as *TRG."
+    },
+    {
+      "category": "Trigger",
+      "syntax": "TRIGger:SOURce <mode>",
+      "description": "Selects the trigger source: MANUAL, the front-panel Trigger button, or BUS, the *TRG command.",
+      "guideMisprint": "The guide's syntax line prints 'TRIG:SOURce <mode>' — the abbreviated spelling, where its heading and query line both use TRIGger — and <mode> is not one of the parameter types its own section 5.1 defines. The parameters are the keywords MANUAL and BUS."
+    },
+    {
+      "category": "Trigger",
+      "syntax": "TRIGger:SOURce?",
+      "description": "Returns the trigger source, MANUAL or BUS.",
+      "isQuery": true
+    },
+
+    {
+      "category": "Output",
+      "syntax": "[SOURce:]OUTPut[:STATe] <bool>",
+      "description": "Turns the output on or off. Parameter 0|1|ON|OFF."
+    },
+    {
+      "category": "Output",
+      "syntax": "[SOURce:]OUTPut[:STATe]?",
+      "description": "Returns the output state as 0 or 1.",
+      "isQuery": true
+    },
+    {
+      "category": "Output",
+      "syntax": "OUTPut:TIMer[:STATe] <bool>",
+      "description": "Turns the output timer on or off. Parameter 0|1|OFF|ON."
+    },
+    {
+      "category": "Output",
+      "syntax": "OUTPut:TIMer?",
+      "description": "Returns the output timer state.",
+      "isQuery": true
+    },
+    {
+      "category": "Output",
+      "syntax": "OUTPut:TIMer:DATA <NRf>",
+      "description": "Sets the output timer's time. Parameter 0-99999.9, in seconds."
+    },
+    {
+      "category": "Output",
+      "syntax": "OUTPut:TIMer:DATA?",
+      "description": "Returns the output timer's time as <NRf>.",
+      "isQuery": true
+    },
+
+    {
+      "category": "Current",
+      "syntax": "[SOURce:]CURRent[:LEVel][:IMMediate][:AMPLitude] <NRf>",
+      "description": "Sets the output current. MIN is 0 A and MAX is the top of the current range; DEF is the default value. CURR UP and CURR DOWN step the current by the value set with CURR:STEP. Parameter MIN to MAX|MIN|MAX|UP|DOWN|DEF, in A, mA or uA.",
+      "example": "CURR 2.5"
+    },
+    {
+      "category": "Current",
+      "syntax": "[SOURce:]CURRent[:LEVel][:IMMediate][:AMPLitude]?",
+      "description": "Returns the current setting as <NRf>. CURR? MIN and CURR? MAX query the ends of the range.",
+      "example": "CURR? MAX",
+      "isQuery": true
+    },
+    {
+      "category": "Current",
+      "syntax": "[SOURce:]CURRent[:LEVel][:IMMediate]:STEP[:INCRement] <NRf>",
+      "description": "Sets the step used by CURR UP and CURR DOWN. Parameter MIN to MAX. A step of 0.01 is 10 mA.",
+      "example": "CURR:STEP 0.01"
+    },
+    {
+      "category": "Current",
+      "syntax": "[SOURce:]CURRent[:LEVel][:IMMediate]:STEP[:INCRement]?",
+      "description": "Returns the current step as <NRf>. CURR:STEP? DEF queries the step resolution of the unit.",
+      "example": "CURR:STEP? DEF",
+      "isQuery": true
+    },
+    {
+      "category": "Current",
+      "syntax": "[SOURce:]CURRent[:LEVel]:TRIGgered[:AMPLitude] <NRf>",
+      "description": "Sets the current applied when a trigger arrives. Sending CURRent does not change it, and the query returns the value that was set. Parameter MIN to MAX|MIN|MAX, in A."
+    },
+    {
+      "category": "Current",
+      "syntax": "[SOURce:]CURRent[:LEVel]:TRIGgered[:AMPLitude]?",
+      "description": "Returns the triggered current setting as <NRf>.",
+      "isQuery": true
+    },
+
+    {
+      "category": "Voltage",
+      "syntax": "[SOURce:]VOLTage[:LEVel][:IMMediate][:AMPLitude] <NRf>",
+      "description": "Sets the output voltage. MIN is 0 V and MAX is the top of the voltage range; DEF is the default value. VOLT UP and VOLT DOWN step the voltage by the value set with VOLT:STEP. Parameter MIN to MAX|MIN|MAX|UP|DOWN|DEF, in V, mV or uV.",
+      "example": "VOLT 12",
+      "guideMisprint": "Documented twice, and the first of the two prints the parameter on its heading line and omits it from its 'Command syntax' line, so that entry reads as a command that takes nothing. The second entry prints it correctly, which is the form carried here."
+    },
+    {
+      "category": "Voltage",
+      "syntax": "[SOURce:]VOLTage[:LEVel][:IMMediate][:AMPLitude]?",
+      "description": "Returns the voltage setting as <NRf>. VOLT? MIN and VOLT? MAX query the ends of the range.",
+      "example": "VOLT? MAX",
+      "isQuery": true
+    },
+    {
+      "category": "Voltage",
+      "syntax": "[SOURce:]VOLTage[:LEVel][:IMMediate]:STEP[:INCRement] <NRf>",
+      "description": "Sets the step used by VOLT UP and VOLT DOWN. Parameter MIN to MAX. A step of 0.01 is 10 mV.",
+      "example": "VOLT:STEP 0.01"
+    },
+    {
+      "category": "Voltage",
+      "syntax": "[SOURce:]VOLTage[:LEVel][:IMMediate]:STEP[:INCRement]?",
+      "description": "Returns the voltage step as <NRf>. VOLT:STEP? DEF queries the step resolution of the unit.",
+      "example": "VOLT:STEP? DEF",
+      "isQuery": true
+    },
+    {
+      "category": "Voltage",
+      "syntax": "[SOURce:]VOLTage[:LEVel]:TRIGgered[:AMPLitude] <NRf>",
+      "description": "Sets the voltage applied when a trigger arrives. Sending VOLTage does not change it, and the query returns the value that was set. Parameter MIN to MAX|MIN|MAX|DEF, in V, mV or uV."
+    },
+    {
+      "category": "Voltage",
+      "syntax": "[SOURce:]VOLTage[:LEVel]:TRIGgered[:AMPLitude]?",
+      "description": "Returns the triggered voltage setting as <NRf>.",
+      "isQuery": true
+    },
+    {
+      "category": "Voltage",
+      "syntax": "[SOURce:]VOLTage:LIMIt[:LEVel] <NRf>",
+      "description": "Sets the limit on the output voltage. Parameter MIN to MAX|MIN|MAX|DEF, in V, mV or uV."
+    },
+    {
+      "category": "Voltage",
+      "syntax": "[SOURce:]VOLTage:LIMIt[:LEVel]?",
+      "description": "Returns the output voltage limit as <NRf>.",
+      "isQuery": true,
+      "guideMisprint": "The guide spells this node LIMIt in all three places, which makes its short form LIMI. SCPI-99 spells it LIMit, short form LIM. Consistent within the guide, so it may be what the firmware accepts; VOLT:LIM is worth trying if LIMI is rejected."
+    },
+
+    {
+      "category": "Protection",
+      "syntax": "[SOURce:]CURRent:PROTection[:LEVel] <NRf>",
+      "description": "Sets the software over-current protection value. Parameter MIN to MAX|MIN|MAX|DEF, in A, mA or uA."
+    },
+    {
+      "category": "Protection",
+      "syntax": "[SOURce:]CURRent:PROTection[:LEVel]?",
+      "description": "Returns the over-current protection value as <NRf>.",
+      "isQuery": true
+    },
+    {
+      "category": "Protection",
+      "syntax": "[SOURce:]CURRent:PROTection:STATe <bool>",
+      "description": "Turns software over-current protection on or off. Parameter 0|1|ON|OFF.",
+      "guideMisprint": "The guide prints 'STATe<bool>' with no space. Its own section 5.1 states that there is a space between a command and its parameter, so the space is written here."
+    },
+    {
+      "category": "Protection",
+      "syntax": "[SOURce:]CURRent:PROTection:STATe?",
+      "description": "Returns whether over-current protection is on, as 0 or 1.",
+      "isQuery": true
+    },
+    {
+      "category": "Protection",
+      "syntax": "[SOURce:]VOLTage:PROTection[:LEVel] <NRf>",
+      "description": "Sets the software over-voltage protection value. Parameter MIN to MAX|MIN|MAX|DEF, in V, mV or uV."
+    },
+    {
+      "category": "Protection",
+      "syntax": "[SOURce:]VOLTage:PROTection[:LEVel]?",
+      "description": "Returns the over-voltage protection value as <NRf>.",
+      "isQuery": true
+    },
+    {
+      "category": "Protection",
+      "syntax": "[SOURce:]VOLTage:PROTection:STATe <bool>",
+      "description": "Turns software over-voltage protection on or off. Parameter 0|1|ON|OFF.",
+      "guideMisprint": "The guide prints 'STATe<bool>' with no space. Its own section 5.1 states that there is a space between a command and its parameter, so the space is written here."
+    },
+    {
+      "category": "Protection",
+      "syntax": "[SOURce:]VOLTage:PROTection:STATe?",
+      "description": "Returns whether over-voltage protection is on, as 0 or 1.",
+      "isQuery": true
+    },
+    {
+      "category": "Protection",
+      "syntax": "[SOURce:]VOLTage:PROTection:TRIP?",
+      "description": "Queries whether over-voltage protection has tripped. 1 means the OVP circuit has triggered, 0 means it has not.",
+      "isQuery": true,
+      "guideMisprint": "The guide spells this node TRIP in both places it appears. SCPI-99 spells it TRIPped, and B&K's own 9130B manual spells it TRIPed — three spellings for one node across two manuals from the same vendor. Consistent within this guide, so it may be right for this instrument."
+    },
+    {
+      "category": "Protection",
+      "syntax": "[SOURce:]VOLTage:PROTection:CLEar",
+      "description": "Clears the OVP state. Raise the OVP limit or lower the output voltage first, and remove whatever tripped the protection before sending it again."
+    },
+
+    {
+      "category": "Apply",
+      "syntax": "[SOURce:]APPLy <NRf>,<NRf>",
+      "description": "Sets voltage and current in one command. It only takes effect when both values are inside the upper voltage and current limits. Parameter MIN to MAX|MIN|MAX, in V and A.",
+      "example": "APPL 5,2 //sets output voltage to 5 V and output current to 2 A"
+    },
+    {
+      "category": "Apply",
+      "syntax": "[SOURce:]APPLy?",
+      "description": "Returns the voltage and current settings as <NRf>,<NRf>.",
+      "isQuery": true
+    },
+
+    {
+      "category": "Measure",
+      "syntax": "MEASure[:SCALar]:VOLTage[:DC]?",
+      "description": "Queries the actual output voltage. Returns <NRf> in volts.",
+      "example": "MEAS:VOLT?",
+      "isQuery": true
+    },
+    {
+      "category": "Measure",
+      "syntax": "FETCh:VOLTage?",
+      "description": "Reads the voltage held in the sample cache. It does not trigger a measurement and does not change any setting — it returns the latest available reading, which is the previous one until a new reading arrives. Returns <NRf> in volts.",
+      "isQuery": true
+    },
+    {
+      "category": "Measure",
+      "syntax": "MEASure[:SCALar]:CURRent[:DC]?",
+      "description": "Reads the actual output current. Returns <NRf> in amps.",
+      "example": "MEAS:CURR?",
+      "isQuery": true
+    },
+    {
+      "category": "Measure",
+      "syntax": "FETCh:CURRent?",
+      "description": "Reads the current held in the sample cache. It does not trigger a measurement and does not change any setting — it returns the latest available reading. Returns <NRf>.",
+      "isQuery": true
+    },
+    {
+      "category": "Measure",
+      "syntax": "MEASure[:SCALar]:POWer[:DC]?",
+      "description": "Queries the actual output power. Returns <NRf> in watts.",
+      "example": "MEAS:POWer?",
+      "isQuery": true
+    },
+    {
+      "category": "Measure",
+      "syntax": "FETCh:POWer?",
+      "description": "Reads the power held in the sample cache. It does not trigger a measurement and does not change any setting — it returns the latest available reading. Returns <NRf>.",
+      "isQuery": true
+    },
+    {
+      "category": "Measure",
+      "syntax": "MEASure[:SCALar]:DVM[:DC]?",
+      "description": "Reads the latest measured value of the built-in DVM. Returns <NRf>.",
+      "isQuery": true
+    },
+    {
+      "category": "Measure",
+      "syntax": "FETCh:DVM[:DC]?",
+      "description": "Reads the latest DVM value from the sampling buffer. Returns <NRf>.",
+      "isQuery": true
+    },
+    {
+      "category": "Measure",
+      "syntax": "MEASure[:SCALar]:STATus <DVM|NORMAL>",
+      "description": "Switches the front-panel display between the actual output state and the DVM reading.",
+      "guideMisprint": "The guide's heading prints 'MEASure:STATus?', with a question mark, above a syntax line that takes a parameter and describes an action. It is a setting, not a query, so the entry carries the syntax line's form."
+    },
+
+    {
+      "category": "List",
+      "syntax": "[SOURce:]LIST:FUNCtion <0|1>",
+      "description": "Turns list mode on or off."
+    },
+    {
+      "category": "List",
+      "syntax": "[SOURce:]LIST:FUNCtion?",
+      "description": "Returns whether list mode is on, as 0 or 1.",
+      "isQuery": true
+    },
+    {
+      "category": "List",
+      "syntax": "[SOURce:]LIST:VOLTage <NRf>",
+      "description": "Sets the voltage of a step of the list file. Parameter MIN to MAX, in volts.",
+      "example": "LIST:VOLT 1,3V //set the first step's voltage to be 3 V",
+      "guideMisprint": "The syntax line takes one parameter and the guide's own example passes two — the step number and the voltage. The example is the only place the step number appears, so the single-parameter syntax line looks like the error."
+    },
+    {
+      "category": "List",
+      "syntax": "LIST:VOLTage?",
+      "description": "Returns the voltage of a step of the list file. The step number is passed as a parameter.",
+      "example": "LIST:VOLT? 1 //query the first step's voltage",
+      "isQuery": true
+    },
+    {
+      "category": "List",
+      "syntax": "[SOURce:]LIST:CURRent <NRf>",
+      "description": "Sets the current of a step of the list file. Parameter MIN to MAX, in amps.",
+      "example": "LIST:CURR 1,2A //set the first step's current to be 2 A",
+      "guideMisprint": "The syntax line takes one parameter and the guide's own example passes two — the step number and the current. The example is the only place the step number appears, so the single-parameter syntax line looks like the error."
+    },
+    {
+      "category": "List",
+      "syntax": "LIST:CURRent?",
+      "description": "Returns the current of a step of the list file. The step number is passed as a parameter.",
+      "example": "LIST:CURR? 1 //query the first step's current",
+      "isQuery": true
+    },
+    {
+      "category": "List",
+      "syntax": "[SOURce:]LIST:TIMEr",
+      "description": "Sets the delay time of a step of the list file. Parameter MIN to MAX|MIN|MAX, in seconds.",
+      "example": "LIST:TIME 1,3 //set the first step's time to be 3 S",
+      "guideMisprint": "Two problems in one entry. The syntax line takes no parameter at all, while the guide lists parameters for it and its example passes two. And the node is spelled TIMEr, short form TIME, where the same manual spells the output timer OUTPut:TIMer, short form TIM — one word, two spellings, four pages apart. The example uses LIST:TIME, which supports TIMEr for this one."
+    },
+    {
+      "category": "List",
+      "syntax": "LIST:TIMEr? <NR1>",
+      "description": "Returns the delay time of a step of the list file. The step number is passed as a parameter. Returns <NRf>.",
+      "example": "LIST:TIME? 1 //query the first step's delay time",
+      "isQuery": true,
+      "guideMisprint": "Spelled TIMEr, short form TIME, where the same manual spells the output timer OUTPut:TIMer, short form TIM. The guide's example sends LIST:TIME? 1, which supports TIMEr here."
+    },
+    {
+      "category": "List",
+      "syntax": "[SOURce:]LIST:LOAD[:IMMediate] <NR1>",
+      "description": "Recalls a list file previously saved to the given memory location. Parameter 0 to 9.",
+      "example": "LIST:LOAD 1"
+    },
+    {
+      "category": "List",
+      "syntax": "LIST:LOAD[:IMMediate]?",
+      "description": "Returns which list file group was recalled, as <NR1>.",
+      "isQuery": true
+    },
+    {
+      "category": "List",
+      "syntax": "[SOURce:]LIST:REP <NR1>",
+      "description": "Sets how many times the list steps repeat. Parameter 1-65535."
+    },
+    {
+      "category": "List",
+      "syntax": "LIST:REP?",
+      "description": "Returns the repeat count, 1-65535.",
+      "isQuery": true
+    },
+    {
+      "category": "List",
+      "syntax": "LIST:SAVE <NR1>",
+      "description": "Saves the list file to non-volatile memory. Parameter 0 to 9."
+    }
+  ]
+}

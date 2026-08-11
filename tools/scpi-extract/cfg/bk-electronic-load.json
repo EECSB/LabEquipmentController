@@ -1,0 +1,21 @@
+{
+  "instrument": "B&K Precision DC electronic load (8600 series)",
+  "source": "Transcribed from the B&K Precision 8600 Series Programmable DC Electronic Load Programming Manual. The level-setting commands are supplemented by hand: the guide prints them only in a right-hand 'Command Syntax' column whose entry carries no prose of its own. Cross-checked against pymeasure bkprecision and the Siglent SDL1000X set, which follows the same SCPI structure.",
+  "groups": [
+    { "file": "parsed/bk-8600.json" }
+  ],
+  "supplements": [
+    { "category": "Input", "syntax": "[SOURce:]FUNCtion <function>", "description": "Select the input regulation mode of the electronic load: CURRent, VOLTage, RESistance or POWer.", "example": "FUNCtion CURRent" },
+    { "category": "Input", "syntax": "[SOURce:]FUNCtion?", "description": "Query the input regulation mode of the electronic load.", "example": "FUNCtion?" },
+    { "category": "Source — Current", "syntax": "[SOURce:]CURRent[:LEVel][:IMMediate] <NRf+>", "description": "Set the current the load draws in constant-current mode.", "example": "CURRent 0.5" },
+    { "category": "Source — Current", "syntax": "[SOURce:]CURRent[:LEVel][:IMMediate]?", "description": "Query the constant-current setting.", "example": "CURRent?" },
+    { "category": "Source — Voltage", "syntax": "[SOURce:]VOLTage[:LEVel][:IMMediate] <NRf+>", "description": "Set the voltage the load holds in constant-voltage mode.", "example": "VOLTage 12" },
+    { "category": "Source — Voltage", "syntax": "[SOURce:]VOLTage[:LEVel][:IMMediate]?", "description": "Query the constant-voltage setting.", "example": "VOLTage?" },
+    { "category": "Source — Resistance", "syntax": "[SOURce:]RESistance[:LEVel][:IMMediate] <NRf+>", "description": "Set the resistance the load presents in constant-resistance mode.", "example": "RESistance 100" },
+    { "category": "Source — Resistance", "syntax": "[SOURce:]RESistance[:LEVel][:IMMediate]?", "description": "Query the constant-resistance setting.", "example": "RESistance?" },
+    { "category": "Source — Power", "syntax": "[SOURce:]POWer[:LEVel][:IMMediate] <NRf+>", "description": "Set the power the load dissipates in constant-power mode.", "example": "POWer 10" },
+    { "category": "Source — Power", "syntax": "[SOURce:]POWer[:LEVel][:IMMediate]?", "description": "Query the constant-power setting.", "example": "POWer?" },
+    { "category": "Input", "syntax": "[SOURce:]INPut[:STATe]?", "description": "Query whether the load input is on. The INPut and OUTPut commands are equivalent.", "example": "INPut?" }
+  ],
+  "commonCommands": ["*CLS", "*ESE", "*ESE?", "*ESR?", "*IDN?", "*OPC", "*OPC?", "*RCL", "*RST", "*SAV", "*SRE", "*SRE?", "*STB?", "*TRG", "*TST?", "*WAI"]
+}

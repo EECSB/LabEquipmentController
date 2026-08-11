@@ -1,0 +1,66 @@
+{
+  "instrument": "Spectrum analyzer (Rohde & Schwarz FSW8 / FSW13 / FSW26 / FSW43 / FSW50 / FSW67 / FSW85)",
+  "source": "Transcribed from the R&S FSW Signal and Spectrum Analyzer User Manual (1173.9411.02, version 56), chapter 13 Remote commands. Only 13.1 to 13.13 are read: 13.14 documents other manufacturers' commands for emulation mode, 13.15 is the deprecated set and 13.16 is prose. The parse is checked against the manual's own List of Commands (base unit) and anything that header index does not list is dropped, which is what keeps the abbreviated command lines inside the programming examples out. 1316 of the 1367 listed headers are documented in the chapter with a description and are here; of the 51 that are not, 30 are listed but never documented in this chapter, 9 carry a label block or a fragment where the description would be, and 2 appear only as a cross-reference. Query forms come from the manual's stated rule that a query exists for every setting command unless a Usage field says Query only, Setting only or Event. Re-emitted in August 2026 after the indented wrapped-clause join: 49 entries whose headings broke at the margin and were silently rejected at build came back — the gap-channel MANual tree, the ACPower adjacent- and alternate-channel limits, LIST:POWer, MSUMmary, MPOWer, EFRontend:CONNection:CONFig, PMETer<p>:DEFine, CALibration:DUE:DAYS, SNMP:USM:USER and INSTrument:COUPle:USER — and six documented \"? <SBGaps>\" query spellings folded into the bare forms their recovered setting commands generate by rule.",
+  "guide": {
+    "title": "R&S FSW Signal and Spectrum Analyzer User Manual",
+    "edition": "1173.9411.02 — Version 56",
+    "vendor": "Rohde & Schwarz",
+    "url": "https://www.rohde-schwarz.com/us/manual/fsw-user-manual-manuals_78701-29088.html",
+    "fileName": "RohdeSchwarz_FSW_SpectrumAnalyzer_UserManual.pdf"
+  },
+  "groups": [
+    {
+      "file": "parsed/rohde-fsw.json"
+    }
+  ],
+  "restrictTo": "parsed/rohde-fsw-list.json",
+  "commonCommands": [
+    "*CLS",
+    "*ESE",
+    "*ESE?",
+    "*ESR?",
+    "*IDN?",
+    "*OPC",
+    "*OPC?",
+    "*OPT?",
+    "*PSC",
+    "*PSC?",
+    "*RST",
+    "*SRE",
+    "*SRE?",
+    "*STB?",
+    "*TRG",
+    "*TST?",
+    "*WAI"
+  ],
+  "supplements": [
+    {
+      "category": "IEEE 488.2 Common",
+      "syntax": "*CAL?",
+      "description": "Initiates a calibration of the instrument and then queries the calibration status. Responses > 0 indicate errors.",
+      "isQuery": true
+    },
+    {
+      "category": "IEEE 488.2 Common",
+      "syntax": "*IST?",
+      "description": "Returns the contents of the IST flag in decimal form. The IST flag is the status bit which is sent during a parallel poll.",
+      "isQuery": true
+    },
+    {
+      "category": "IEEE 488.2 Common",
+      "syntax": "*PCB <Address>",
+      "description": "Indicates the controller address to which remote control is returned after termination of the triggered action. Range 0 to 30."
+    },
+    {
+      "category": "IEEE 488.2 Common",
+      "syntax": "*PRE <Value>",
+      "description": "Sets parallel poll enable register to the indicated value. Range 0 to 255."
+    },
+    {
+      "category": "IEEE 488.2 Common",
+      "syntax": "*PRE?",
+      "description": "Returns the contents of the parallel poll enable register in decimal form.",
+      "isQuery": true
+    }
+  ]
+}

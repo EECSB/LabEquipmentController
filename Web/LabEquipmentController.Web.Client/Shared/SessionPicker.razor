@@ -1,0 +1,30 @@
+@* Which instrument a page is talking to. Every page that needs one shows the same control,
+   so the answer to "which one is this operating on" is always in the same place. *@
+
+<div class="panel">
+    <div class="row">
+        <label for="session">Instrument</label>
+        <select id="session" value="@Selected" @onchange="OnChange">
+            @if (Sessions.Count == 0)
+            {
+                <option value="">— none connected —</option>
+            }
+            @foreach (var s in Sessions)
+            {
+                <option value="@s.Id">@s.ProfileName — @s.Address</option>
+            }
+        </select>
+        @if (Sessions.Count == 0)
+        {
+            <a href="">Connect one</a>
+        }
+    </div>
+</div>
+
+@code {
+    [Parameter] public IReadOnlyList<SessionDto> Sessions { get; set; } = [];
+    [Parameter] public string? Selected { get; set; }
+    [Parameter] public EventCallback<string?> SelectedChanged { get; set; }
+
+    private Task OnChange(ChangeEventArgs e) => SelectedChanged.InvokeAsync(e.Value?.ToString());
+}

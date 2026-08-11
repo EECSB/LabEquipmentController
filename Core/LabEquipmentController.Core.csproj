@@ -1,0 +1,91 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Transport + protocol + discovery + scripting, with zero UI references.
+    Targets plain net10.0 (not -windows) so it is portable and unit-testable
+    without WinForms. Keeps the LabEquipmentController namespace so the app and
+    tests need no using changes.
+  -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <LangVersion>latest</LangVersion>
+    <RootNamespace>LabEquipmentController</RootNamespace>
+    <AssemblyName>LabEquipmentController.Core</AssemblyName>
+  </PropertyGroup>
+
+  <!--
+    Published to nuget.org as "LabEquipmentController" — without the .Core suffix the
+    assembly carries, so nobody reads it as a .NET Core thing. The assembly keeps its
+    name because the WinForms app already owns "LabEquipmentController.exe"; a package id
+    differing from its assembly is ordinary, two assemblies sharing a name is not.
+
+      dotnet pack Core\LabEquipmentController.Core.csproj -c Release
+
+    Publishing is a separate, deliberate act needing an API key this repository does not
+    contain; the exact push command is in the README's NuGet section.
+  -->
+  <PropertyGroup>
+    <PackageId>LabEquipmentController</PackageId>
+    <!--
+      Prerelease on purpose. Anything with a hyphenated suffix is a prerelease to NuGet: it
+      stays out of search and out of an ordinary "dotnet add package" unless the prerelease
+      flag is passed, and it sorts before the eventual 1.0.0 — which stays unclaimed until
+      the API has been used by somebody other than this repository. A version, once pushed,
+      can never be reused or deleted, so 1.0.0 is worth spending only once.
+    -->
+    <Version>1.0.0-beta.2</Version>
+    <Authors>EECSB</Authors>
+    <Company>The EECS Blog</Company>
+    <Product>Lab Equipment Controller</Product>
+    <Title>Lab Equipment Controller — SCPI instrument control</Title>
+    <Description>Control lab instruments over Ethernet with SCPI, from .NET. Raw-socket and VXI-11 (LXI) transports, VISA resource strings, network discovery, instrument identification, script and sequence runners, waveform and screenshot decoding — and 35 curated command catalogs holding 23,174 commands transcribed from the manufacturers' own programming guides: Rohde &amp; Schwarz, Rigol, Siglent, Keysight, Chroma, B&amp;K Precision, GW Instek, Keithley, Tektronix and Fluke oscilloscopes, multimeters, power supplies, electronic loads, signal generators and spectrum analyzers. No UI dependency; runs on Windows, Linux and macOS.</Description>
+    <!--
+      Tags are how this is found at all: "scpi" returns twelve packages in total, and a
+      package with no downloads sorts last among them, so the vendor and instrument words
+      are what put it in front of the person who owns that instrument. Every one of these
+      is something the package actually does — the ten manufacturers each have shipped
+      catalogs. Deliberately absent: ivi, hislip, usbtmc, gpib, serial and modbus. They
+      would all draw traffic and none of them is true here, which is the same rule the
+      catalogs themselves are held to.
+    -->
+    <PackageTags>scpi;visa;vxi-11;lxi;instrument;instrument-control;test-equipment;test-and-measurement;test-automation;lab-automation;measurement;electronics;oscilloscope;multimeter;dmm;power-supply;electronic-load;signal-generator;function-generator;spectrum-analyzer;smu;rigol;keysight;siglent;tektronix;rohde-schwarz;keithley;fluke;chroma;gw-instek;bk-precision;ethernet;cross-platform</PackageTags>
+    <PackageProjectUrl>https://github.com/EECSB/LabEquipmentController</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/EECSB/LabEquipmentController</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <PackageReadmeFile>PACKAGE.md</PackageReadmeFile>
+    <PackageRequireLicenseAcceptance>false</PackageRequireLicenseAcceptance>
+    <Copyright>Copyright (c) 2026 EECSB</Copyright>
+
+    <!-- A stack trace from a consumer's machine should name a line in this repository. -->
+    <IncludeSymbols>true</IncludeSymbols>
+    <SymbolPackageFormat>snupkg</SymbolPackageFormat>
+    <PublishRepositoryUrl>true</PublishRepositoryUrl>
+    <EmbedUntrackedSources>true</EmbedUntrackedSources>
+    <ContinuousIntegrationBuild Condition="'$(CI)' == 'true'">true</ContinuousIntegrationBuild>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <!-- The XML comments in this library are prose, not a per-parameter checklist: CS1591 is
+         "no comment at all", CS1573 is "some parameters documented, not all". A record whose
+         summary explains the whole shape does not need a <param> per positional member.
+         CS1570 (malformed XML) is deliberately NOT suppressed — that one means the generated
+         documentation file is broken, which is a real defect in a shipped package. -->
+    <NoWarn>$(NoWarn);CS1591;CS1573</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <None Include="PACKAGE.md" Pack="true" PackagePath="\" />
+    <None Include="..\LICENSE" Pack="true" PackagePath="\" Visible="false" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Curated command catalogs, loaded by CommandReference as "commands.<name>.json". -->
+    <EmbeddedResource Include="CommandData\*.json" LogicalName="commands.%(Filename)%(Extension)" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="PdfPig" Version="0.1.15" />
+  </ItemGroup>
+
+</Project>

@@ -1,0 +1,66 @@
+{
+  "instrument": "Spectrum analyzer (Rohde & Schwarz FSU3 / FSU8 / FSU26 / FSU31 / FSU32 / FSU43 / FSU46 / FSU50 / FSU67)",
+  "source": "Transcribed from the R&S FSU Spectrum Analyzer Operating Manual (1313.9646.12-02), chapter 6 Remote Control - Description of Commands, served by R&S's own CDN. An FSU-era manual: headings sit at column 0 and carry their parameter clause in plain words on the same line — an alternation (ON | OFF) or a range (0 to 65535) — the labels are Example / Characteristics / Mode rather than a Usage field, and the exceptions to the query rule are stated in prose, 83 times, as 'This command is an event and therefore has no *RST value and no query'; the parser reads all of that. The manual's own Alphabetical List of Remote Commands is typeset as interleaved page columns pdftotext cannot reconstruct, so unlike the FSW there is no machine-readable index to restrict against; the coverage check is against the chapter's own column-0 headings, 149 of 167 of which are documented here — the rest are wrapped fragments and prose references. The IEEE 488.2 entries are curated rather than extracted: the guide's common-commands section describes the set in prose the extraction mangles, inventing query forms for *CLS, *RST, *TRG and *WAI and describing *RST with a note paragraph.",
+  "manufacturer": "Rohde & Schwarz",
+  "guide": {
+    "title": "R&S FSU Spectrum Analyzer Operating Manual",
+    "edition": "1313.9646.12 — 02",
+    "vendor": "Rohde & Schwarz",
+    "url": "https://www.rohde-schwarz.com/manual/fsu/",
+    "fileName": "RohdeSchwarz_FSU_SpectrumAnalyzer_OperatingManual.pdf"
+  },
+  "groups": [
+    {
+      "file": "parsed/rs-fsu.json"
+    }
+  ],
+  "commonCommands": [
+    "*CLS",
+    "*ESE",
+    "*ESE?",
+    "*ESR?",
+    "*IDN?",
+    "*OPC",
+    "*OPC?",
+    "*OPT?",
+    "*PSC",
+    "*PSC?",
+    "*RST",
+    "*SRE",
+    "*SRE?",
+    "*STB?",
+    "*TRG",
+    "*TST?",
+    "*WAI"
+  ],
+  "supplements": [
+    {
+      "category": "IEEE 488.2 Common",
+      "syntax": "*CAL?",
+      "description": "Initiates a calibration of the instrument and subsequently queries the calibration status. Responses greater than 0 indicate errors.",
+      "isQuery": true
+    },
+    {
+      "category": "IEEE 488.2 Common",
+      "syntax": "*IST?",
+      "description": "Returns the contents of the IST flag in decimal form. The IST flag is the status bit which is sent during a parallel poll.",
+      "isQuery": true
+    },
+    {
+      "category": "IEEE 488.2 Common",
+      "syntax": "*PCB <Address>",
+      "description": "Indicates the controller address to which remote control is returned after termination of the triggered action. Range 0 to 30."
+    },
+    {
+      "category": "IEEE 488.2 Common",
+      "syntax": "*PRE <Value>",
+      "description": "Sets the parallel poll enable register to the indicated value. Range 0 to 255."
+    },
+    {
+      "category": "IEEE 488.2 Common",
+      "syntax": "*PRE?",
+      "description": "Returns the contents of the parallel poll enable register in decimal form.",
+      "isQuery": true
+    }
+  ]
+}

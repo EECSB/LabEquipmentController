@@ -1,0 +1,28 @@
+{
+  "instrument": "Rohde & Schwarz oscilloscope (RTB2000 / RTM3000 / RTA4000)",
+  "source": "Transcribed from the R&S RTB2000 Digital Oscilloscope User Manual (1333.1611.02, version 09), whose Remote Control Commands chapter also covers the RTM3000 and RTA4000. Cross-checked against pymeasure rohdeschwarz and QCoDeS rohde_schwarz drivers.",
+  "groups": [
+    {
+      "file": "parsed/rs-rtb2000.json"
+    }
+  ],
+  "commonCommands": [
+    "*CLS",
+    "*ESE",
+    "*ESE?",
+    "*ESR?",
+    "*IDN?",
+    "*OPC",
+    "*OPC?",
+    "*OPT?",
+    "*RCL",
+    "*RST",
+    "*SAV",
+    "*SRE",
+    "*SRE?",
+    "*STB?",
+    "*TRG",
+    "*TST?",
+    "*WAI"
+  ]
+}

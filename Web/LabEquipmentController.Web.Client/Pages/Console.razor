@@ -1,0 +1,170 @@
+@page "/console"
+@inject BenchClient Bench
+@inject IJSRuntime JS
+
+<h1>Console</h1>
+<p class="lede">
+    Type SCPI and read the reply. A command containing <span class="mono">?</span> is a query, and
+    every numeric answer is also recorded in the table below.
+</p>
+
+<SessionPicker Sessions="_sessions" Selected="_sessionId" SelectedChanged="Select" />
+
+@if (_session is null)
+{
+    <div class="panel"><p class="muted">Connect an instrument on the Instruments page first.</p></div>
+}
+else
+{
+    <div class="panel">
+        <div class="row">
+            <span class="mono">@_session.Identity</span>
+            <span class="pill">@_session.ProfileName</span>
+            <span class="spacer"></span>
+            <button @onclick="Clear">Clear log</button>
+        </div>
+
+        @if (_session.QuickCommands.Count > 0)
+        {
+            <h2>Quick commands</h2>
+            <div class="row tight">
+                @foreach (var q in _session.QuickCommands)
+                {
+                    <button class="quick" title="@q.Command" @onclick="() => Send(q.Command)" disabled="@_busy">@q.Label</button>
+                }
+            </div>
+            <p class="muted" style="margin:.5rem 0 0">
+                These come from this family's catalog, not from a fixed list — every one is
+                transcribed from the manufacturer's own programming guide.
+            </p>
+        }
+    </div>
+
+    <div class="split">
+        <div class="panel">
+            <h2>Log</h2>
+            <div class="console" @ref="_logElement">
+                @foreach (var line in _log)
+                {
+                    <div class="@line.Css">@line.Text</div>
+                }
+            </div>
+            <div class="row" style="margin-top:.6rem">
+                <input class="grow mono" type="text" @bind="_command" @bind:event="oninput"
+                       @onkeydown="OnKey" placeholder="Type a SCPI command and press Enter" />
+                <button class="primary" @onclick="() => Send(_command)" disabled="@(_busy || string.IsNullOrWhiteSpace(_command))">Send</button>
+            </div>
+        </div>
+
+        <div class="panel">
+            <h2>Results</h2>
+            @if (_results.Count == 0)
+            {
+                <p class="muted">Numeric replies land here, with the time they arrived.</p>
+            }
+            else
+            {
+                <div class="row tight" style="margin-bottom:.5rem">
+                    <button @onclick="SaveCsv">Save CSV</button>
+                    <button @onclick="() => _results.Clear()">Clear</button>
+                </div>
+                <Plot Rows="_results" />
+                <div class="scroll">
+                    <table>
+                        <thead><tr><th>Time</th><th>Command</th><th>Value</th></tr></thead>
+                        <tbody>
+                            @foreach (var r in Enumerable.Reverse(_results))
+                            {
+                                <tr>
+                                    <td class="mono">@r.At.ToString("HH:mm:ss.fff")</td>
+                                    <td class="mono">@r.Command</td>
+                                    <td class="mono">@r.Value</td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            }
+        </div>
+    </div>
+}
+
+@code {
+    [Parameter, SupplyParameterFromQuery(Name = "session")]
+    public string? SessionFromQuery { get; set; }
+
+    private IReadOnlyList<SessionDto> _sessions = [];
+    private SessionDto? _session;
+    private string? _sessionId;
+    private string _command = "";
+    private bool _busy;
+    private ElementReference _logElement;
+
+    private readonly List<LogLine> _log = [];
+    private readonly List<Reading> _results = [];
+
+    private sealed record LogLine(string Text, string Css);
+    private sealed record Reading(DateTime At, string Command, string Value);
+
+    protected override async Task OnInitializedAsync()
+    {
+        _sessions = await Bench.SessionsAsync();
+        _sessionId = SessionFromQuery ?? _sessions.FirstOrDefault()?.Id;
+        _session = _sessions.FirstOrDefault(s => s.Id == _sessionId);
+    }
+
+    private void Select(string? id)
+    {
+        _sessionId = id;
+        _session = _sessions.FirstOrDefault(s => s.Id == id);
+        _log.Clear();
+        _results.Clear();
+    }
+
+    private async Task OnKey(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter") await Send(_command);
+    }
+
+    private async Task Send(string text)
+    {
+        if (_session is null || string.IsNullOrWhiteSpace(text)) return;
+        _busy = true;
+        _log.Add(new LogLine("> " + text, "echo"));
+        try
+        {
+            var reply = await Bench.SendAsync(_session.Id, text);
+            if (reply.Error is not null)
+            {
+                _log.Add(new LogLine("ERROR: " + reply.Error, "err"));
+            }
+            else if (reply.IsQuery)
+            {
+                _log.Add(new LogLine(reply.Reply ?? "", ""));
+                // Only numbers are worth plotting; an *IDN? string in a value column is noise.
+                if (double.TryParse(reply.Reply, System.Globalization.NumberStyles.Float,
+                                    System.Globalization.CultureInfo.InvariantCulture, out _))
+                    _results.Add(new Reading(DateTime.Now, text, reply.Reply ?? ""));
+            }
+            if (ReferenceEquals(text, _command) || text == _command) _command = "";
+        }
+        finally
+        {
+            _busy = false;
+            await JS.InvokeVoidAsync("lec.scrollToEnd", _logElement);
+        }
+    }
+
+    private void Clear() => _log.Clear();
+
+    private async Task SaveCsv()
+    {
+        var sb = new System.Text.StringBuilder("Time,Command,Value\r\n");
+        foreach (var r in _results)
+            sb.Append(r.At.ToString("O")).Append(',').Append(Csv(r.Command)).Append(',').Append(r.Value).Append("\r\n");
+        string base64 = Convert.ToBase64String(System.Text.Encoding.UTF8.GetBytes(sb.ToString()));
+        await JS.InvokeVoidAsync("lec.download", "readings.csv", "text/csv", base64);
+
+        static string Csv(string s) => s.IndexOfAny([',', '"', '\r', '\n']) >= 0 ? '"' + s.Replace("\"", "\"\"") + '"' : s;
+    }
+}

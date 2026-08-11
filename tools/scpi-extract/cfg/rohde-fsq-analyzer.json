@@ -1,0 +1,66 @@
+{
+  "instrument": "Signal analyzer (Rohde & Schwarz FSQ3 / FSQ8 / FSQ26 / FSQ39 / FSQ40)",
+  "source": "Transcribed from the R&S FSQ Signal Analyzer Operating Manual (1313.9681.12-02, covering the FSQ3 through FSQ40, 1313.9100Kxx), chapter 6 Remote Control - Description of Commands, served by R&S's own CDN. The FSU's generation and the FSU's layout: column-0 headings carrying plain-word parameter clauses, Example / Characteristics / Mode labels, and prose-stated query exceptions, all of which the parser reads. The IEEE 488.2 entries are curated rather than extracted, exactly as the FSU's are: the common-commands section describes the set in prose the extraction mangles, inventing query forms for *CLS, *RST, *TRG and *WAI.",
+  "manufacturer": "Rohde & Schwarz",
+  "guide": {
+    "title": "R&S FSQ Signal Analyzer Operating Manual",
+    "edition": "1313.9681.12 — 02",
+    "vendor": "Rohde & Schwarz",
+    "url": "https://www.rohde-schwarz.com/manual/fsq/",
+    "fileName": "RohdeSchwarz_FSQ_SignalAnalyzer_OperatingManual.pdf"
+  },
+  "groups": [
+    {
+      "file": "parsed/rs-fsq.json"
+    }
+  ],
+  "commonCommands": [
+    "*CLS",
+    "*ESE",
+    "*ESE?",
+    "*ESR?",
+    "*IDN?",
+    "*OPC",
+    "*OPC?",
+    "*OPT?",
+    "*PSC",
+    "*PSC?",
+    "*RST",
+    "*SRE",
+    "*SRE?",
+    "*STB?",
+    "*TRG",
+    "*TST?",
+    "*WAI"
+  ],
+  "supplements": [
+    {
+      "category": "IEEE 488.2 Common",
+      "syntax": "*CAL?",
+      "description": "Initiates a calibration of the instrument and subsequently queries the calibration status. Responses greater than 0 indicate errors.",
+      "isQuery": true
+    },
+    {
+      "category": "IEEE 488.2 Common",
+      "syntax": "*IST?",
+      "description": "Returns the contents of the IST flag in decimal form. The IST flag is the status bit which is sent during a parallel poll.",
+      "isQuery": true
+    },
+    {
+      "category": "IEEE 488.2 Common",
+      "syntax": "*PCB <Address>",
+      "description": "Indicates the controller address to which remote control is returned after termination of the triggered action. Range 0 to 30."
+    },
+    {
+      "category": "IEEE 488.2 Common",
+      "syntax": "*PRE <Value>",
+      "description": "Sets the parallel poll enable register to the indicated value. Range 0 to 255."
+    },
+    {
+      "category": "IEEE 488.2 Common",
+      "syntax": "*PRE?",
+      "description": "Returns the contents of the parallel poll enable register in decimal form.",
+      "isQuery": true
+    }
+  ]
+}

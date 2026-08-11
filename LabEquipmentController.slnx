@@ -1,0 +1,21 @@
+<Solution>
+  <Configurations>
+    <Platform Name="Any CPU" />
+    <Platform Name="x64" />
+    <Platform Name="x86" />
+  </Configurations>
+  <Folder Name="/Cli/">
+    <Project Path="Cli/LabEquipmentController.Cli.csproj" />
+  </Folder>
+  <Folder Name="/Core/">
+    <Project Path="Core/LabEquipmentController.Core.csproj" />
+  </Folder>
+  <Folder Name="/Tests/">
+    <Project Path="Tests/LabEquipmentController.Tests.csproj" />
+  </Folder>
+  <Folder Name="/Web/">
+    <Project Path="Web/LabEquipmentController.Web/LabEquipmentController.Web.csproj" />
+    <Project Path="Web/LabEquipmentController.Web.Client/LabEquipmentController.Web.Client.csproj" />
+  </Folder>
+  <Project Path="LabEquipmentController.csproj" />
+</Solution>

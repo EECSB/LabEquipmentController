@@ -1,0 +1,24 @@
+# The build context is the repository root, so keep out everything the image does not need.
+# Copying bin/obj in would also risk a host-built artefact shadowing the container's own.
+
+**/bin/
+**/obj/
+**/.vs/
+**/.git/
+**/.github/
+**/node_modules/
+
+# Vendor guides and the pipeline's intermediates: large, and not redistributable.
+datasheets/
+tools/scpi-extract/manuals/
+tools/scpi-extract/parsed/
+bench-reports/
+docs/images/
+
+# The desktop app and the CLI are not part of this image.
+Tests/
+installer/
+
+.env
+*.user
+*.suo
