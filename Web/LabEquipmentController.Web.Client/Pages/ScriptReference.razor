@@ -1,0 +1,200 @@
+@page "/script-language"
+@inject BenchClient Bench
+@inject IJSRuntime JS
+@inject NavigationManager Nav
+
+@* The desktop app's Help ▸ Script Language…, which is the one window the web build had no
+   answer for at all.
+
+   Same shape as that window: a title, a paragraph saying what kind of language this is, then
+   a section per idea — what it is for, and a script that shows it. The words come from Core's
+   ScriptGuide, which the desktop's own window reads, so the two cannot say different things.
+
+   Two languages, and the window that opens is the one for the editor you came from: the
+   multi-instrument language by default, as Help opens it, and the single-instrument one when
+   asked for. The desktop's version colours its examples with the same tokenizer its editor
+   uses, so that what you read looks like what you type — and now that the editor here is
+   Monaco with a grammar of its own, so does this: the examples are painted by the same
+   colouriser, out of the same grammar, in the theme the app is in. *@
+
+@* No heading, in either shape. The title bar names this window and the browser tab names it
+   again; which of the two languages is being read is said by the switch below and by the lead
+   sentence above it, both of which the desktop's window shows as well.
+
+   The lead stays for that reason — it is the guide's own first paragraph, out of Core's
+   ScriptGuide, and ScriptReferenceForm prints it too. It is the reference, not a wrapper
+   around it. *@
+
+@if (_guide is null)
+{
+    <p class="lede">@(_asked ? "The server did not answer." : "Reading…")</p>
+}
+else
+{
+    @* Two lines, always — see .lede.steady. The two languages describe themselves in about the
+       same number of words but not the same number of lines, and the switch is right underneath. *@
+    <p class="lede steady">@_guide.Lead</p>
+
+    @* Which of the two, as a switch rather than a link across to the other. They are peers —
+       two languages this one window shows one of — and a link says "go somewhere else", which
+       is what it did as a page and the wrong thing to say inside a window. Someone reading
+       about DEVICE and WITH is often the same person who wanted DELAY. *@
+    <div class="row" style="margin:-.4rem 0 .9rem">
+        <div class="seg" role="group" aria-label="Which language">
+            <button class="@(IsSequence ? "" : "on")" @onclick="() => Pick(false)"
+                    title="What a console's script editor runs: one instrument, one command to a line.">Single instrument</button>
+            <button class="@(IsSequence ? "on" : "")" @onclick="() => Pick(true)"
+                    title="DEVICE, WITH, FOR and RECORD, for driving several instruments at once.">Multi-instrument</button>
+        </div>
+        <span class="muted">@Which</span>
+    </div>
+
+    <div @ref="_samples">
+        @foreach (var s in _guide.Sections)
+        {
+            <div class="group">
+                <span class="cap">@s.Heading</span>
+                <p class="muted" style="margin:0 0 .6rem; max-width:78ch">@s.Prose</p>
+                @* Every example is a thing to try, so every example is one press from the editor
+                   it will be tried in. The desktop's reference is a rich text box, where this is
+                   select-and-Ctrl+C; here the words are painted spans and selecting them is
+                   fiddlier than it should be. *@
+                <div class="samplebox">
+                    <pre class="sample">@s.Example.TrimEnd('\n')</pre>
+                    <button class="copy @(_copied == s.Heading ? "done" : "")"
+                            @onclick="() => Copy(s)"
+                            title="Copy this example to the clipboard.">
+                        <Icon Name="copy" />@(_copied == s.Heading ? " Copied" : "")
+                    </button>
+                </div>
+            </div>
+        }
+    </div>
+}
+
+@code {
+    /// <summary>
+    /// Which of the two languages, when this is a page. True — the multi-instrument one — by
+    /// default, because that is what the desktop's Help menu opens.
+    /// </summary>
+    [Parameter, SupplyParameterFromQuery(Name = "sequence")]
+    public bool? SequenceFromQuery { get; set; }
+
+    /// <summary>True when hosted in a dialog rather than shown as a page: the dialog's own
+    /// title bar names it, and the switch between the two languages cannot be a link.</summary>
+    [Parameter] public bool Embedded { get; set; }
+
+    /// <summary>
+    /// Which language to open on when hosted: the one the editor that opened it speaks. Only a
+    /// starting point - the reader can cross to the other, and does not get put back on this one
+    /// every time whatever is hosting it re-renders.
+    /// </summary>
+    [Parameter] public bool? Sequence { get; set; }
+
+    private ScriptGuideDto? _guide;
+    private bool _asked;
+
+    /// <summary>
+    /// The one being read. In a dialog it is this component's own state, because there is no
+    /// address to keep it in — following a link would navigate the page underneath and take
+    /// the dialog with it.
+    /// </summary>
+    private bool _sequence = true;
+    private bool IsSequence => _sequence;
+
+    /// <summary>What the one being read is for, beside the switch that chose it.</summary>
+    private string Which => _sequence
+        ? "DEVICE, WITH, FOR and RECORD, for driving several at once."
+        : "What a console's script editor runs.";
+
+    private ElementReference _samples;
+
+    /// <summary>Which example was just copied, so its own button can say so for a moment.</summary>
+    private string? _copied;
+
+    /// <summary>
+    /// The example onto the clipboard, trimmed the way it is shown. The button says so for a couple
+    /// of seconds afterwards: a copy that leaves no mark is one people press twice to be sure, and a
+    /// mark that is gone before the eye reaches it is the same thing.
+    /// </summary>
+    private async Task Copy(ScriptSectionDto section)
+    {
+        await JS.InvokeAsync<string?>("lec.copyText", section.Example.TrimEnd('\n'));
+
+        _copied = section.Heading;
+        StateHasChanged();
+        await Task.Delay(2500);
+        if (_copied != section.Heading) return;
+
+        _copied = null;
+        StateHasChanged();
+    }
+
+    /// <summary>
+    /// Re-read on every navigation, not only the first: as a page the two languages are one
+    /// component at two addresses, and Blazor keeps it alive across that move.
+    /// </summary>
+    protected override async Task OnParametersSetAsync()
+    {
+        if (Embedded)
+        {
+            // Once. In a window the toggle is this component's own state, and re-reading a
+            // parameter on every render would take the reader back to the other language every
+            // time anything above it changed.
+            if (_seeded) return;
+            _seeded = true;
+            _sequence = Sequence ?? true;
+        }
+        else
+        {
+            _sequence = SequenceFromQuery ?? true;
+        }
+
+        await Load();
+    }
+
+    private bool _seeded;
+
+    /// <summary>
+    /// Cross to the other language. In a window that is this component's own state; as a page
+    /// it is the address, so the two languages stay two things that can be linked to and come
+    /// back to.
+    /// </summary>
+    private async Task Pick(bool sequence)
+    {
+        if (sequence == _sequence) return;
+
+        if (!Embedded)
+        {
+            Nav.NavigateTo(sequence ? "script-language" : "script-language?sequence=false");
+            return;
+        }
+
+        _sequence = sequence;
+        await Load();
+    }
+
+    /// <summary>
+    /// Paint the examples with the editor's own colouriser, which is what the desktop's
+    /// reference does. After every render: a language switch replaces the samples, and the
+    /// interop leaves alone the ones it has already painted and whose text has not changed.
+    /// </summary>
+    protected override async Task OnAfterRenderAsync(bool first)
+    {
+        if (_guide is null) return;
+        await JS.InvokeVoidAsync("lec.monaco.colorizeIn", _samples, await Dark());
+    }
+
+    private async Task<bool> Dark()
+        => await JS.InvokeAsync<bool>("eval",
+            "document.documentElement.dataset.theme === 'dark' || (!document.documentElement.dataset.theme "
+          + "&& window.matchMedia('(prefers-color-scheme: dark)').matches)");
+
+    private async Task Load()
+    {
+        _guide = null;
+        _asked = true;
+        try { _guide = await Bench.ScriptGuideAsync(_sequence); }
+        catch { _guide = null; }
+    }
+}

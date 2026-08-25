@@ -1,0 +1,193 @@
+@inject IJSRuntime JS
+
+@* The windows the desktop app opens beside its main one: the command library, the script
+   language, and the multi-instrument script editor. Windows there, so windows here — over
+   whatever you were doing rather than instead of it, which is the point of a reference.
+   Looking up what a command is called should not cost you the script you were writing.
+
+   Several at once, and each in front of the others as it is touched. On the desktop these are
+   separate forms and nothing stops all three being open; a single dialog switched between them
+   could only ever hold the last thing pressed, so opening the library closed the language
+   reference beside it.
+
+   Each one keeps its address, and the head carries a link to it. A reference is a thing people
+   want beside the work rather than on top of it, and a browser is better at that than any
+   dialog: the link opens the same page in a tab of its own, in a named window, so pressing it
+   twice comes back to the one already open instead of starting a second. *@
+
+@foreach (var window in _open.ToArray())
+{
+    <ToolWindow @key="window" @ref="_windows[window]"
+                Fill="@(window == Window.Sequences)"
+                Title="@TitleOf(window)" OnClosed="() => Close(window)">
+        <Head>
+            @* And the window goes with it. "Open in a tab" moves this window into a tab rather
+               than making a second copy of it — which is what detaching a console does, and what
+               leaving the dialog open behind the new tab would contradict. Closing the tab puts
+               it back here; see lec.windows.claimTool. *@
+            <a class="btn" href="@AddressOf(window)" target="@TabOf(window)" @onclick="() => SentOut(window)"
+               title="Move this into a browser tab of its own, so it can sit beside the work instead of over it. Closing that tab brings it back here. Shift-click for a separate window.">
+                <Icon Name="detach" /> Open in a tab
+            </a>
+        </Head>
+        <ChildContent>
+            @* Built only while the window is open, so each opening starts fresh rather than
+               showing what was left behind — and so a catalog of 24,000 commands is not sitting
+               in the render tree of every page that happens to have the gear on it. *@
+            @switch (window)
+            {
+                case Window.Catalog:
+                    <Catalog Embedded="true" />
+                    break;
+
+                case Window.Language:
+                    <ScriptReference Embedded="true" />
+                    break;
+
+                case Window.Sequences:
+                    <Sequences Embedded="true" />
+                    break;
+            }
+        </ChildContent>
+    </ToolWindow>
+}
+
+@code {
+    private enum Window { Catalog, Language, Sequences }
+
+    /// <summary>What is open, oldest first.</summary>
+    private readonly List<Window> _open = [];
+
+    /// <summary>Each open window, so asking for one already open brings it forward.</summary>
+    private readonly Dictionary<Window, ToolWindow> _windows = [];
+
+    private static string TitleOf(Window window) => window switch
+    {
+        Window.Catalog => "Command Library",
+        Window.Language => "Script Language Reference",
+        Window.Sequences => "Multi-Instrument Scripts",
+        _ => "",
+    };
+
+    private static string AddressOf(Window window) => window switch
+    {
+        Window.Catalog => "catalog",
+        Window.Sequences => "sequences",
+        _ => "script-language",
+    };
+
+    /// <summary>Named, so pressing the link twice returns to the tab already open.</summary>
+    private static string TabOf(Window window) => window switch
+    {
+        Window.Catalog => "lec-catalog",
+        Window.Sequences => "lec-sequences",
+        _ => "lec-script-language",
+    };
+
+    public Task ShowCatalogAsync() => Show(Window.Catalog);
+
+    public Task ShowLanguageAsync() => Show(Window.Language);
+
+    public Task ShowSequencesAsync() => Show(Window.Sequences);
+
+    /// <summary>
+    /// Which of these went out into a browser tab, and whether that tab has been heard from yet.
+    /// </summary>
+    /// <remarks>
+    /// The flag is the whole of the timing question. A tab still fetching the runtime cannot
+    /// answer a roll-call, and one held against it would be dragged home while it was opening —
+    /// so silence only counts once there has been a voice: a window comes back when a tab that
+    /// <em>had</em> answered stops answering, which is what a tab being closed looks like.
+    ///
+    /// Shared by every one of these on the page, because there are two — the bench has one and
+    /// the gear menu has another — and the tab that answers the roll-call belongs to neither of
+    /// them in particular. Held per instance, a window sent out from the gear was recorded there
+    /// and asked after here, and came home to nobody. Which of the two reopens it does not
+    /// matter: they draw the same window and there is only ever one page.
+    /// </remarks>
+    private static readonly Dictionary<Window, bool> _out = [];
+
+    /// <summary>
+    /// This window is moving into a browser tab of its own: it closes here, and it is remembered
+    /// as being out there, so that its tab closing brings it back.
+    /// </summary>
+    private async Task SentOut(Window what)
+    {
+        _out[what] = false;
+        Close(what);
+        await Watching();
+    }
+
+    /// <summary>
+    /// Tell the roll-call whether it has anyone to call. It goes out when this page is looked at
+    /// again, which covers coming back to it — and on a timer while something is out, which covers
+    /// the case that does not: two OS windows side by side, where closing one raises no event in
+    /// the other at all.
+    /// </summary>
+    private ValueTask Watching() => JS.InvokeVoidAsync("lec.windows.expect", _out.Count);
+
+    /// <summary>A tab has spoken up for one of these — it is open, and it is out there.</summary>
+    public void Heard(string route)
+    {
+        var what = Of(route);
+        if (what is not null && _out.ContainsKey(what.Value)) _out[what.Value] = true;
+    }
+
+    /// <summary>
+    /// Everything genuinely open in a tab right now. Anything this had heard from and no longer
+    /// hears has had its tab closed, so it comes back as a window.
+    /// </summary>
+    public async Task SettleAsync(string[] present)
+    {
+        var home = _out
+            .Where(p => p.Value && !present.Contains(AddressOf(p.Key), StringComparer.Ordinal))
+            .Select(p => p.Key)
+            .ToList();
+
+        if (home.Count == 0) return;
+
+        foreach (var window in home)
+        {
+            _out.Remove(window);
+            await Show(window);
+        }
+
+        await Watching();
+    }
+
+    /// <summary>Which window a route names, or null for one that names none of them.</summary>
+    private static Window? Of(string route) => route switch
+    {
+        "catalog" => Window.Catalog,
+        "sequences" => Window.Sequences,
+        "script-language" => Window.Language,
+        _ => null,
+    };
+
+    /// <summary>
+    /// Open one, or bring the one already open forward. Not reopen it: the multi-instrument
+    /// editor holds a script being written, and rebuilding it would throw that away.
+    /// </summary>
+    private async Task Show(Window what)
+    {
+        if (_open.Contains(what))
+        {
+            if (_windows.TryGetValue(what, out var open)) await open.RaiseAsync();
+            return;
+        }
+
+        _open.Add(what);   // the window shows itself once it has been rendered
+        StateHasChanged();
+    }
+
+    /// <summary>
+    /// Shut, by its ✕ or by Esc. Dropping it is what empties it — the body is only rendered
+    /// while the window is in the list.
+    /// </summary>
+    private void Close(Window what)
+    {
+        _open.Remove(what);
+        _windows.Remove(what);
+        StateHasChanged();
+    }
+}

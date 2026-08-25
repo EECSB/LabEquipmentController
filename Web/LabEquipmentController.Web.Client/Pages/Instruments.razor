@@ -1,158 +1,1076 @@
 @page "/"
+@implements IAsyncDisposable
 @inject BenchClient Bench
+@inject IJSRuntime JS
 @inject NavigationManager Nav
 
-<h1>Instruments</h1>
-<p class="lede">
-    Sweep the bench network for anything that answers <span class="mono">*IDN?</span>, then open a
-    console on it. The scan runs on the server, not in your browser.
-</p>
+@* The desktop app's main window, in the same three bands and the same order: the scan
+   controls, the grid of what answered, and then the consoles — one tab per connected
+   instrument, inside the group at the foot of the window.
 
-<div class="panel">
+   The tabs were at the top of the page with a Bench tab beside them, which made the bench
+   itself one console among several and hid it whenever you were talking to an instrument.
+   The desktop has never done that: the scan and the results are always on screen and the
+   tabs live down in the Instrument Consoles box, so you can watch a sweep find something and
+   drive what it found without either one going away.
+
+   Every console stays in the render tree, hidden rather than removed, so switching tabs
+   keeps each one's log, readings and half-typed command. That is the whole point of tabs.
+   A console in its own browser window is the exception: it is genuinely elsewhere, so its
+   tab dims and its pane says so. *@
+
+@if (_blocked is not null)
+{
+    <p class="error" style="margin:-.4rem 0 .85rem">
+        The browser blocked that window. Allow pop-ups for this site, or
+        <a href="@_blocked" target="@_blockedName">open the console in a tab from here</a>.
+    </p>
+}
+
+@* ------------------------------------------------------------------- the bench *@
+
+<div class="group">
+    @* The captions and the field labels are the desktop's, letter for letter, down to the
+       colons and the capitals. Someone who has used the app on the bench PC is reading the
+       same words in the same order; sentence case here and title case there is two apps. *@
+    @* The heading, made a control — the desktop's, and the same switch it draws there.
+
+       Each half is a whole caption rather than a word with a shared "Scan" after it: the two
+       read as the two things this card can be, and the selected half is the card's title
+       outright.
+
+       It is the heading of this card because that is the honest scope of it: the choice
+       governs the inputs here, the columns of the list below, and which box the Address row
+       shows. A switch on the address row instead left this card still saying "Network Scan"
+       while the box under it held COM3.
+
+       Network is the default in both builds and is not remembered: opening onto a card
+       listing the ports of a machine whose adapter may not be plugged in costs far more than
+       the one click it saves. *@
+    <span class="cap">
+        <span class="seg" role="group" aria-label="Which kind of bench">
+            <button class="@(_serial ? "" : "on")" @onclick="() => SetScanKind(false)" disabled="@_scanning"
+                    title="Look for instruments over the network — a sweep of the subnet or the IP range given. This is the default.">Network Scan</button>
+            <button class="@(_serial ? "on" : "")" @onclick="() => SetScanKind(true)" disabled="@_scanning"
+                    title="Look at the server's RS-232 serial ports instead, including any USB-to-serial adapter. They are listed rather than swept: a serial port cannot be discovered the way a subnet can, so Scan asks the ports the server already has.">Serial Scan</button>
+        </span>
+    </span>
+
+    @* One row, and only the half of it that belongs to the chosen bench. The button that
+       answers the row is outside the branch: there is one Scan, and which sweep it starts is
+       the switch above, not a second control. *@
     <div class="row">
-        <label for="iface">Interface</label>
-        <select id="iface" @bind="_interfaceAddress">
+        @if (!_serial)
+        {
+        <label for="iface" title="Which of this PC's network adapters to search on.">Interface:</label>
+        <select id="iface" @bind="_interfaceAddress" @bind:after="InterfaceChanged" disabled="@_scanning"
+                title="Network adapter and subnet to scan. Pick the one on the same network as your instruments — the host count shows how many addresses will be probed.">
             @foreach (var i in _interfaces)
             {
                 <option value="@i.Address">@i.Address/@i.PrefixLength — @i.Name (@i.HostCount hosts)</option>
             }
         </select>
 
-        <label for="range">IP range</label>
-        <input id="range" type="text" @bind="_range" placeholder="20-60, or blank for the whole subnet" size="26" />
+        <label for="range" title="Which addresses to probe. Empty scans the whole subnet.">IP range:</label>
+        <input id="range" type="text" @bind="_range" size="20" disabled="@_scanning"
+               placeholder="blank sweeps the whole subnet" title="@RangeHelp" />
 
-        <label for="ports">Ports</label>
-        <input id="ports" type="text" @bind="_ports" placeholder="5025,111" size="12" />
+        @* Filled, not hinted. The desktop's is a drop-down with these seven presets and the
+           last of them already in the box; here that is an input with a datalist, which is
+           the same control. The placeholder it replaces said "5025,111" while an empty box
+           actually swept all four of NetworkScanner.CommonScpiPorts — a hint that was not
+           only unfilled but wrong. *@
+        <label for="ports" title="TCP ports probed on each address.">SCPI Port(s):</label>
+        <input id="ports" type="text" @bind="_ports" list="port-presets" size="20" disabled="@_scanning"
+               title="TCP ports to probe, comma-separated. 5025 is the usual raw SCPI socket, 5555 is Rigol's, 111 is the RPC portmapper used to find VXI-11 instruments, and 3490 is where a Fluke 8845A/8846A answers." />
+        <datalist id="port-presets">
+            <option value="5025"></option>
+            <option value="5555"></option>
+            <option value="3490"></option>
+            <option value="111"></option>
+            <option value="5025, 5555"></option>
+            <option value="5025, 5555, 111"></option>
+            <option value="5025, 5555, 3490, 111"></option>
+        </datalist>
+        }
+        else
+        {
+        @* The same two questions asked of a serial bench: which ports, and at what speed.
+           "Ports:" is the counterpart of Interface — how much of the bench this covers, and
+           how much of it there is — and the baud list is the counterpart of SCPI Port(s):
+           a short written list of the values worth trying, tried in order. *@
+        <label for="scope" title="Which of the server's serial ports Scan opens.">Ports:</label>
+        <select id="scope" @bind="_serialScope" disabled="@_scanning"
+                title="All of the server's serial ports, or a single one. Re-read each time this card switches to Serial, so an adapter plugged in just now is in the list.">
+            <option value="">All serial ports — @_serialPorts.Count found</option>
+            @foreach (string p in _serialPorts)
+            {
+                <option value="@p">@p</option>
+            }
+        </select>
 
-        <button class="primary" @onclick="Scan" disabled="@_scanning">
-            @(_scanning ? "Scanning…" : "Scan")
-        </button>
-        <span class="muted">@_scanStatus</span>
+        <label for="bauds" title="The baud rates Scan tries on each port.">Baud rate(s):</label>
+        <input id="bauds" type="text" @bind="_bauds" list="baud-presets" size="26" disabled="@_scanning"
+               title="Tried in the order written, stopping at the first that answers. Most instruments ship at 9600; anything made this century is usually set to 115200. Everything else stays at 8-N-1 with no flow control — set those per port in the Address box if one needs them." />
+        <datalist id="baud-presets">
+            <option value="9600"></option>
+            <option value="115200"></option>
+            <option value="9600, 115200"></option>
+            <option value="9600, 115200, 19200, 38400, 57600"></option>
+            <option value="1200"></option>
+            <option value="2400"></option>
+            <option value="4800"></option>
+            <option value="19200"></option>
+            <option value="38400"></option>
+            <option value="57600"></option>
+        </datalist>
+        }
+
+        @* The same wide step as before Connect below, and for the same reason: the inputs are
+           one question, and Scan is what answers it. *@
+        <span class="answer"></span>
+
+        @* One button, two jobs — the desktop's Scan does the same. A sweep of a /20 runs
+           for minutes, and the thing you want while it does is the way out of it. *@
+        @if (_scanning)
+        {
+            <button class="danger" @onclick="Stop" title="Stop the running scan. Whatever has answered so far stays in the list."><Icon Name="stop" /> Stop</button>
+        }
+        else
+        {
+            <button class="primary" @onclick="Scan"
+                    title="@(_serial ? ScanSerialHelp : ScanNetworkHelp)"><Icon Name="scan" /> Scan</button>
+        }
     </div>
 
-    @if (_interfaces.Count == 0)
+    @* Always here, with nothing running. This row is the full width of the card and the
+       list of found instruments sits directly under it, so a row that appears when Scan is
+       pressed shoves that list down at the exact moment you have started watching it — and
+       shoves it again when the bar goes away at the end. The desktop's scan group keeps
+       its bar and its "Ready." on screen for the same reason.
+
+       Determinate: the address list is counted before the first probe, so the bar can say
+       how far along it is rather than only that it is busy. Counted in per cent rather
+       than in hosts, so the scale still means something before there is a host count. *@
+    <div class="row" style="margin-top:.55rem">
+        <div class="bar" role="progressbar" aria-label="Scan progress"
+             title="How far the current scan has progressed through the subnet."
+             aria-valuemin="0" aria-valuemax="100" aria-valuenow="@Percent">
+            <div class="fill" style="width:@(Percent)%"></div>
+        </div>
+        @* Clipped to one line by the stylesheet; the whole of it stays in the tooltip. *@
+        <span class="muted" title="@_scanStatus">@_scanStatus</span>
+    </div>
+
+    @if (!_serial && _interfaces.Count == 0)
     {
-        <p class="error">
+        <p class="error" style="margin:.6rem 0 0">
             The server can see no usable network interface. In Docker that almost always means the
             container is on a bridge network instead of the host's — see the compose file.
         </p>
     }
+    @* The same sentence for the same shape of problem, and the same fix in the same file: a
+       container starts with no serial ports, and host networking does not carry them. *@
+    @if (_serial && _serialPorts.Count == 0)
+    {
+        <p class="error" style="margin:.6rem 0 0">
+            The server has no serial ports. In Docker they have to be passed in one at a time
+            with a <code>devices:</code> entry — see the compose file.
+        </p>
+    }
 </div>
 
-@if (_devices.Count > 0)
-{
-    <div class="panel">
-        <h2>Found</h2>
+<div class="group">
+    <span class="cap">
+        Discovered Instruments
+        @* Always, as the desktop's group box says it always. It described a gesture that only
+           existed once there was a row to make it on, which is the wrong way round: the thing
+           you need to be told before you have tried anything is how to use what appears. *@
+        <span class="hint">(double-click a row to connect)</span>
+    </span>
+
+    @* The table stands whether or not anything has answered, as the desktop's list view does:
+       a ListView with columns draws its header row from the moment the window opens. A
+       sentence in its place said what the empty table says by being empty, and moved the
+       four headings down the card every time a scan found its first instrument. *@
+    @* The list and the row that acts on it are one block, so the table is never narrower than
+       the controls under it: its right edge lands on Connect's rather than stopping short in
+       the middle of the card, which read as a table that had failed to draw. The wider of the
+       two sets the width — a scan that finds a long identity string widens the frame, and the
+       row stays where it is. *@
+    <div class="fitcol">
+    <div class="scroll fit" style="max-height:260px; margin-bottom:.6rem"
+         title="Instruments found by the last scan. Click a row to put its address in the box below; double-click to open a console for it.">
         <table>
             <thead>
-                <tr><th>Address</th><th>Port</th><th>Transport</th><th>Identity</th><th></th></tr>
+                @* The desktop's four column headings, letter for letter — they are also
+                   the header row Core writes into the exported CSV, so the screen and the
+                   file name the same four things the same way. *@
+                @* The first two hold different things in the two modes and are named for
+                   what they hold: an address and a TCP port, or a port name and its line
+                   settings. The other two are the same either way. *@
+                <tr>
+                    <th>@(_serial ? "Port" : "IP Address")</th>
+                    <th>@(_serial ? "Settings" : "Port")</th>
+                    <th>Protocol</th>
+                    @* Export Results lives in the last heading, hard against its right edge —
+                       the corner of the box it writes out, which is where the desktop pins it:
+                       Place(btnExport, lstDevices.Right - btnExport.Width). Under the table it
+                       needed a row of its own, and that row was one button and a card's width
+                       of nothing. Dead until there is a list to write. *@
+                    <th class="act">
+                        <span class="cell">
+                            Identity (*IDN?)
+                            <button @onclick="ExportResults" disabled="@(_devices.Count == 0)"
+                                    title="Save the discovered-instrument list to a CSV file.">
+                                <Icon Name="savefile" /> Export Results&hellip;
+                            </button>
+                        </span>
+                    </th>
+                </tr>
             </thead>
             <tbody>
+                @if (_devices.Count == 0)
+                {
+                    @* One empty row, always. A list view keeps its row area whether or not
+                       anything is in it, and four headings standing alone on a card read as
+                       a table that failed to draw rather than as one waiting to be filled.
+                       The space is what carries the height; the other three cells are as
+                       empty as they look. *@
+                    <tr class="blank"><td class="mono">&nbsp;</td><td></td><td></td><td></td></tr>
+                }
                 @foreach (var d in _devices)
                 {
-                    <tr>
+                    @* Click selects and fills the Address box with the full endpoint —
+                       including the port the scan actually found, which is the whole
+                       point: a Rigol answering on 5555 is not the same address as one
+                       assumed on 5025. Double-click connects, as on the desktop. *@
+                    @* Highlighted when the box below holds this row, in either mode: the
+                       serial box holds a port name and TypedAddress is what that becomes. *@
+                    <tr class="clickable @(Endpoint(d) == TypedAddress ? "on" : "")"
+                        @onclick="() => Pick(d)"
+                        @ondblclick="() => Connect(Endpoint(d))">
                         <td class="mono">@d.Address</td>
-                        <td class="mono">@d.Port</td>
+                        @* A serial port has no port number; the second column carries the
+                           line settings instead, which is what has to match before a
+                           character gets through. *@
+                        <td class="mono">@(_serial ? d.Settings : d.Port.ToString())</td>
                         <td>@d.Transport</td>
                         <td class="mono">@d.Identity</td>
-                        <td><button @onclick="() => Connect(Endpoint(d))" disabled="@_connecting">Connect</button></td>
                     </tr>
                 }
             </tbody>
         </table>
     </div>
-}
 
-<div class="panel">
-    <h2>Connect by address</h2>
     <div class="row">
-        <input type="text" @bind="_address" placeholder="192.168.1.20, host:5025, vxi://host, or a VISA resource" size="52" />
-        <button @onclick="() => Connect(_address)" disabled="@_connecting">Connect</button>
-        @if (_connectError is not null)
+        <label for="addr" title="Address of the instrument to connect to.">Address:</label>
+
+        @* Which of the two boxes shows is the scan card's switch, not a second switch here.
+           One choice, one control: the card, the columns and this box are all about the same
+           bench, and two switches that had to agree would eventually not. *@
+
+        @* An address and nothing more. Stretched across the card it was a box the width of a
+           paragraph waiting for twenty-one characters. Sized for the longest thing that goes
+           in it — 255.255.255.255:65535 — and no further. *@
+        @if (!_serial)
         {
-            <span class="error">@_connectError</span>
+            <input id="addr" class="mono" type="text" @bind="_address" size="22"
+                   placeholder="192.168.1.50:5555"
+                   title="Instrument address. Accepts a plain IP, an IP with port (192.168.1.50:5555), a vxi:// address, a serial port on the server (serial://COM3, or serial://COM3?baud=115200 at other line settings), or a VISA resource string (TCPIP0::192.168.1.50::inst0::INSTR)." />
+        }
+        else
+        {
+            @* The desktop's editable combo box, said the way a browser says it: a text input
+               with a list attached, so a port can be chosen or typed. A plain select could
+               only be chosen from, and the line settings have to be typeable. *@
+            <input id="addr" class="mono" type="text" @bind="_serialPort" size="22"
+                   list="serialports" @onfocus="LoadPortsAsync"
+                   placeholder="@(_serialPorts.Count == 0 ? "no ports on the server" : "COM3")"
+                   title="The serial ports on the machine running the server — a browser has none of its own. Type instead of choosing to reach a port that is not listed, or to set the line settings: COM3?baud=115200, and likewise parity, databits, stopbits, flow and term. Without them it is 9600-8-N-1, no flow control." />
+            <datalist id="serialports">
+                @foreach (string p in _serialPorts)
+                {
+                    <option value="@p"></option>
+                }
+            </datalist>
+        }
+
+        @* Beside Connect rather than up with the scan, because it is the instrument timeout:
+           used when connecting and on every query afterwards. The scan has its own short,
+           fixed probe timeouts, so a long value here never slows discovery. The desktop's
+           numbers exactly — 100 to 30000, in steps of 500, starting at 3000. *@
+        <label for="timeout" title="How long to wait for the instrument, when connecting and on every query afterwards.">Timeout (ms):</label>
+        <input id="timeout" class="num" type="number" @bind="_timeoutMs" min="100" max="30000" step="500"
+               title="Milliseconds to wait for the instrument. Applies to the connection and to every query on it afterwards, not to the scan — that has its own short probe timeouts." />
+
+        @* The wide step the desktop puts before the control that answers a row: the address
+           and the timeout are halves of one question and Connect is the answer to it, so it
+           stands apart from them rather than at the end of a run of boxes. *@
+        <span class="answer"></span>
+
+        @* One button, two jobs, exactly as Scan does. Worth having because connecting is the
+           one operation here that can hang for a long time with nothing to show for it: a
+           raw-socket connect to an address that answers ARP but has nothing listening sits in
+           SYN retransmits, and VXI-11 makes two of them. *@
+        @if (_connecting)
+        {
+            <button class="danger" @onclick="CancelConnect"
+                    title="Stop trying to connect. The attempt is dropped at the server, not merely ignored here.">
+                <Icon Name="stop" /> Cancel
+            </button>
+        }
+        else
+        {
+            <button @onclick="() => Connect(TypedAddress)"
+                    title="Open a console for the address shown. Each instrument gets its own tab below, so several can be connected at once.">
+                <Icon Name="connect" /> Connect
+            </button>
         }
     </div>
+    </div>
+
+    @* Under the block rather than at the end of the row. A failed connect says why in a
+       sentence — "no route to host", a VISA resource that parsed but answered nothing — and a
+       sentence at the end of a row of boxes would decide how wide the block is. *@
+    @if (_connectError is not null)
+    {
+        <p class="error" style="margin:.5rem 0 0">@_connectError</p>
+    }
 </div>
 
-<div class="panel">
-    <h2>Open connections</h2>
+@* --------------------------------------------------------------- the consoles *@
+
+@* The desktop's Instrument Consoles group: a tab per open instrument, the console of
+   whichever tab is on, and — while nothing is connected — a note in place of the empty tab
+   strip, because a blank panel with no explanation reads as a broken window. *@
+
+<div class="group consoles">
+    <div class="cap-row">
+        <span class="cap">Instrument Consoles</span>
+        <span class="spacer"></span>
+        @* Always here, connected or not — as the desktop keeps its own, and for the same
+           reason: a multi-instrument script is written before the instruments are connected
+           as often as after. It used to sit at the end of the tab strip, which meant it did
+           not exist until something was in that strip. *@
+        <button @onclick="OpenSequences"
+                title="Write and run one script that drives several instruments at once, for measurements where they have to take turns.">
+            <Icon Name="script" /> Multi-Instrument Scripts&hellip;
+        </button>
+    </div>
+
     @if (_sessions.Count == 0)
     {
-        <p class="muted">None. Connect something above — every other page works from these.</p>
+        @* "Scan the network above" is the one sentence on screen telling a new reader what to
+           do next, so it has to be about the card that is actually above it. *@
+        <p class="none">
+            @if (_serial)
+            {
+                @:No instrument connected. Pick a serial port above and press Connect — or click
+                @:one of the rows — to open a console for it. Each instrument gets its own tab,
+                @:and any console can be opened in a browser tab of its own.
+            }
+            else
+            {
+                @:No instrument connected. Scan the network above, then click one of the results — or
+                @:type its address and press Connect — to open a console for it. Each instrument gets
+                @:its own tab, and any console can be opened in a browser tab of its own.
+            }
+        </p>
     }
     else
     {
-        <table>
-            <thead>
-                <tr><th>Address</th><th>Instrument</th><th>Identity</th><th>Catalog</th><th></th></tr>
-            </thead>
-            <tbody>
-                @foreach (var s in _sessions)
-                {
-                    <tr>
-                        <td class="mono">@s.Address<br /><span class="pill">@s.Transport</span></td>
-                        <td>@s.ProfileName<br /><span class="muted">@s.Family</span></td>
-                        <td class="mono">@s.Identity</td>
-                        <td>
-                            @if (s.CatalogName is null)
-                            {
-                                <span class="muted">none</span>
-                            }
-                            else
-                            {
-                                @($"{s.CatalogCommandCount:N0} commands")
-                            }
-                        </td>
-                        <td class="row tight">
-                            <button @onclick="() => OpenConsole(s.Id)">Console</button>
-                            <button class="danger" @onclick="() => Disconnect(s.Id)">Close</button>
-                        </td>
-                    </tr>
-                }
-            </tbody>
-        </table>
+        <div class="tabstrip" title="One tab per connected instrument. Click its ✕ to disconnect and close it. Right-click a tab to open that console in a browser tab of its own, or to disconnect it.">
+            @foreach (var s in _sessions)
+            {
+                @* Right-click gives the same two things the desktop's tab menu gives. It is
+                   the only place either of them is reachable without first bringing the tab
+                   to the front, which is the point of a tab menu. *@
+                <div class="tab @(s.Id == _selected ? "on" : "") @(IsOut(s.Id) ? "out" : "")" title="@s.Identity"
+                     @oncontextmenu="e => OpenTabMenu(s.Id, e)" @oncontextmenu:preventDefault="true">
+                    <button class="pick" @onclick="() => Show(s.Id)">
+                        <span class="dot"></span>
+                        <span>@s.ProfileName</span>
+                        <span class="muted">@s.Address</span>
+                    </button>
+                    @* On the tab rather than in the console, because it is a thing you do *to* a
+                       tab — the same place a browser puts the ✕ beside it. It was a labelled
+                       button on the console's identity line, which cost a row's width to say what
+                       the tab can say with a glyph, and could only be reached by first bringing
+                       the console to the front.
+
+                       A link, not a button calling window.open: it is an address, so nothing can
+                       pop-up-block it and the browser's own conventions come free — Shift for a
+                       separate window, Ctrl for a background tab, middle-click for a tab. The
+                       target names the tab after the session, so pressing it twice comes back to
+                       the console already open instead of starting a second. *@
+                    <a class="pop" href="console?session=@s.Id&detached=1" target="lec-console-@s.Id"
+                       title="Open this console in a browser tab of its own. Shift-click for a separate window."
+                       @onclick:stopPropagation="true"><Icon Name="detach" /></a>
+                    <button class="shut" title="Disconnect @s.Address and close this tab"
+                            @onclick="() => Disconnect(s.Id)"><Icon Name="close" /></button>
+                </div>
+            }
+        </div>
+
+        @if (_tabMenu is not null)
+        {
+            <div class="scrim" @onmousedown="() => _downOutside = true" @onmouseup="ReleasedOutside"></div>
+            <div class="menu tabmenu" role="group" aria-label="Tab actions"
+                 style="left:@(_menuX.ToString(System.Globalization.CultureInfo.InvariantCulture))px; top:@(_menuY.ToString(System.Globalization.CultureInfo.InvariantCulture))px"
+                 @onmousedown="() => _downOutside = false" @onmouseup="() => _downOutside = false">
+                <a class="item" href="console?session=@_tabMenu&detached=1" target="lec-console-@_tabMenu"
+                   @onclick="CloseTabMenu">
+                    <Icon Name="detach" /> Open in new tab
+                </a>
+                <button class="item" @onclick="DisconnectFromMenu">
+                    <Icon Name="close" /> Disconnect and close tab
+                </button>
+            </div>
+        }
+
+        @foreach (var s in _sessions)
+        {
+            if (IsOut(s.Id))
+            {
+                <div class="pane" hidden="@(_selected != s.Id)">
+                    <p class="muted" style="margin:.7rem 0">
+                        This console is open in another browser tab or window. The connection is
+                        unaffected — it is the same instrument and the same session, being driven
+                        from over there.
+                    </p>
+                    <div class="row">
+                        @* Not a link: a link would navigate that window to this address again and
+                           reload a console with a session's worth of log in it. This asks the
+                           browser for the window by name and does nothing else to it. *@
+                        <button @onclick="() => Raise(s.Id)"
+                            title="Bring the browser window this console is in to the front, without reloading it."><Icon Name="detach" /> Show that window</button>
+                        <button class="primary" @onclick="() => Recall(s.Id)"
+                            title="Close that window and put this console back in its tab here."><Icon Name="attach" /> Bring it back here</button>
+                    </div>
+                </div>
+            }
+            else
+            {
+                <ConsoleView @key="s.Id" @ref="_consoles[s.Id]" Session="s"
+                             Visible="@(_selected == s.Id)"
+                             OnOpenTool="t => OpenTool(s.Id, t)" />
+            }
+        }
     }
 </div>
 
+@* The tool windows, outside the card the consoles are in.
+
+   They belong to an instrument but not to its tab: a console that is not on top is hidden, and
+   a window inside a hidden subtree is one nobody can see and nobody can dismiss - so a window
+   built in there had to be closed on every tab switch. Out here they behave like the desktop’s,
+   which is what they are: look at another instrument for a moment and the script editor you were
+   writing in is still open, still on this one, and still says so in its title bar. *@
+@foreach (var s in _sessions)
+{
+    if (!IsOut(s.Id))
+    {
+        <ConsoleTools @key="s.Id" @ref="_tools[s.Id]" Session="s"
+                      OnInsert="c => Insert(s.Id, c)" />
+    }
+}
+
+<WindowDialog @ref="_windows" />
+
 @code {
+    /// <summary>
+    /// Which console to open on arrival. It is how /console?session=… hands over: an attached
+    /// console lives here, so that address redirects to this one rather than growing a second
+    /// home for the same thing.
+    /// </summary>
+    [Parameter, SupplyParameterFromQuery(Name = "session")]
+    public string? SessionFromQuery { get; set; }
+
+    /// <summary>The script editor, opened over the bench rather than instead of it.</summary>
+    private WindowDialog? _windows;
+
+    /// <summary>
+    /// Every open console and its windows, by session, so a button in one can reach the other.
+    /// They are in different parts of the tree on purpose - see the tool windows above - which
+    /// leaves the page to carry the two things that cross between them: which tool was asked for,
+    /// and which command the reference handed back.
+    /// </summary>
+    private readonly Dictionary<string, ConsoleView> _consoles = [];
+    private readonly Dictionary<string, ConsoleTools> _tools = [];
+
+    /// <summary>A tool button in one of the consoles.</summary>
+    private async Task OpenTool(string id, ConsoleTool tool)
+    {
+        if (_tools.TryGetValue(id, out var windows)) await windows.OpenAsync(tool);
+    }
+
+    /// <summary>A command chosen in that instrument’s Command Reference.</summary>
+    private void Insert(string id, string command) => ConsoleFor(id)?.Insert(command);
+
+    /// <summary>
+    /// The console showing this session right now, if one is - named after the desktop’s own
+    /// ConsoleFor. A session that has been disconnected, or whose console is open in a browser
+    /// tab of its own, has none here, and the captured reference to the last one is stale.
+    /// </summary>
+    private ConsoleView? ConsoleFor(string id) =>
+        !IsOut(id) && _sessions.Any(s => s.Id == id) && _consoles.TryGetValue(id, out var console)
+            ? console
+            : null;
+
+    private async Task OpenSequences()
+    {
+        if (_windows is not null) await _windows.ShowSequencesAsync();
+    }
+
     private IReadOnlyList<LocalInterfaceDto> _interfaces = [];
-    private IReadOnlyList<DeviceDto> _devices = [];
     private IReadOnlyList<SessionDto> _sessions = [];
+
+    /// <summary>What has answered so far. Appended to during a sweep, not replaced at the
+    /// end of one — an instrument is listed the moment it answers.</summary>
+    private readonly List<DeviceDto> _devices = [];
     private string? _interfaceAddress;
+    /// <summary>
+    /// What the range box accepts, spelled out. The desktop's tooltip for this field is the
+    /// only documentation any of the forms have, and it is the field people get wrong.
+    /// </summary>
+    private const string RangeHelp =
+        "Narrow the scan to part of the subnet. Leave it empty to sweep all of it.\n\n"
+      + "192.168.1.20-60      a range\n"
+      + "20-60                the same, in the selected adapter's subnet\n"
+      + "192.168.1.50         one address\n"
+      + "192.168.1.0/28       a block\n"
+      + "20-40, 55, 90-99     any mixture, comma-separated\n\n"
+      + "Worth using on a shared lab network: a full sweep knocks on every printer, camera "
+      + "and PLC as well as your instruments.";
+
+    /// <summary>
+    /// What to sweep, filled in with the chosen adapter's subnet rather than hinted at with an
+    /// example of one. Blank still means the whole subnet — it is the same set of addresses —
+    /// but a box that says 192.168.1.0/24 is a box you can read, and the one that said
+    /// "20-60, or blank for all" was an example of a thing you might type instead.
+    /// </summary>
     private string _range = "";
-    private string _ports = "";
+
+    /// <summary>
+    /// Follow the adapter, but only over a range nobody has typed. Anything still equal to
+    /// some adapter's subnet counts as untouched — the same rule the AI box uses for the
+    /// endpoint and model it fills in.
+    /// </summary>
+    private void InterfaceChanged()
+    {
+        string? whole = _interfaces.FirstOrDefault(i => i.Address == _interfaceAddress)?.WholeRange;
+        if (whole is null) return;
+
+        bool untouched = _range.Trim().Length == 0
+                      || _interfaces.Any(i => i.WholeRange == _range.Trim());
+        if (untouched) _range = whole;
+    }
+
+    /// <summary>
+    /// The four ports a scan sweeps when nobody says otherwise — NetworkScanner.CommonScpiPorts,
+    /// written out, which is what the desktop's port box starts with too. In the box rather
+    /// than behind it: an empty field that quietly means "all four" is a field you cannot read.
+    /// </summary>
+    private string _ports = "5025, 5555, 3490, 111";
     private string _address = "";
-    private string _scanStatus = "";
+
+    /// <summary>
+    /// The whole card is on Serial rather than Network: the scan inputs, the columns of the
+    /// list, and which box the Address row shows. Not remembered between visits, for the
+    /// reason the desktop does not remember it either: a page that opens on a serial card is
+    /// a page listing the ports of a server whose adapter may not be plugged in this morning.
+    /// </summary>
+    private bool _serial;
+
+    /// <summary>What is in the serial box — a port name, and optionally its line settings.</summary>
+    private string _serialPort = "";
+
+    /// <summary>
+    /// Which ports Scan opens: one by name, or empty for all of them. The counterpart of the
+    /// IP range rather than of the interface — how much of the bench to cover.
+    /// </summary>
+    private string _serialScope = "";
+
+    /// <summary>
+    /// The rates Scan tries on each port, in order, stopping at the first that answers. The
+    /// counterpart of SCPI Port(s), and filled rather than hinted for the same reason that
+    /// box is: an empty box would still sweep the defaults, and a hint that does not say
+    /// which ones is a hint that is wrong.
+    /// </summary>
+    private string _bauds = "9600, 115200, 19200, 38400, 57600";
+
+    private const string ScanNetworkHelp =
+        "Search for instruments — the whole subnet, or just the IP range if one is given. "
+        + "Found devices appear in the list as they answer.";
+
+    private const string ScanSerialHelp =
+        "Open each listed port on the server and ask it for its identity, trying the baud "
+        + "rates above in order. Every port stays listed either way; the ones that answer "
+        + "gain an identity. This writes *IDN? to whatever is on the other end, and opening "
+        + "a port asserts DTR and RTS — which resets some boards.";
+
+    /// <summary>
+    /// The server's serial ports, for the list attached to that box. The server's, because a
+    /// browser has none: every instrument operation here is the server's, and this is the one
+    /// where saying so out loud matters, since COM3 on the desk in front of you is not it.
+    /// </summary>
+    private IReadOnlyList<string> _serialPorts = [];
+
+    /// <summary>
+    /// What Connect dials: whichever box is showing. The serial one holds a port name rather
+    /// than a whole address — COM3, or COM3?baud=115200 — so the scheme is added here, the
+    /// same way and in the same place the desktop adds it, and a pasted serial:// is left
+    /// alone. Core reads the result either way (SPEC §5).
+    /// </summary>
+    private string TypedAddress
+    {
+        get
+        {
+            if (!_serial) return _address;
+
+            string chosen = _serialPort.Trim();
+            if (chosen.Length == 0) return "";
+            return chosen.StartsWith("serial://", StringComparison.OrdinalIgnoreCase)
+                ? chosen
+                : "serial://" + chosen;
+        }
+    }
+
+    /// <summary>
+    /// Put the whole card into one mode or the other.
+    ///
+    /// The list is emptied on the way through. Rows from the other mode are not merely stale,
+    /// they are unreadable — an IP address under a column headed "Port" — and a row that
+    /// fills the Address box has to fill it with something the visible box can hold.
+    ///
+    /// Switching to Serial lists the server's ports straight away, unasked and unopened.
+    /// That is already enough to pick one and connect; Scan is what opens them.
+    /// </summary>
+    private async Task SetScanKind(bool serial)
+    {
+        if (_serial == serial) return;
+
+        _serial = serial;
+        _devices.Clear();
+        _hosts = 0;
+        _probed = 0;
+
+        if (!serial)
+        {
+            _scanStatus = "Ready.";
+            return;
+        }
+
+        await ListSerialPortsAsync();
+    }
+
+    /// <summary>
+    /// The server's ports as rows, unasked. The counterpart of the desktop's list filling in
+    /// the moment the card switches — opens nothing, and says how to get some when there are
+    /// none.
+    ///
+    /// Rows from the server rather than names turned into rows here, so the line settings
+    /// shown are the ones Core would actually use rather than a string that agreed with
+    /// SerialSettings.Default on the day it was typed.
+    /// </summary>
+    private async Task ListSerialPortsAsync()
+    {
+        _devices.Clear();
+
+        try
+        {
+            foreach (DeviceDto row in await Bench.SerialPortRowsAsync()) _devices.Add(row);
+        }
+        catch
+        {
+            // The server is unreachable, which the rest of the page is already saying.
+        }
+
+        _serialPorts = _devices.Select(d => d.Address).ToList();
+
+        _scanStatus = _devices.Count == 0
+            ? "No serial ports on the server."
+            : $"{_devices.Count} port(s) listed. Scan asks each one for its identity.";
+    }
+
+    /// <summary>
+    /// Re-read the server's ports. On focus rather than once at startup, for the desktop's
+    /// reason: an adapter appears the moment it is plugged in, and the moment someone looks
+    /// at this list is exactly when they have just plugged one in. Listing never opens a
+    /// port, so there is nothing to be careful about in calling it often.
+    /// </summary>
+    private async Task LoadPortsAsync()
+    {
+        try { _serialPorts = await Bench.PortsAsync(); }
+        catch { _serialPorts = []; }
+
+        // One port and nothing typed: choose it, as the desktop does. An empty box in front
+        // of a list of one reads as a list of none.
+        if (_serialPort.Length == 0 && _serialPorts.Count == 1) _serialPort = _serialPorts[0];
+    }
+
+    /// <summary>
+    /// How long to wait for an instrument, on the connection and on every query afterwards.
+    /// The desktop's spinner starts at 3000 and takes 100 to 30000 in steps of 500.
+    /// </summary>
+    private int _timeoutMs = 3000;
+
+    /// <summary>The connection being made, so Connect can double as Cancel.</summary>
+    private CancellationTokenSource? _connect;
+    /// <summary>What the line beside the bar says. "Ready." before anything has been asked
+    /// of it, as the desktop's status label starts.</summary>
+    private string _scanStatus = "Ready.";
     private string? _connectError;
     private bool _scanning;
     private bool _connecting;
+
+    private int _hosts;
+    private int _probed;
+    private string _detail = "";
+    private CancellationTokenSource? _scan;
+
+    private int Percent => _hosts <= 0 ? 0 : Math.Min(100, (int)(100L * _probed / _hosts));
+
+    /// <summary>The address the browser refused to open, and the name it was to open under.</summary>
+    private string? _blocked;
+    private string _blockedName = "";
+
+    /// <summary>The tab on top: a session id, or null for the bench itself.</summary>
+    private string? _selected;
+
+    /// <summary>Sessions whose console is open in a window of its own.</summary>
+    private readonly HashSet<string> _out = [];
+
+    private DotNetObjectReference<Instruments>? _self;
+
+    /// <summary>
+    /// The bench changed — here or in another window. Re-read the list rather than patching it:
+    /// what is on the bench is a question with an answer already, and a page that guesses at the
+    /// change would be keeping a second copy of it.
+    /// </summary>
+    private async void OnBenchChanged()
+    {
+        _sessions = await Bench.SessionsAsync();
+        SettleSelection();
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private bool IsOut(string id) => _out.Contains(id);
 
     protected override async Task OnInitializedAsync()
     {
         _interfaces = await Bench.InterfacesAsync();
         _interfaceAddress = _interfaces.FirstOrDefault(i => i.HasGateway)?.Address ?? _interfaces.FirstOrDefault()?.Address;
+        InterfaceChanged();
         _sessions = await Bench.SessionsAsync();
+
+        if (SessionFromQuery is not null && _sessions.Any(s => s.Id == SessionFromQuery))
+            _selected = SessionFromQuery;
+
+        SettleSelection();
+
+        // And stay told. The bench is one shared workspace: something connected in another
+        // window, or gone from one, changes what belongs in this tab strip — and a page that
+        // only ever read the list when it did something itself keeps drawing a console onto a
+        // session the server no longer has. The queue and the lock were already pushed for the
+        // same reason; the list itself was the one that was not.
+        //
+        // Through BenchClient's event rather than off the hub directly, so a change made here
+        // and a change made in another window arrive by the same road — and so the status bar,
+        // which counts the same list, cannot end up disagreeing with this strip.
+        Bench.SessionsChanged += OnBenchChanged;
+        await Bench.HubAsync();
     }
 
-    private static string Endpoint(DeviceDto d) =>
-        // Port 111 is the portmapper, which means VXI-11; anything else is a raw socket.
-        d.Port == 111 ? $"vxi://{d.Address}" : $"{d.Address}:{d.Port}";
+    /// <summary>
+    /// Keep the current tab on a console that exists. With the tabs down in their own group
+    /// there is no Bench tab to fall back to and no "no tab" state to be in: while anything is
+    /// connected one of them is current, the way a TabControl always has a selected page.
+    /// </summary>
+    private void SettleSelection()
+    {
+        if (_selected is not null && _sessions.Any(s => s.Id == _selected)) return;
+        _selected = _sessions.FirstOrDefault()?.Id;
+    }
 
+    /// <summary>
+    /// Ask which consoles are already in windows of their own, and stay listening for the
+    /// ones that open and close from now on.
+    ///
+    /// Asked, not remembered: a list kept in storage goes stale the moment a detached window
+    /// is closed while this page is shut, and a stale entry would hide a console behind a
+    /// window that is not there. Presence is proved by an answer.
+    /// </summary>
+    protected override async Task OnAfterRenderAsync(bool first)
+    {
+        if (!first) return;
+        _self = DotNetObjectReference.Create(this);
+        await JS.InvokeVoidAsync("lec.windows.listen", _self);
+    }
+
+    /// <summary>A window has just announced itself. Dim its tab now rather than waiting for
+    /// the next roll-call.</summary>
+    [JSInvokable]
+    public Task Detached(string id)
+        => _out.Add(id) ? InvokeAsync(StateHasChanged) : Task.CompletedTask;
+
+    /// <summary>A window said it was closing. A courtesy — <see cref="Present"/> is what is
+    /// actually believed.</summary>
+    [JSInvokable]
+    public Task Attached(string id)
+        => _out.Remove(id) ? InvokeAsync(StateHasChanged) : Task.CompletedTask;
+
+    /// <summary>
+    /// The answer to the roll-call, for the windows that are also routes: every one genuinely in
+    /// a browser tab of its own, right now. Whatever was sent out and did not answer has had its
+    /// tab closed, and comes back here as a window — which is where it was before "Open in a tab"
+    /// moved it.
+    /// </summary>
+    /// <remarks>
+    /// The round trip a detached console already makes. Without it, moving one into a tab and
+    /// closing that tab is a window that has simply gone, and getting it back means remembering
+    /// which menu it came from.
+    ///
+    /// A roll-call rather than a message from the tab as it closes, for the reason
+    /// <see cref="Present"/> gives: that message does not survive the document being torn down.
+    /// </remarks>
+    [JSInvokable]
+    public Task ToolsPresent(string[] routes)
+        => _windows?.SettleAsync(routes) ?? Task.CompletedTask;
+
+    /// <summary>
+    /// A tab spoke up for one of those windows. Only a window that has been heard from can be
+    /// noticed going quiet — see <see cref="WindowDialog"/>.
+    /// </summary>
+    [JSInvokable]
+    public void ToolSeen(string route) => _windows?.Heard(route);
+
+    /// <summary>
+    /// The answer to a roll-call: every console that is genuinely in a window of its own,
+    /// right now. This replaces what was believed rather than adding to it, which is the
+    /// point — it is the only thing that can clear an entry for a window that died without
+    /// getting the chance to say so.
+    /// </summary>
+    [JSInvokable]
+    public Task Present(string[] ids)
+    {
+        if (_out.SetEquals(ids)) return Task.CompletedTask;
+        _out.Clear();
+        foreach (string id in ids) _out.Add(id);
+        return InvokeAsync(StateHasChanged);
+    }
+
+    private void Show(string id) => _selected = id;
+
+    // ------------------------------------------------------------- the tab menu
+
+    /// <summary>Which tab was right-clicked, and where the pointer was.</summary>
+    private string? _tabMenu;
+    private double _menuX, _menuY;
+
+    /// <summary>Whether the button went down on the sheet outside the menu rather than in it —
+    /// the same rule as everywhere else here: a drag that overshoots does not dismiss.</summary>
+    private bool _downOutside;
+
+    private void OpenTabMenu(string id, MouseEventArgs e)
+    {
+        _tabMenu = id;
+        _menuX = e.ClientX;
+        _menuY = e.ClientY;
+        _downOutside = false;
+    }
+
+    private void CloseTabMenu()
+    {
+        _tabMenu = null;
+        _downOutside = false;
+    }
+
+    private void ReleasedOutside()
+    {
+        if (_downOutside) CloseTabMenu();
+        _downOutside = false;
+    }
+
+    private async Task DisconnectFromMenu()
+    {
+        string? id = _tabMenu;
+        CloseTabMenu();
+        if (id is not null) await Disconnect(id);
+    }
+
+    /// <summary>
+    /// The row as an address to type back in. Worked out by Core and carried on the row —
+    /// this used to read <c>d.Port == 111 ? …</c>, which is Core's rule spelled a second time
+    /// here and nowhere in the desktop, so the two builds showed different things for one
+    /// instrument. The fallback covers a row from an older server.
+    /// </summary>
+    private static string Endpoint(DeviceDto d) =>
+        string.IsNullOrEmpty(d.TypedAddress) ? $"{d.Address}:{d.Port}" : d.TypedAddress;
+
+    /// <summary>
+    /// Bring a detached console's window to the front without touching what is in it.
+    /// Detaching is a link, because it is an address; this is not, because reloading a
+    /// console that has been running for an hour is not what "show me it" means.
+    /// </summary>
+    private async Task Raise(string id)
+    {
+        string url = $"console?session={id}&detached=1";
+        _blockedName = $"lec-console-{id}";
+        bool ok = await JS.InvokeAsync<bool>("lec.windows.raise", url, _blockedName);
+        _blocked = ok ? null : url;
+    }
+
+    /// <summary>Ask a detached console to come home. It closes itself, which is what tells
+    /// this page to un-dim the tab — the same route as any other window closing.</summary>
+    private async Task Recall(string id) => await JS.InvokeVoidAsync("lec.windows.recall", id);
+
+    /// <summary>
+    /// Sweep, and draw what comes back as it comes back.
+    ///
+    /// A /24 takes a while and a /20 takes minutes, and a page that shows nothing at all
+    /// until the end is indistinguishable from one that has hung. So the server reports as it
+    /// goes: how far along it is, and every instrument the moment it answers.
+    /// </summary>
     private async Task Scan()
     {
+        _scan?.Cancel();
+        _scan = new CancellationTokenSource();
         _scanning = true;
-        _scanStatus = "";
-        _devices = [];
+        _scanStatus = "Starting…";
+        _detail = "";
+        _hosts = 0;
+        _probed = 0;
+        _devices.Clear();
+
+        // Serial keeps every port in the list whether or not it answers — the rows are already
+        // there from switching to this mode, and Scan fills identities into them rather than
+        // building a list from nothing. So the two sweeps clear different things: a subnet
+        // sweep starts from an empty list, and this one starts from the ports.
+        if (_serial) await ListSerialPortsAsync();
+
         try
         {
-            var report = await Bench.ScanAsync(new ScanRequest(_interfaceAddress, _range, _ports));
-            _devices = report.Devices;
-            _scanStatus = report.Error
-                ?? $"{report.Devices.Count} found across {report.Scanned:N0} address(es)"
-                   + (report.Capped ? " (range was cut short at 65,536)" : "");
+            var stream = _serial
+                ? Bench.ScanSerialStreamAsync(new SerialScanRequest(_serialScope, _bauds), _scan.Token)
+                : Bench.ScanStreamAsync(new ScanRequest(_interfaceAddress, _range, _ports), _scan.Token);
+
+            await foreach (var e in stream)
+            {
+                switch (e.Stage)
+                {
+                    case ScanStage.Started:
+                        _hosts = e.Hosts;
+                        _detail = e.Detail ?? "";
+                        _scanStatus = $"Scanning {_detail}…";
+                        break;
+
+                    case ScanStage.Probed:
+                        _hosts = e.Hosts;
+                        // The scanner reports from several tasks at once, so a report can
+                        // arrive behind one that overtook it. A bar that walks backwards
+                        // reads as a fault, and the highest figure seen is the true one.
+                        _probed = Math.Max(_probed, e.Probed);
+                        _scanStatus = $"Scanning {_detail}… {_probed:N0}/{_hosts:N0} probed, {Answered}.";
+                        break;
+
+                    case ScanStage.Found:
+                        if (e.Device is not null) Found(e.Device);
+                        break;
+
+                    case ScanStage.Done:
+                        _probed = _hosts;
+                        _scanStatus = e.Error ?? (_serial
+                            ? $"Scan complete. {Answered} of {e.Hosts} port(s)."
+                            : $"Scan complete. {Answered} across {e.Hosts:N0} address(es).");
+                        if (e.Error is not null) _scanStatus += $" {Answered} so far.";
+                        break;
+                }
+                StateHasChanged();
+            }
         }
-        finally { _scanning = false; }
+        catch (OperationCanceledException)
+        {
+            // The Stop button, or this page going away. Whatever answered before the stop is
+            // already listed, and stays listed — a partial sweep is still a result.
+            _scanStatus = $"Scan stopped after {_probed:N0} of {_hosts:N0} address(es). {Answered}.";
+        }
+        catch (Exception ex)
+        {
+            _scanStatus = "Scan failed: " + ex.Message;
+        }
+        finally
+        {
+            _scanning = false;
+            _scan?.Dispose();
+            _scan = null;
+        }
+    }
+
+    /// <summary>
+    /// A row arrived. A network sweep only ever reports things that answered, so the row is
+    /// new; a serial sweep reports every port it asked, and that port is already listed —
+    /// appending would show COM3 twice, once as found and once as asked.
+    /// </summary>
+    private void Found(DeviceDto row)
+    {
+        int at = _devices.FindIndex(d => string.Equals(d.Address, row.Address, StringComparison.OrdinalIgnoreCase));
+        if (_serial && at >= 0) _devices[at] = row;
+        else _devices.Add(row);
+    }
+
+    /// <summary>
+    /// What the status line counts. Every serial port is a row whether or not anything is on
+    /// it, so counting rows there would report a machine with four unused adapters as four
+    /// instruments; what counts is the ones that answered.
+    /// </summary>
+    private string Answered
+    {
+        get
+        {
+            int n = _devices.Count(d => d.Answered);
+            return n == 1 ? "1 instrument found" : $"{n} instruments found";
+        }
+    }
+
+    private void Stop() => _scan?.Cancel();
+
+    /// <summary>
+    /// A row was clicked. The desktop fills the Address box with the full endpoint — including
+    /// the port the scan actually found, which is the point of doing it at all: a Rigol that
+    /// answered on 5555 is not the same address as one assumed on 5025.
+    /// </summary>
+    private void Pick(DeviceDto d)
+    {
+        if (!_serial)
+        {
+            _address = Endpoint(d);
+            return;
+        }
+
+        // A serial row fills the port box, so it goes in without the scheme: that box is a
+        // list of serial ports and should read as one. The line settings come with it when
+        // they are not the default, because they are the ones that answered — dropping them
+        // would connect at 9600 to an instrument the scan found at 115200.
+        string typed = Endpoint(d);
+        _serialPort = typed.StartsWith("serial://", StringComparison.OrdinalIgnoreCase)
+            ? typed["serial://".Length..]
+            : typed;
+    }
+
+    /// <summary>
+    /// Write the discovered list out as CSV, as the desktop's Export Results does. The file is
+    /// built on the server by Core's writer, so it is the same file from either build.
+    /// </summary>
+    private async Task ExportResults()
+    {
+        if (_devices.Count == 0) return;
+        string csv = await Bench.ExportDevicesAsync(_devices);
+        string base64 = Convert.ToBase64String(System.Text.Encoding.UTF8.GetBytes(csv));
+        // The browser has no Save As dialog to offer, so the name the desktop's dialog opens
+        // with is the name the file gets.
+        await JS.InvokeVoidAsync("lec.download", "discovered-instruments.csv", "text/csv", base64);
     }
 
     private async Task Connect(string address)
@@ -160,22 +1078,85 @@
         if (string.IsNullOrWhiteSpace(address)) return;
         _connecting = true;
         _connectError = null;
+        _connect = new CancellationTokenSource();
         try
         {
-            var (session, error) = await Bench.ConnectAsync(address);
+            // Clamped to the same range the desktop's spinner allows, because a number box in
+            // a browser will hand you whatever was typed into it.
+            var (session, error) = await Bench.ConnectAsync(
+                address, Math.Clamp(_timeoutMs, 100, 30000), _connect.Token);
             if (session is null) { _connectError = error; return; }
+
+            // Asked before the list is refreshed: the server hands back the session it already
+            // has for an address rather than opening a second, so an id that was already on the
+            // bench is how "already connected" is told from "connected".
+            bool already = _sessions.Any(s => s.Id == session.Id);
+
             _sessions = await Bench.SessionsAsync();
+            // The desktop app selects a new tab as it makes it, and the reason you connected
+            // is to talk to the thing.
+            _selected = session.Id;
+            _connectError = null;
+
+            // And the desktop says so in the console, because bringing a tab to the front that
+            // was already at the front looks like the button did nothing at all.
+            if (already && ConsoleFor(session.Id) is { } console) await console.SayAlreadyConnectedAsync();
         }
-        finally { _connecting = false; }
+        catch (OperationCanceledException) { _connectError = "Connection cancelled."; }
+        finally
+        {
+            _connecting = false;
+            _connect?.Dispose();
+            _connect = null;
+        }
     }
 
+    /// <summary>Give up on the connection. The server drops the socket on its way out, so
+    /// nothing is left half-open behind it.</summary>
+    private void CancelConnect() => _connect?.Cancel();
+
+    /// <summary>
+    /// Close a console and drop its connection.
+    ///
+    /// The server is asked first and the tab goes either way. If the ask fails there is nothing
+    /// left to disconnect from — the usual reason is that the server itself has gone, and the
+    /// tabs on screen are drawn from a list it answered while it was still there. Leaving the
+    /// tab up would mean offering a console onto an instrument nothing is holding.
+    ///
+    /// It used to be one unguarded await, so a server that went away between the page loading
+    /// and the ✕ being pressed threw out of the click handler — and an unhandled exception in a
+    /// component takes the whole page down with "Something went wrong. Reload the page." Closing
+    /// a tab must never be able to do that, least of all when the reason it failed is that the
+    /// thing you were connected to is already gone.
+    /// </summary>
     private async Task Disconnect(string id)
     {
-        await Bench.DisconnectAsync(id);
-        _sessions = await Bench.SessionsAsync();
+        try
+        {
+            await Bench.DisconnectAsync(id);
+            _sessions = await Bench.SessionsAsync();
+            _connectError = null;
+        }
+        catch (Exception ex)
+        {
+            _sessions = _sessions.Where(s => s.Id != id).ToList();
+            _connectError = "Closed the tab, but the server did not answer: " + ex.Message;
+        }
+
+        _out.Remove(id);
+        // Closing the current tab moves to whatever is left, as closing a tab does anywhere.
+        SettleSelection();
     }
 
-    // A method rather than an inline lambda: an interpolated string inside a Razor attribute
-    // needs quotes the attribute has already claimed, and the parser gives up on it.
-    private void OpenConsole(string id) => Nav.NavigateTo($"console?session={id}");
+    public async ValueTask DisposeAsync()
+    {
+        // A sweep nobody is watching is a sweep the bench network can do without. Cancelling
+        // here reaches the server: the stream ends, and the token it is running under trips.
+        _scan?.Cancel();
+        Bench.SessionsChanged -= OnBenchChanged;
+
+        try { await JS.InvokeVoidAsync("lec.windows.forget"); }
+        catch (JSDisconnectedException) { /* the page is going away; so is the listener */ }
+        _self?.Dispose();
+    }
 }

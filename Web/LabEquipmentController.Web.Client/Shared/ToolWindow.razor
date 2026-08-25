@@ -1,0 +1,112 @@
+@implements IDisposable
+@inject IJSRuntime JS
+
+@* One tool window: a title bar you can drag it by, whatever the tool is, and a ✕.
+
+   One component per window rather than one dialog switched between tools, because on the
+   desktop these are windows — ScriptForm, the reference, the readout, both captures — and
+   several of them are open at once, over each other, in whatever order they were last
+   clicked. A single dialog with a switch in it can only ever hold the last thing pressed,
+   which is what this build had: opening Discover Commands closed the script you opened it
+   to look something up for.
+
+   The element owns its own open/close, so a parent only has to decide which windows exist.
+   Removing one from that list takes the dialog out of the tree, which is what closes it and
+   what drops whatever was inside — a script editor left mounted behind a shut window is
+   still watching the run it was started for. *@
+
+<dialog class="tool" @ref="_el" aria-label="@Title" style="@Sized">
+    <div class="tool-head">
+        <span class="name">@Title</span>
+        @if (!string.IsNullOrWhiteSpace(Subtitle))
+        {
+            <span class="muted">@Subtitle</span>
+        }
+        <span class="spacer"></span>
+        @Head
+        <button class="shut" @onclick="CloseAsync" aria-label="Close"><Icon Name="close" /></button>
+    </div>
+
+    <div class="tool-body @(Fill ? "fill" : null)">@ChildContent</div>
+
+    @* The corner you size it by. Drawn rather than left to resize: both — see .sizer. *@
+    <div class="sizer" title="Drag to resize this window."><Icon Name="sizer" /></div>
+</dialog>
+
+@code {
+    /// <summary>What the window is, in its title bar.</summary>
+    [Parameter, EditorRequired] public string Title { get; set; } = "";
+
+    /// <summary>
+    /// Which instrument it was opened from. With several consoles open, that is the whole
+    /// question — so tool windows carry it and the page-level ones do not.
+    /// </summary>
+    [Parameter] public string? Subtitle { get; set; }
+
+    /// <summary>Anything the head carries besides the name — a link out to a tab of its own.</summary>
+    [Parameter] public RenderFragment? Head { get; set; }
+
+    [Parameter] public RenderFragment? ChildContent { get; set; }
+
+    /// <summary>
+    /// Whether what is inside fills the window rather than scrolling inside it. True for the
+    /// windows the desktop docks its controls into — the script editors — where dragging the
+    /// corner is meant to give the room to the editor and the output.
+    /// </summary>
+    [Parameter] public bool Fill { get; set; }
+
+    /// <summary>
+    /// The size the desktop's own window opens at, in its client pixels. Zero leaves it to the
+    /// stylesheet.
+    ///
+    /// A filling window otherwise takes the editors' size, because they were the only ones that
+    /// filled. MultimeterReadoutForm asks for 980×520: a readout is not an editor and has no use
+    /// for the screen. Clamped to the viewport the same way the rule is, and overridden the
+    /// moment the corner is dragged.
+    /// </summary>
+    [Parameter] public int OpenWidth { get; set; }
+    [Parameter] public int OpenHeight { get; set; }
+
+    private string? Sized => OpenWidth > 0 && OpenHeight > 0
+        ? $"width:min({OpenWidth}px, calc(100vw - 3rem));height:min({OpenHeight}px, calc(100vh - 3rem))"
+        : null;
+
+    /// <summary>
+    /// The window has gone: by the ✕, by Esc, or by the browser closing it. The parent is
+    /// expected to drop it from whatever list it renders from, which is what disposes this.
+    /// </summary>
+    [Parameter] public EventCallback OnClosed { get; set; }
+
+    private ElementReference _el;
+    private DotNetObjectReference<ToolWindow>? _self;
+
+    /// <summary>
+    /// Shown once the element exists. A dialog is opened by a method call rather than by
+    /// markup, and there is nothing to call it on until the browser has the element.
+    /// </summary>
+    protected override async Task OnAfterRenderAsync(bool first)
+    {
+        if (!first) return;
+        _self = DotNetObjectReference.Create(this);
+        await JS.InvokeVoidAsync("lec.dialog.open", _el, _self);
+    }
+
+    /// <summary>Bring this window in front of the others, without rebuilding what is in it.</summary>
+    public Task RaiseAsync() => JS.InvokeVoidAsync("lec.dialog.raise", _el).AsTask();
+
+    /// <summary>Esc, or anything else the browser closes it by. Told from the JS side.</summary>
+    [JSInvokable]
+    public Task DialogClosed() => OnClosed.InvokeAsync();
+
+    /// <summary>
+    /// The ✕. Says so itself rather than waiting to be told: closing an element does not raise
+    /// anything this side, so a window shut this way would stay mounted behind nothing.
+    /// </summary>
+    private async Task CloseAsync()
+    {
+        await JS.InvokeVoidAsync("lec.dialog.close", _el);
+        await OnClosed.InvokeAsync();
+    }
+
+    public void Dispose() => _self?.Dispose();
+}

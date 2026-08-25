@@ -13,155 +13,181 @@
     {
       "category": "IEEE 488.2 Common",
       "syntax": "*CLS",
-      "description": "Clears the standard event register, query event register, operation event register, status byte register and the error code."
+      "description": "Clears the standard event register, query event register, operation event register, status byte register and the error code.",
+      "crossChecked": true
     },
     {
       "category": "IEEE 488.2 Common",
       "syntax": "*ESE <NR1>",
       "description": "Sets the standard event enable register. The parameter determines which bit of the standard event register is 1, which enables the ESB bit of the status byte register. Parameter 0~255. Power-on value: see *PSC.",
-      "example": "*ESE 128"
+      "example": "*ESE 128",
+      "crossChecked": true
     },
     {
       "category": "IEEE 488.2 Common",
       "syntax": "*ESE?",
       "description": "Returns the standard event enable register as <NR1>.",
-      "isQuery": true
+      "isQuery": true,
+      "crossChecked": true
     },
     {
       "category": "IEEE 488.2 Common",
       "syntax": "*ESR?",
       "description": "Reads the standard event status register, which is reset once the query has been executed. Its bit definitions are the same as the standard event status enable register.",
-      "isQuery": true
+      "isQuery": true,
+      "crossChecked": true
     },
     {
       "category": "IEEE 488.2 Common",
       "syntax": "*IDN?",
       "description": "Reads the identity of the power supply: manufacturer, model, serial number and software version, separated by commas.",
       "example": "*IDN?  ->  B&K Precision, 9205B, 602203010697410001, V1.09-V1.04",
-      "isQuery": true
+      "isQuery": true,
+      "crossChecked": true
     },
     {
       "category": "IEEE 488.2 Common",
       "syntax": "*OPC",
-      "description": "Sets the OPC bit of the standard event register to 1 once every command sent before it has been executed."
+      "description": "Sets the OPC bit of the standard event register to 1 once every command sent before it has been executed.",
+      "crossChecked": true
     },
     {
       "category": "IEEE 488.2 Common",
       "syntax": "*OPC?",
       "description": "Returns <NR1> once every command sent before it has been executed.",
-      "isQuery": true
+      "isQuery": true,
+      "crossChecked": true
     },
     {
       "category": "IEEE 488.2 Common",
       "syntax": "*PSC <bool>",
-      "description": "Controls what happens to the enable registers when the supply is reset. 1 or ON: the operation event enable, quest event enable and standard event status registers are reset. 0 or OFF: the status byte, operation event enable, quest event enable and standard event status enable registers are stored in non-volatile memory and recalled at reset. Parameter 0|1|ON|OFF."
+      "description": "Controls what happens to the enable registers when the supply is reset. 1 or ON: the operation event enable, quest event enable and standard event status registers are reset. 0 or OFF: the status byte, operation event enable, quest event enable and standard event status enable registers are stored in non-volatile memory and recalled at reset. Parameter 0|1|ON|OFF.",
+      "crossChecked": true
     },
     {
       "category": "IEEE 488.2 Common",
       "syntax": "*PSC?",
       "description": "Returns <NR1> — whether the enable registers are cleared at reset.",
       "isQuery": true,
-      "guideMisprint": "The guide prints 'Query syntax: *PSC', with no question mark, which reads as a second set command rather than the query it is labelled as. Every other query in the chapter ends in '?'."
+      "guideMisprint": "The guide prints 'Query syntax: *PSC', with no question mark, which reads as a second set command rather than the query it is labelled as. Every other query in the chapter ends in '?'.",
+      "crossChecked": true
     },
     {
       "category": "IEEE 488.2 Common",
       "syntax": "*RST",
-      "description": "Resets the power supply to its default settings."
+      "description": "Resets the power supply to its default settings.",
+      "crossChecked": true
     },
     {
       "category": "IEEE 488.2 Common",
       "syntax": "*SRE <NR1>",
-      "description": "Sets the status byte enable register. The parameter determines which bit of the status byte register is 1, which sets its RQS bit to 1. Its bit definitions are the same as the status byte register. Parameter 0~255."
+      "description": "Sets the status byte enable register. The parameter determines which bit of the status byte register is 1, which sets its RQS bit to 1. Its bit definitions are the same as the status byte register. Parameter 0~255.",
+      "crossChecked": true
     },
     {
       "category": "IEEE 488.2 Common",
       "syntax": "*SRE?",
       "description": "Returns the status byte enable register as <NR1>.",
-      "isQuery": true
+      "isQuery": true,
+      "crossChecked": true
     },
     {
       "category": "IEEE 488.2 Common",
       "syntax": "*STB?",
       "description": "Reads the status byte register.",
-      "isQuery": true
+      "isQuery": true,
+      "crossChecked": true
     },
     {
       "category": "IEEE 488.2 Common",
       "syntax": "*TRG",
       "description": "Generates a trigger signal when the trigger source is BUS. The same function as the TRIGger command.",
-      "guideMisprint": "The guide labels this one 'Query syntax: *TRG' and then gives it 'Returned parameter: None'. It is a command, not a query — the heading and the description both treat it as one, and *TRG has no query form in IEEE 488.2."
+      "guideMisprint": "The guide labels this one 'Query syntax: *TRG' and then gives it 'Returned parameter: None'. It is a command, not a query — the heading and the description both treat it as one, and *TRG has no query form in IEEE 488.2.",
+      "crossChecked": true
     },
     {
       "category": "IEEE 488.2 Common",
       "syntax": "*SAV <NRf>",
       "description": "Saves the present setup — current, voltage, maximum and minimum voltage, OVP and OCP — to a memory location. The memory holds 8 groups of 9, so 72 setups. Parameter 1~72.",
-      "guideMisprint": "The guide prints '*SAV<NRf>' with no space. Its own section 5.1 states that there is a space between a command and its numerical parameter, so the space is written here."
+      "guideMisprint": "The guide prints '*SAV<NRf>' with no space. Its own section 5.1 states that there is a space between a command and its numerical parameter, so the space is written here.",
+      "crossChecked": true
     },
     {
       "category": "IEEE 488.2 Common",
       "syntax": "*RCL <NRf>",
       "description": "Recalls a setup previously saved to the given memory location. Parameter 1~72.",
-      "guideMisprint": "The guide prints '*RCL<NRf>' with no space. Its own section 5.1 states that there is a space between a command and its numerical parameter, so the space is written here."
+      "guideMisprint": "The guide prints '*RCL<NRf>' with no space. Its own section 5.1 states that there is a space between a command and its numerical parameter, so the space is written here.",
+      "crossChecked": true
     },
 
     {
       "category": "Status",
       "syntax": "STATus:QUEStionable[:EVENt]?",
       "description": "Reads the query event register, which is cleared once the query has been executed. Returns <NRf>.",
-      "isQuery": true
+      "isQuery": true,
+      "crossChecked": true
     },
     {
       "category": "Status",
       "syntax": "STATus:QUEStionable:CONDition?",
       "description": "Reads the query condition register. When one of its bits changes, the matching bit of the query event register is set to 1. Returns <NRf>.",
-      "isQuery": true
+      "isQuery": true,
+      "crossChecked": true
     },
     {
       "category": "Status",
       "syntax": "STATus:QUEStionable:ENABle <NRf>",
       "description": "Sets the quest event enable register. The parameter determines which bit of the quest event register is 1, which enables QUES. Parameter 0~65535. Default: see *PSC.",
-      "example": "STATus:QUEStionable:ENABle 128"
+      "example": "STATus:QUEStionable:ENABle 128",
+      "crossChecked": true
     },
     {
       "category": "Status",
       "syntax": "STATus:QUEStionable:ENABle?",
       "description": "Returns the quest event enable register as <NRf>.",
-      "isQuery": true
+      "isQuery": true,
+      "crossChecked": true
     },
     {
       "category": "Status",
       "syntax": "STATus:OPERation[:EVENt]?",
       "description": "Reads the operation event register. Bit 0 is CAL (calibration mode, factory use), bit 1 is the output state — a decimal 2 in the reply means the output is on, and the bit flags only the on state — and bit 2 is WTG, waiting for a trigger, which only applies in list mode.",
       "isQuery": true,
-      "guideMisprint": "Documented only in the status-register section, in prose: 'For the Operate Event register, you send STAT:OPER? for the query'. It appears in none of the command sections, so its full spelling and whether it takes the optional [:EVENt] node are inferred from the QUEStionable branch, which the guide does document."
+      "guideMisprint": "Documented only in the status-register section, in prose: 'For the Operate Event register, you send STAT:OPER? for the query'. It appears in none of the command sections, so its full spelling and whether it takes the optional [:EVENt] node are inferred from the QUEStionable branch, which the guide does document.",
+      "crossChecked": true
     },
 
     {
       "category": "System",
       "syntax": "SYSTem:ERRor?",
       "description": "Reads one error message from the error queue, oldest first. The queue holds 20; beyond that the last entry is replaced by -350 'too many errors'. An empty queue returns 0, 'no error'. *CLS clears the queue and *RST does not. Returns <NR1>,<SRD>.",
-      "isQuery": true
+      "isQuery": true,
+      "crossChecked": true
     },
     {
       "category": "System",
       "syntax": "SYSTem:VERSion?",
       "description": "Queries the SCPI version, as a string 'YYYY.V' — the year of the version, then the software version within that year.",
-      "isQuery": true
+      "isQuery": true,
+      "crossChecked": true
     },
     {
       "category": "System",
       "syntax": "SYSTem:REMote",
-      "description": "Switches to remote (PC) control over RS-232. Every front-panel key except LOCAL is locked. Sending commands without first switching to remote control may give unpredictable results."
+      "description": "Switches to remote (PC) control over RS-232. Every front-panel key except LOCAL is locked. Sending commands without first switching to remote control may give unpredictable results.",
+      "crossChecked": true
     },
     {
       "category": "System",
       "syntax": "SYSTem:LOCal",
-      "description": "Switches the instrument back to local (front-panel) control."
+      "description": "Switches the instrument back to local (front-panel) control.",
+      "crossChecked": true
     },
     {
       "category": "System",
       "syntax": "SYSTem:RWLock",
-      "description": "The same as SYSTem:REMote, and also disables the LOCAL button."
+      "description": "The same as SYSTem:REMote, and also disables the LOCAL button.",
+      "crossChecked": true
     },
     {
       "category": "System",
@@ -172,19 +198,22 @@
     {
       "category": "Trigger",
       "syntax": "TRIGger[:IMMediate]",
-      "description": "Generates a trigger signal when the trigger source is BUS. The same function as *TRG."
+      "description": "Generates a trigger signal when the trigger source is BUS. The same function as *TRG.",
+      "crossChecked": true
     },
     {
       "category": "Trigger",
       "syntax": "TRIGger:SOURce <mode>",
       "description": "Selects the trigger source: MANUAL, the front-panel Trigger button, or BUS, the *TRG command.",
-      "guideMisprint": "The guide's syntax line prints 'TRIG:SOURce <mode>' — the abbreviated spelling, where its heading and query line both use TRIGger — and <mode> is not one of the parameter types its own section 5.1 defines. The parameters are the keywords MANUAL and BUS."
+      "guideMisprint": "The guide's syntax line prints 'TRIG:SOURce <mode>' — the abbreviated spelling, where its heading and query line both use TRIGger — and <mode> is not one of the parameter types its own section 5.1 defines. The parameters are the keywords MANUAL and BUS.",
+      "crossChecked": true
     },
     {
       "category": "Trigger",
       "syntax": "TRIGger:SOURce?",
       "description": "Returns the trigger source, MANUAL or BUS.",
-      "isQuery": true
+      "isQuery": true,
+      "crossChecked": true
     },
 
     {
@@ -225,14 +254,16 @@
       "category": "Current",
       "syntax": "[SOURce:]CURRent[:LEVel][:IMMediate][:AMPLitude] <NRf>",
       "description": "Sets the output current. MIN is 0 A and MAX is the top of the current range; DEF is the default value. CURR UP and CURR DOWN step the current by the value set with CURR:STEP. Parameter MIN to MAX|MIN|MAX|UP|DOWN|DEF, in A, mA or uA.",
-      "example": "CURR 2.5"
+      "example": "CURR 2.5",
+      "crossChecked": true
     },
     {
       "category": "Current",
       "syntax": "[SOURce:]CURRent[:LEVel][:IMMediate][:AMPLitude]?",
       "description": "Returns the current setting as <NRf>. CURR? MIN and CURR? MAX query the ends of the range.",
       "example": "CURR? MAX",
-      "isQuery": true
+      "isQuery": true,
+      "crossChecked": true
     },
     {
       "category": "Current",
@@ -313,48 +344,56 @@
     {
       "category": "Protection",
       "syntax": "[SOURce:]CURRent:PROTection[:LEVel] <NRf>",
-      "description": "Sets the software over-current protection value. Parameter MIN to MAX|MIN|MAX|DEF, in A, mA or uA."
+      "description": "Sets the software over-current protection value. Parameter MIN to MAX|MIN|MAX|DEF, in A, mA or uA.",
+      "crossChecked": true
     },
     {
       "category": "Protection",
       "syntax": "[SOURce:]CURRent:PROTection[:LEVel]?",
       "description": "Returns the over-current protection value as <NRf>.",
-      "isQuery": true
+      "isQuery": true,
+      "crossChecked": true
     },
     {
       "category": "Protection",
       "syntax": "[SOURce:]CURRent:PROTection:STATe <bool>",
       "description": "Turns software over-current protection on or off. Parameter 0|1|ON|OFF.",
-      "guideMisprint": "The guide prints 'STATe<bool>' with no space. Its own section 5.1 states that there is a space between a command and its parameter, so the space is written here."
+      "guideMisprint": "The guide prints 'STATe<bool>' with no space. Its own section 5.1 states that there is a space between a command and its parameter, so the space is written here.",
+      "crossChecked": true
     },
     {
       "category": "Protection",
       "syntax": "[SOURce:]CURRent:PROTection:STATe?",
       "description": "Returns whether over-current protection is on, as 0 or 1.",
-      "isQuery": true
+      "isQuery": true,
+      "crossChecked": true
     },
     {
       "category": "Protection",
       "syntax": "[SOURce:]VOLTage:PROTection[:LEVel] <NRf>",
-      "description": "Sets the software over-voltage protection value. Parameter MIN to MAX|MIN|MAX|DEF, in V, mV or uV."
+      "description": "Sets the software over-voltage protection value. Parameter MIN to MAX|MIN|MAX|DEF, in V, mV or uV.",
+      "crossChecked": true
     },
     {
       "category": "Protection",
       "syntax": "[SOURce:]VOLTage:PROTection[:LEVel]?",
       "description": "Returns the over-voltage protection value as <NRf>.",
-      "isQuery": true
+      "isQuery": true,
+      "crossChecked": true
     },
     {
       "category": "Protection",
       "syntax": "[SOURce:]VOLTage:PROTection:STATe <bool>",
       "description": "Turns software over-voltage protection on or off. Parameter 0|1|ON|OFF.",
-      "guideMisprint": "The guide prints 'STATe<bool>' with no space. Its own section 5.1 states that there is a space between a command and its parameter, so the space is written here."
+      "guideMisprint": "The guide prints 'STATe<bool>' with no space. Its own section 5.1 states that there is a space between a command and its parameter, so the space is written here.",
+      "crossChecked": true
     },
     {
       "category": "Protection",
       "syntax": "[SOURce:]VOLTage:PROTection:STATe?",
       "description": "Returns whether over-voltage protection is on, as 0 or 1.",
-      "isQuery": true
+      "isQuery": true,
+      "crossChecked": true
     },
     {
       "category": "Protection",
@@ -366,7 +405,8 @@
     {
       "category": "Protection",
       "syntax": "[SOURce:]VOLTage:PROTection:CLEar",
-      "description": "Clears the OVP state. Raise the OVP limit or lower the output voltage first, and remove whatever tripped the protection before sending it again."
+      "description": "Clears the OVP state. Raise the OVP limit or lower the output voltage first, and remove whatever tripped the protection before sending it again.",
+      "crossChecked": true
     },
 
     {
@@ -393,20 +433,23 @@
       "category": "Measure",
       "syntax": "FETCh:VOLTage?",
       "description": "Reads the voltage held in the sample cache. It does not trigger a measurement and does not change any setting — it returns the latest available reading, which is the previous one until a new reading arrives. Returns <NRf> in volts.",
-      "isQuery": true
+      "isQuery": true,
+      "crossChecked": true
     },
     {
       "category": "Measure",
       "syntax": "MEASure[:SCALar]:CURRent[:DC]?",
       "description": "Reads the actual output current. Returns <NRf> in amps.",
       "example": "MEAS:CURR?",
-      "isQuery": true
+      "isQuery": true,
+      "crossChecked": true
     },
     {
       "category": "Measure",
       "syntax": "FETCh:CURRent?",
       "description": "Reads the current held in the sample cache. It does not trigger a measurement and does not change any setting — it returns the latest available reading. Returns <NRf>.",
-      "isQuery": true
+      "isQuery": true,
+      "crossChecked": true
     },
     {
       "category": "Measure",

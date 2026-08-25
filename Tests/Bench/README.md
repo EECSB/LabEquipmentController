@@ -24,6 +24,7 @@ deep and confusing instead of at the connection, so a stale default is worse tha
 | `LEC_SCOPE` | *(discovered)* | Skip discovery for the scope |
 | `LEC_GENERATOR` | *(discovered)* | Skip discovery for the generator |
 | `LEC_MULTIMETER` | *(discovered)* | Skip discovery for the multimeter |
+| `LEC_SERIAL` | *(none — those tests skip)* | A serial instrument, e.g. `serial://COM3?baud=115200` |
 | `LEC_BENCH_REPORTS` | `<test bin>/bench-reports` | Where sweep reports are written |
 
 Discovery throws rather than guesses if a family is missing or ambiguous, naming everything
@@ -32,6 +33,13 @@ answered fastest, and produces a confident report about the wrong instrument.
 
 All three connect over VXI-11. The generator exposes no raw socket at all, and the scope's
 raw port lags replies by one query.
+
+**`LEC_SERIAL` is written down rather than discovered**, unlike the three above, and that is
+the point rather than an omission: a serial port cannot be swept for. The baud rate, framing
+and flow control have to match before one character gets through, and probing a port that
+turns out to be a printer is not the harmless connect a TCP probe is (SPEC §17). Whoever has
+such an instrument knows which port and which speed; there is none on this bench, so those
+four tests skip even with `LEC_BENCH=1`.
 
 To check what is reachable without running anything else:
 
@@ -55,6 +63,14 @@ dotnet test --filter "FullyQualifiedName~An_instrument_is_recognised"
 - Each instrument survives three connect/release cycles. The DS2202's firmware wedges under
   rapid reconnection, which is what a test run does to it.
 
+**`SerialBenchTests`** — the serial transport against a real port, and the only part of it a
+stand-in cannot prove. The framing is covered offline in `ScpiFramingTests` against a
+scripted stream; what needs hardware is that a port opens at the settings it was given, that
+what comes back identifies, that a second query is not reading the tail of the first (RS-232
+has no framing of its own, so an overrun would show up exactly there), and that a query
+nothing answers times out rather than returning what arrived. Skipped unless `LEC_SERIAL`
+says where the instrument is.
+
 **`CatalogSweepTests`** — sends every safely-sendable query in a catalog and writes a report.
 
 This is what turns "transcribed from the guide" into "answered on the bench". It cannot fail
@@ -76,9 +92,9 @@ as a command the instrument does not support. That gives:
 
 | Instrument | Sendable | of catalog |
 |---|---:|---:|
-| Rigol DS2202 | 437 | 1202 |
+| Rigol DS2202 | 437 | 1200 |
 | Siglent SDG2042X | 104 | 343 |
-| Siglent SDM3065X | 83 | 207 |
+| Siglent SDM3065X | 82 | 206 |
 
 Only the Rigol has an error queue in its catalog (`:SYSTem:ERRor:NEXT?`), so only for the
 scope can a sweep tell "understood" from "silently ignored". Neither Siglent guide documents
@@ -96,10 +112,10 @@ commands it has no option for, each of which kills the link, and it has wedged o
 twice under repeated full sweeps — once needing a power cycle mid-session. One sweep, then
 leave it alone.
 
-**`BenchInventoryTests`** — offline. Records that three of the twenty-one catalogued families
-have hardware here and eighteen do not, and fails if a new catalog appears without a decision
-about which side it falls on. The eighteen are not outstanding work; there is no such
-instrument on this bench, and saying so once stops it being re-investigated.
+**`BenchInventoryTests`** — offline. Records that three of the thirty-six catalogued families
+have hardware here and thirty-three do not, and fails if a new catalog appears without a
+decision about which side it falls on. The thirty-three are not outstanding work; there is no
+such instrument on this bench, and saying so once stops it being re-investigated.
 
 ## AI extraction
 
@@ -115,8 +131,8 @@ It uses whatever provider and key the app already has — configure it once unde
 
 The datasheet defaults to the Siglent SDM guide in `datasheets/`, overridable with
 `LEC_AI_PDF`. That default is deliberate: its catalog is hand-transcribed and known, so the
-test can report what fraction of a model's answer matches 207 commands read by eye. The last
-run returned **211 commands, 89% of them recognised**, against a hand pass that found 207.
+test can report what fraction of a model's answer is already among its 206 entries. The
+last run returned **211 commands, 89% of them recognised**.
 
 That fraction is printed, not asserted — a model reading 158 pages will legitimately find
 commands the hand pass skipped and skip some it found. What *is* asserted is that something

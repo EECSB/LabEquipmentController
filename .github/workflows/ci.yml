@@ -51,11 +51,18 @@ jobs:
 
       # Running the CLI is the part that cannot be faked by a cross-compile: it proves the
       # catalogs load, the resources resolve and nothing reached for a Windows-only API.
+      #
+      # 'ports' earns its place here for a reason the others do not have: System.IO.Ports
+      # ships a native shim per runtime, so this is where a missing or wrong-RID
+      # libSystem.IO.Ports.Native shows up. It lists and never opens anything, so it is safe
+      # on a runner, and a runner with no serial ports is exactly the empty case it has to
+      # survive.
       - name: Run the CLI
         run: |
           dotnet run --project Cli/LabEquipmentController.Cli.csproj -c Release -- version
           dotnet run --project Cli/LabEquipmentController.Cli.csproj -c Release -- catalog "*IDN?" --limit 3
           dotnet run --project Cli/LabEquipmentController.Cli.csproj -c Release -- interfaces
+          dotnet run --project Cli/LabEquipmentController.Cli.csproj -c Release -- ports
 
       - name: Draw a plot
         shell: bash
@@ -78,8 +85,14 @@ jobs:
       - uses: actions/checkout@v7
 
       # The image is the deliverable for the web version, so a Dockerfile that no longer
-      # builds should fail here rather than on somebody's bench. Built, not pushed — there
-      # is nowhere agreed to push it to yet.
+      # builds should fail here rather than on somebody's bench. Built and thrown away:
+      # publishing is publish-docker.yml's job, on a v* tag, and it runs these same checks
+      # again before it pushes. This one guards every commit and every pull request, which
+      # is where a broken Dockerfile is cheapest to find.
+      #
+      # Single-architecture on purpose. The published image is amd64 and arm64, but proving
+      # the Dockerfile still builds does not need both, and a buildx matrix on every push
+      # would cost minutes to re-learn what this already knows.
       - name: Build the image
         run: docker build -f Web/Dockerfile -t labequipmentcontroller-web:ci .
 

@@ -1,6 +1,14 @@
 {
   "instrument": "Keithley multimeter (DMM6500 / DMM7510)",
   "source": "Transcribed from the Keithley DMM6500 6.5-Digit Multimeter with Scanning Reference Manual (DMM6500-901-01 Rev. A, April 2018). Cross-checked against pymeasure keithleyDMM6500 and tm_devices dmm6500.",
+  "parse": [
+    {
+      "input": "parsed/keithley-dmm6500.json",
+      "manual": "manuals/keithley-dmm6500.txt",
+      "style": "keithley",
+      "known": "measured"
+    }
+  ],
   "groups": [
     {
       "file": "parsed/keithley-dmm6500.json"

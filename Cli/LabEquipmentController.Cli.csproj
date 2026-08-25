@@ -26,8 +26,8 @@
 
     <Product>Lab Equipment Controller CLI</Product>
     <AssemblyTitle>Lab Equipment Controller CLI</AssemblyTitle>
-    <Description>Discover and control lab instruments over Ethernet using SCPI, from a terminal.</Description>
-    <Version>1.0.0</Version>
+    <Description>Discover and control lab instruments over Ethernet or RS-232 using SCPI, from a terminal.</Description>
+    <Version>1.1.0</Version>
     <!-- Shipped as a published binary, not as a package. -->
     <IsPackable>false</IsPackable>
 

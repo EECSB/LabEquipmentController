@@ -1,0 +1,94 @@
+@inject BenchClient Bench
+@inject NavigationManager Nav
+@inject IJSRuntime JS
+
+@* The desktop app's Help ▸ About, as a modal dialog. Same rule as that one: every figure on
+   it is read at runtime — the version off the assembly, the runtime and OS off the
+   framework, the catalog totals by counting the catalogs — so nothing here can go stale
+   while looking authoritative.
+
+   A native <dialog>, not a hand-built overlay: it draws its own backdrop, traps focus,
+   returns it on close, and shuts on Esc. The desktop About box closes on Esc too, and that
+   was wired by hand there because a form with no buttons has no CancelButton to do it. *@
+
+<dialog class="sheet" @ref="_dialog" aria-label="About Lab Equipment Controller">
+    <div class="sheet-head">
+        @* The application's own icon, as the desktop's About box shows it. *@
+        <img class="mark-lg" src="app-icon.png" alt="" />
+        <div>
+            <h2>Lab Equipment Controller</h2>
+            <p class="ver">
+                @if (_about is null)
+                {
+                    <span>Asking the server…</span>
+                }
+                else
+                {
+                    <span>Version @_about.Version</span>
+                    <span class="pill">web build</span>
+                }
+            </p>
+        </div>
+        <button class="shut" @onclick="Close" aria-label="Close"><Icon Name="close" /></button>
+    </div>
+
+    <p class="blurb">
+        Discover and control lab instruments over Ethernet using SCPI. Raw TCP sockets and
+        native VXI-11, several instruments at once.
+    </p>
+
+    @if (_about is not null)
+    {
+        <dl>
+            <dt>Catalogs</dt>
+            <dd>
+                @_about.Commands.ToString("N0") SCPI commands across @_about.Catalogs instrument
+                families, transcribed from the manufacturers' own programming guides.
+                @_about.BenchVerified.ToString("N0") of them have been answered by an instrument
+                on a bench.
+            </dd>
+
+            <dt>Server</dt>
+            <dd>@_about.Framework<br />@_about.Os</dd>
+
+            @* Which machine is holding the sockets. With a bench server per room this is the
+               one line on the box that says which room you are driving. *@
+            <dt>Serving</dt>
+            <dd class="mono">@Nav.BaseUri</dd>
+
+            <dt>Source Code</dt>
+            <dd>
+                <a href="@_about.Repository" target="_blank" rel="noreferrer">@_about.Repository</a>
+                &middot; @_about.License licence
+            </dd>
+        </dl>
+    }
+    else if (_asked)
+    {
+        <p class="error">
+            The server did not answer, so this box has nothing to state. Everything on it is
+            counted there rather than written down here, which is why it would rather say
+            nothing than guess.
+        </p>
+    }
+
+</dialog>
+
+@code {
+    private ElementReference _dialog;
+    private AboutDto? _about;
+    private bool _asked;
+
+    /// <summary>Open it, fetching the facts the first time and reusing them after.</summary>
+    public async Task ShowAsync()
+    {
+        await JS.InvokeVoidAsync("lec.dialog.open", _dialog);
+        if (_asked) return;
+
+        _asked = true;
+        _about = await Bench.AboutAsync();
+        StateHasChanged();
+    }
+
+    private async Task Close() => await JS.InvokeVoidAsync("lec.dialog.close", _dialog);
+}

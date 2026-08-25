@@ -11,8 +11,8 @@ namespace LabEquipmentController.Tests.Bench;
 /// Which families can be verified against hardware and which cannot, stated once so that
 /// "not bench-verified" is a recorded fact rather than an open question.
 ///
-/// Three instruments are on this bench. The other eighteen catalogs are not outstanding work
-/// waiting to be done — there is no such instrument here to do it with, and saying so
+/// Three instruments are on this bench. The other thirty-three catalogs are not outstanding
+/// work waiting to be done — there is no such instrument here to do it with, and saying so
 /// explicitly is what stops the gap being re-investigated every few months.
 ///
 /// This runs offline. It asserts nothing about the instruments; it asserts that the list
@@ -41,6 +41,7 @@ public class BenchInventoryTests
     public static readonly IReadOnlyList<InstrumentFamily> NoHardware = new[]
     {
         InstrumentFamily.ScpiGenerator,
+        InstrumentFamily.RohdeFsiqAnalyzer,
         InstrumentFamily.PowerSupply,
         InstrumentFamily.ElectronicLoad,
         InstrumentFamily.SpectrumAnalyzer,
@@ -77,7 +78,7 @@ public class BenchInventoryTests
     /// <summary>
     /// Every catalogued family is on exactly one of the two lists. A new catalog that lands
     /// without a decision about how it gets verified fails here rather than quietly joining
-    /// the eighteen.
+    /// the thirty-three.
     /// </summary>
     [Fact]
     public void Every_catalogued_family_is_accounted_for()
@@ -125,7 +126,7 @@ public class BenchInventoryTests
 
     /// <summary>
     /// A sweep exists for each available family. Adding an instrument to the bench without
-    /// pointing a sweep at it would leave it as unverified as the eighteen.
+    /// pointing a sweep at it would leave it as unverified as the thirty-three.
     /// </summary>
     [Fact]
     public void Each_available_instrument_has_a_sweep_that_can_reach_it()

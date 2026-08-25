@@ -25,7 +25,7 @@ namespace LabEquipmentController.Tests.Bench;
 ///
 /// The datasheet is whichever guide is named by `LEC_AI_PDF`, defaulting to the Siglent SDM
 /// guide in `datasheets/`. That one is deliberate: its catalog is transcribed and known, so
-/// what a model returns can be measured against 207 commands read by hand rather than merely
+/// what a model returns can be measured against 206 commands read by hand rather than merely
 /// looked at.
 /// </summary>
 [Collection(BenchCollection.Name)]

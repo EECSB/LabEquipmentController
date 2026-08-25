@@ -1,87 +1,319 @@
-@* A line chart, drawn as inline SVG.
+@inject BenchClient Bench
+@inject IJSRuntime JS
+@implements IAsyncDisposable
 
-   Same reasoning as the CLI's plotter: SVG is markup, so the component builds it directly
-   with no charting library, no JavaScript interop and nothing to download. It scales with
-   the panel, prints, and works identically in every browser. *@
+@* The desktop's ResultPlotPanel: the curve, and the pickers under it.
 
-@if (_points.Count >= 2)
-{
-    <svg viewBox="0 0 @W @H" class="plot" width="100%" height="200" role="img"
-         aria-label="Recorded readings over time">
-        <rect width="@W" height="@H" fill="none" />
-        @for (int i = 0; i <= 4; i++)
+   It drew the first numeric column against nothing but sample order, with no way to say what
+   ran across the bottom or what went up the side — which is fine for one reading on a timer
+   and useless for a swept measurement, where choosing the axes is the measurement.
+
+   The arithmetic is Core's, reached over the wire. See PlotService on the server for why.
+   Everything here is geometry: the server hands back points and ticks as fractions of their
+   axes, and this multiplies them by the box. *@
+
+<div class="plot">
+    @* The box first, and the picture drawn over it at exactly the size the box turned out to
+       be. The canvas was 900×300 units stretched to the card's width, which made the plot tab a
+       different height from the table tab beside it — so switching tabs resized the card, and
+       the card next to it in the grid row with it. *@
+    <div class="plotbox" @ref="_box">
+        <svg viewBox="0 0 @F(W) @F(H)" class="plotcanvas" @ref="_svg"
+             role="img" aria-label="Recorded results">
+        @* SVG text is written through MarkupString: Razor claims <text> for its own control
+           element and refuses one carrying attributes, wherever it appears in a code block. *@
+        @if (_series.Count == 0)
         {
-            var y = Top + (H - Top - Bottom) * i / 4.0;
-            <line x1="@F(Left)" y1="@F(y)" x2="@F(W - Right)" y2="@F(y)" stroke="currentColor" stroke-opacity="0.15" />
+            @Words(W / 2, H / 2, "middle", "Nothing recorded yet. A script builds this with RECORD.", 13)
         }
-        <text x="@F(Left - 6)" y="@F(Top + 4)" text-anchor="end" font-size="10" fill="currentColor" opacity=".7">@Label(_max)</text>
-        <text x="@F(Left - 6)" y="@F(H - Bottom)" text-anchor="end" font-size="10" fill="currentColor" opacity=".7">@Label(_min)</text>
-        <path d="@_path" fill="none" stroke="#1f6feb" stroke-width="1.6" />
-        @foreach (var (x, y) in _dots)
+        else
         {
-            <circle cx="@F(x)" cy="@F(y)" r="2" fill="#1f6feb" />
+            @foreach (var t in _yAxis.Ticks)
+            {
+                var py = Top + (1 - t.At) * PlotH;
+                <line x1="@F(Left)" y1="@F(py)" x2="@F(Left + PlotW)" y2="@F(py)" class="grid" />
+                @Words(Left - 6, py + 4, "end", t.Label + _unit)
+            }
+            @foreach (var t in _xAxis.Ticks)
+            {
+                var px = Left + t.At * PlotW;
+                <line x1="@F(px)" y1="@F(Top)" x2="@F(px)" y2="@F(Top + PlotH)" class="grid" />
+                @Words(px, Top + PlotH + 16, "middle", t.Label)
+            }
+            <rect x="@F(Left)" y="@F(Top)" width="@F(PlotW)" height="@F(PlotH)" fill="none" class="frame" />
+            @Words(Left + PlotW / 2, H - 4, "middle", _xName)
+
+            @foreach (var s in _series)
+            {
+                <path d="@Path(s)" fill="none" stroke="@s.Colour" stroke-width="1.6" />
+                @if (_points)
+                {
+                    @foreach (var p in s.Points)
+                    {
+                        <circle cx="@F(Left + p.X * PlotW)" cy="@F(Top + (1 - p.Y) * PlotH)" r="2.2" fill="@s.Colour" />
+                    }
+                }
+            }
+
+            @if (_series.Count > 1)
+            {
+                @for (int i = 0; i < _series.Count; i++)
+                {
+                    var y = Top + 6 + i * 15;
+                    <rect x="@F(Left + PlotW - 130)" y="@F(y)" width="10" height="10" fill="@_series[i].Colour" />
+                    @Words(Left + PlotW - 115, y + 9, "start", _series[i].Name)
+                }
+            }
         }
-    </svg>
-    <p class="muted" style="margin:.25rem 0 .75rem">
-        @_points.Count readings · @Label(_min) to @Label(_max)
-    </p>
-}
+        </svg>
+    </div>
+
+    <div class="row plotpick">
+        <div class="stack">
+            <span class="pair">
+                <label for="@($"{_id}-x")">X:</label>
+                <select id="@($"{_id}-x")" @onchange="PickX"
+                        title="Which recorded column runs across the bottom — usually the value the sweep stepped.">
+                    @for (int i = 0; i < Columns.Count; i++)
+                    {
+                        int c = i;
+                        <option value="@c" selected="@(c == _x)">@Columns[c]</option>
+                    }
+                </select>
+            </span>
+            @* Named for where it sits rather than for what it labels, which is how the desktop
+               names it: it is the unit of the value axis, and "V" is what makes those ticks
+               read 8 mV. Guessed from the column heading or from the commands recorded beside
+               the readings — and only ever a guess, so anything typed wins and stays. Empty
+               the box and the guess comes back. *@
+            <span class="pair">
+                <label for="@($"{_id}-u")">X Unit:</label>
+                <input id="@($"{_id}-u")" type="text" value="@_unit" @oninput="UnitTyped"
+                       title="The unit shown against the value axis. Guessed from what is being recorded; type one to override the guess, or empty the box to have it back." />
+            </span>
+        </div>
+
+        <span class="ylabel">Y:</span>
+        <div class="ylist"
+             title="Which columns to draw as curves. Tick more than one to compare them on the same axes.">
+            @for (int i = 0; i < Columns.Count; i++)
+            {
+                int c = i;
+                <label class="check">
+                    <input type="checkbox" checked="@_y.Contains(c)"
+                           disabled="@(c == _x || !_plottable.Contains(c))"
+                           @onchange="e => ToggleY(c, e)" />
+                    @Columns[c]
+                </label>
+            }
+        </div>
+
+        <div class="stack scales">
+            <label class="check" title="Log spacing across. A sweep written with POINTS … LOG wants this, or the low decades are squeezed into nothing. Disabled when any value is zero or negative — a log axis through zero has no meaning.">
+                <input type="checkbox" checked="@_logX" disabled="@(!_canLogX)" @onchange="e => SetLogX(e)" /> Log X
+            </label>
+            <label class="check" title="Log spacing up the side, for a reading that spans decades.">
+                <input type="checkbox" checked="@_logY" disabled="@(!_canLogY)" @onchange="e => SetLogY(e)" /> Log Y
+            </label>
+            <label class="check" title="Mark each recorded point, so a sparse sweep is not mistaken for a smooth curve.">
+                <input type="checkbox" checked="@_points" @onchange="e => _points = e.Value is true" /> Points
+            </label>
+        </div>
+
+        <span class="spacer"></span>
+        @* Whatever the host wants at this end of the strip. MultimeterReadoutForm puts Clear
+           and Save CSV… along the foot of its window, and a second row of two buttons under
+           a row that already ends in nothing is a row spent saying nothing. *@
+        @Foot
+
+        @* The curve is worth keeping on its own — into a report, or beside the next run's.
+           Save CSV is the numbers; this is the picture. The camera glyph, the same one Capture
+           Screen carries, because it is the same gesture aimed at our plot rather than at the
+           instrument's display. The glyph alone: the strip is short of width. *@
+        <button @onclick="SavePng" disabled="@(_series.Count == 0)" aria-label="Save plot"
+                title="Save the plot as a PNG image. Save CSV is the numbers; this is the picture."><Icon Name="camera" /></button>
+    </div>
+</div>
 
 @code {
-    /// <summary>Anything with a numeric Value and an At timestamp.</summary>
-    [Parameter] public System.Collections.IEnumerable? Rows { get; set; }
+    /// <summary>Buttons for the right end of the picker strip, beside the one that saves the
+    /// picture — the readout window's Clear and Save CSV… sit there.</summary>
+    [Parameter] public RenderFragment? Foot { get; set; }
 
-    private const double W = 600, H = 200, Left = 52, Right = 10, Top = 10, Bottom = 18;
+    /// <summary>The column headings of the table being plotted.</summary>
+    [Parameter] public IReadOnlyList<string> Columns { get; set; } = [];
 
-    private readonly List<double> _points = [];
-    private readonly List<(double X, double Y)> _dots = [];
-    private string _path = "";
-    private double _min, _max;
+    /// <summary>The rows, in the order they were recorded.</summary>
+    [Parameter] public IReadOnlyList<RecordedRow> Rows { get; set; } = [];
 
-    protected override void OnParametersSet()
+    /// <summary>
+    /// The size of the picture, in the pixels it actually has. Measured rather than assumed, so
+    /// a tick is where it says it is and the axis text is the size it says it is, at any window
+    /// size. These numbers are only what it draws at until the browser has measured the box,
+    /// which is one frame.
+    /// </summary>
+    private double W = 900, H = 300;
+
+    private const double Left = 66, Right = 14, Top = 12, Bottom = 34;
+    private double PlotW => W - Left - Right;
+    private double PlotH => H - Top - Bottom;
+
+    /// <summary>Distinct per instance, because two plots can be on one page and ids collide.</summary>
+    private readonly string _id = "p" + Guid.NewGuid().ToString("N")[..8];
+
+    private ElementReference _svg;
+    private ElementReference _box;
+    private DotNetObjectReference<Plot>? _self;
+
+    private int _x;
+    private readonly HashSet<int> _y = [];
+    private HashSet<int> _plottable = [];
+    private bool _logX, _logY, _canLogX, _canLogY;
+    private bool _points = true;
+    private string _unit = "";
+    private bool _unitTyped;
+    private string _xName = "";
+
+    private IReadOnlyList<PlotSeriesDto> _series = [];
+    private PlotAxisDto _xAxis = new(0, 0, false, []);
+    private PlotAxisDto _yAxis = new(0, 0, false, []);
+
+    /// <summary>The columns the choices were made against, so rows arriving one at a time do
+    /// not restart them. A new set of columns is a new table and does.</summary>
+    private List<string> _shape = [];
+    private int _drawnRows = -1;
+
+    /// <summary>Watch the box, and redraw at whatever size it becomes.</summary>
+    protected override async Task OnAfterRenderAsync(bool first)
     {
-        _points.Clear();
-        _dots.Clear();
-        _path = "";
-        if (Rows is null) return;
+        if (!first) return;
+        _self = DotNetObjectReference.Create(this);
+        await JS.InvokeVoidAsync("lec.observe", _box, _self, nameof(Sized));
+    }
 
-        foreach (var row in Rows)
+    /// <summary>How big the box is now. Called by the observer, not by a DOM event.</summary>
+    [JSInvokable]
+    public void Sized(double width, double height)
+    {
+        W = width;
+        H = height;
+        StateHasChanged();
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        try { await JS.InvokeVoidAsync("lec.unobserve", _box); } catch { }
+        _self?.Dispose();
+    }
+
+    protected override async Task OnParametersSetAsync()
+    {
+        bool fresh = !Columns.SequenceEqual(_shape, StringComparer.Ordinal);
+        if (fresh)
         {
-            // Duck-typed on purpose: the console's readings and a script run's rows are
-            // different shapes, and a shared interface for two call sites is more ceremony
-            // than the reflection costs here — these lists are tens of items, not millions.
-            var prop = row?.GetType().GetProperty("Value");
-            if (prop?.GetValue(row) is not string text) continue;
-            if (double.TryParse(text, System.Globalization.NumberStyles.Float,
-                                System.Globalization.CultureInfo.InvariantCulture, out double v))
-                _points.Add(v);
+            _shape = [.. Columns];
+            _x = 0;
+            _y.Clear();
+            _unitTyped = false;
+            _drawnRows = -1;
         }
-        if (_points.Count < 2) return;
 
-        _min = _points.Min();
-        _max = _points.Max();
-        // A dead-flat trace has no range to scale against; give it one rather than dividing
-        // by zero and drawing the line off the top of the box.
-        if (_max - _min < 1e-12) { _min -= 0.5; _max += 0.5; }
+        if (fresh || Rows.Count != _drawnRows) await Draw(chooseY: fresh);
+    }
 
+    /// <param name="chooseY">
+    /// Let the server pick the columns to draw. Only on a new table: after that the ticks are
+    /// the user's, and a run that appends a row must not re-tick them.
+    /// </param>
+    private async Task Draw(bool chooseY)
+    {
+        _drawnRows = Rows.Count;
+
+        var reply = await Bench.PlotAsync(new PlotRequest(
+            Columns, Rows, _x, chooseY ? null : _y.ToList(), _logX, _logY));
+        if (reply is null) return;
+
+        _series = reply.Series;
+        _xAxis = reply.X;
+        _yAxis = reply.Y;
+        _canLogX = reply.CanLogX;
+        _canLogY = reply.CanLogY;
+        if (!_canLogX) _logX = false;
+        if (!_canLogY) _logY = false;
+        _plottable = [.. reply.Plottable];
+        _xName = reply.XName;
+
+        if (chooseY)
+        {
+            _y.Clear();
+            foreach (int c in reply.ChosenY) _y.Add(c);
+        }
+        if (!_unitTyped) _unit = reply.GuessedUnit;
+
+        StateHasChanged();
+    }
+
+    private async Task PickX(ChangeEventArgs e)
+    {
+        if (!int.TryParse(e.Value?.ToString(), out int c)) return;
+        _x = c;
+        _y.Remove(c);
+        await Draw(chooseY: false);
+    }
+
+    private async Task ToggleY(int column, ChangeEventArgs e)
+    {
+        if (e.Value is true) _y.Add(column); else _y.Remove(column);
+        await Draw(chooseY: false);
+    }
+
+    private async Task SetLogX(ChangeEventArgs e)
+    {
+        _logX = e.Value is true;
+        await Draw(chooseY: false);
+    }
+
+    private async Task SetLogY(ChangeEventArgs e)
+    {
+        _logY = e.Value is true;
+        await Draw(chooseY: false);
+    }
+
+    /// <summary>Anything typed wins; emptying the box hands the axis back to the guess.</summary>
+    private async Task UnitTyped(ChangeEventArgs e)
+    {
+        _unit = e.Value?.ToString() ?? "";
+        _unitTyped = _unit.Trim().Length > 0;
+        if (!_unitTyped) await Draw(chooseY: false);
+    }
+
+    private string Path(PlotSeriesDto s)
+    {
         var sb = new System.Text.StringBuilder();
-        for (int i = 0; i < _points.Count; i++)
+        for (int i = 0; i < s.Points.Count; i++)
         {
-            double x = Left + (W - Left - Right) * i / (_points.Count - 1.0);
-            double y = H - Bottom - (H - Top - Bottom) * (_points[i] - _min) / (_max - _min);
-            sb.Append(i == 0 ? 'M' : 'L').Append(F(x)).Append(' ').Append(F(y)).Append(' ');
-            if (_points.Count <= 60) _dots.Add((x, y));
+            var p = s.Points[i];
+            sb.Append(i == 0 ? 'M' : 'L')
+              .Append(F(Left + p.X * PlotW)).Append(' ')
+              .Append(F(Top + (1 - p.Y) * PlotH)).Append(' ');
         }
-        _path = sb.ToString().Trim();
+        return sb.ToString();
     }
 
-    private static string F(double v) => v.ToString("0.##", System.Globalization.CultureInfo.InvariantCulture);
+    private async Task SavePng() => await JS.InvokeVoidAsync("lec.savePng", _svg, "plot.png");
 
-    private static string Label(double v)
-    {
-        double a = Math.Abs(v);
-        return a != 0 && (a < 1e-3 || a >= 1e6)
-            ? v.ToString("0.###e+0", System.Globalization.CultureInfo.InvariantCulture)
-            : v.ToString(a >= 100 ? "0.##" : "0.####", System.Globalization.CultureInfo.InvariantCulture);
-    }
+    private static string F(double v)
+        => v.ToString("0.##", System.Globalization.CultureInfo.InvariantCulture);
+
+    /// <summary>
+    /// One SVG text element. Written as markup because Razor claims &lt;text&gt; for its own
+    /// control element and will not accept one with attributes on it.
+    /// </summary>
+    private static MarkupString Words(double x, double y, string anchor, string words, double size = 11)
+        => new($"<text x=\"{F(x)}\" y=\"{F(y)}\" text-anchor=\"{anchor}\" font-size=\"{F(size)}\" "
+             + $"class=\"tick\">{Escape(words)}</text>");
+
+    /// <summary>A column heading can hold anything the script named it, including a &lt;.</summary>
+    private static string Escape(string text)
+        => text.Replace("&", "&amp;").Replace("<", "&lt;").Replace(">", "&gt;");
 }

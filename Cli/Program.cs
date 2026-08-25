@@ -25,6 +25,7 @@ try
         "help" or "--help"    => Print(CommandLine.Usage),
         "version" or "-v"     => Commands.Version(cmd, Console.Out),
         "interfaces" or "ifs" => Commands.Interfaces(cmd, Console.Out),
+        "ports" or "serial"   => Commands.Ports(cmd, Console.Out, Console.Error),
         "scan"                => await Commands.Scan(cmd, Console.Out, Console.Error, cts.Token),
         "id" or "identify"    => await Commands.Identify(cmd, Console.Out, Console.Error, cts.Token),
         "send" or "query"     => await Commands.Send(cmd, Console.Out, Console.Error, cts.Token),

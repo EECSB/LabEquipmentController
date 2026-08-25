@@ -49,6 +49,10 @@ Then write `cfg/<family>.json`:
 {
   "instrument": "DC power supply (Rigol DP800 series)",
   "source": "Transcribed from … . Cross-checked against … .",
+  "parse": [{ "input": "parsed/vendor-model.json",
+              "manual": "manuals/vendor-model.txt",
+              "style": "rigol",
+              "known": "measured" }],
   "groups": [{ "file": "parsed/vendor-model.json" }],
   "commonCommands": ["*IDN?", "*RST", "…"],
   "supplements": [{ "syntax": "…", "description": "…" }],
@@ -56,6 +60,36 @@ Then write `cfg/<family>.json`:
 }
 ```
 
+- `parse` — one step per extracted input: which manual, which reader, any flags. This is
+  the step that used to be recorded nowhere. `groups` names files in `parsed/`, and
+  `parsed/` is regenerated output that is not committed — so a config could look complete
+  while pointing at files nobody could remake. Eleven catalogs were written up as
+  unrebuildable for having no config at all; the quieter truth was that none of the
+  twenty-four *with* a config could be rebuilt either.
+
+  `known` says how far to trust the recipe, and it is part of the recipe:
+
+  | `known` | meaning |
+  |---|---|
+  | `measured` | every reader was run over the dump in this checkout and this one's headers matched the shipped catalog best — re-runnable here, now |
+  | `documented` | stated in this file or in `parse-manual.js`; the dump may not be here |
+  | `inferred` | the reader this vendor and series belong to, never run against this guide — a rebuild from one of these is a first draft, not a check |
+
+  Run a recipe with `rebuild.js`:
+
+  ```bash
+  node rebuild.js cfg/<family>.json            # rebuild and compare against what ships
+  node rebuild.js cfg/<family>.json --write    # ... and overwrite the catalog
+  node rebuild.js --all                        # where every catalog stands
+  ```
+
+  Comparing is non-destructive: the files in `parsed/` are what the shipped catalogs were
+  actually built from, so a survey puts them back afterwards. Only `--write` keeps the
+  freshly parsed ones.
+
+  A dump that is not in this checkout is not a fault to fix here. `manuals/` is ignored for
+  the same reason `datasheets/` is — the guides are free to download and not ours to
+  redistribute — and the `guide` block names the document and links the page it came from.
 - `commonCommands` — the IEEE 488.2 mnemonics *this guide documents*. Several guides
   print them in a column layout pdftotext renders inside-out, so they are listed rather
   than extracted. Check with:
@@ -136,7 +170,7 @@ stops an invented command reaching a bench.
 
 ## Which catalogs this pipeline can actually rebuild
 
-24 of the 35 catalogs in `Core/CommandData/` have a config here. The other 11 do not, and
+25 of the 36 catalogs in `Core/CommandData/` have a config here. The other 11 do not, and
 the reason is not that nobody got round to writing them: **the pipeline as committed does
 not reproduce them.** Measured in August 2026, by running every style against each guide and
 diffing the result against the shipped catalog. Coverage counts only parsed entries carrying
@@ -255,3 +289,16 @@ past `MAX_PATH`.
 
 Both files are optional: without them nothing is marked cross-checked, and the build
 still succeeds.
+
+That is worth saying twice, because it fails quietly in the direction that looks fine. A
+build with no corpora reports `0 corroborated by driver source` and produces a perfectly
+good catalog in which nothing carries a `•` — indistinguishable, afterwards, from a catalog
+whose commands no driver happens to implement. Twelve catalogs shipped with no marks for
+that reason. Regenerating the corpora and re-running the check took the total from 1,460
+to 2,798 without a single command changing.
+
+The marks can be refreshed without rebuilding, which matters because a rebuild also shifts
+entry counts (see `rebuild.js`). The check is `variants(header)` against the corpus, the
+same one `build-catalog.js` applies, and it only ever adds: an entry already marked was
+corroborated against a corpus that may no longer be here, and clearing it would discard a
+check nobody can redo.

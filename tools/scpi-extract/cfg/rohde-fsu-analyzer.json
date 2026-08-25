@@ -1,6 +1,6 @@
 {
   "instrument": "Spectrum analyzer (Rohde & Schwarz FSU3 / FSU8 / FSU26 / FSU31 / FSU32 / FSU43 / FSU46 / FSU50 / FSU67)",
-  "source": "Transcribed from the R&S FSU Spectrum Analyzer Operating Manual (1313.9646.12-02), chapter 6 Remote Control - Description of Commands, served by R&S's own CDN. An FSU-era manual: headings sit at column 0 and carry their parameter clause in plain words on the same line — an alternation (ON | OFF) or a range (0 to 65535) — the labels are Example / Characteristics / Mode rather than a Usage field, and the exceptions to the query rule are stated in prose, 83 times, as 'This command is an event and therefore has no *RST value and no query'; the parser reads all of that. The manual's own Alphabetical List of Remote Commands is typeset as interleaved page columns pdftotext cannot reconstruct, so unlike the FSW there is no machine-readable index to restrict against; the coverage check is against the chapter's own column-0 headings, 149 of 167 of which are documented here — the rest are wrapped fragments and prose references. The IEEE 488.2 entries are curated rather than extracted: the guide's common-commands section describes the set in prose the extraction mangles, inventing query forms for *CLS, *RST, *TRG and *WAI and describing *RST with a note paragraph.",
+  "source": "Transcribed from the R&S FSU Spectrum Analyzer Operating Manual (1313.9646.12-02), chapter 6 Remote Control - Description of Commands, served by R&S's own CDN. An FSU-era manual: headings sit at column 0 and carry their parameter clause in plain words on the same line — an alternation (ON | OFF) or a range (0 to 65535) — the labels are Example / Characteristics / Mode rather than a Usage field, and the exceptions to the query rule are stated in prose, 83 times, as 'This command is an event and therefore has no *RST value and no query'; the parser reads all of that. The manual's own Alphabetical List of Remote Commands is typeset as interleaved page columns pdftotext cannot reconstruct, so unlike the FSW there is no machine-readable index to restrict against; the coverage check is against the chapter's own column-0 headings, 149 of 167 of which are documented here — the rest are wrapped fragments and prose references. The IEEE 488.2 entries are curated rather than extracted: the guide's common-commands section describes the set in prose the extraction mangles, inventing query forms for *CLS, *RST, *TRG and *WAI and describing *RST with a note paragraph. A further pass on 14 August 2026 removed the query forms these guides deny. The reader had been looking for the sentence — “This command is an event and therefore has no *RST value and no query” — only in the part of an entry before its first label, and this manual generation prints it at the *end*, after Example, Characteristics and Mode. It was never reached, so the convention rule invented a query for every command that explicitly refuses one. 68 removed here.",
   "manufacturer": "Rohde & Schwarz",
   "guide": {
     "title": "R&S FSU Spectrum Analyzer Operating Manual",
@@ -9,6 +9,14 @@
     "url": "https://www.rohde-schwarz.com/manual/fsu/",
     "fileName": "RohdeSchwarz_FSU_SpectrumAnalyzer_OperatingManual.pdf"
   },
+  "parse": [
+    {
+      "input": "parsed/rs-fsu.json",
+      "manual": "manuals/rs-fsu.txt",
+      "style": "rs",
+      "known": "measured"
+    }
+  ],
   "groups": [
     {
       "file": "parsed/rs-fsu.json"

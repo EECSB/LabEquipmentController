@@ -1,156 +1,1830 @@
 /* One stylesheet, hand-written. No framework: the whole UI is seven pages of tables,
-   buttons and a console, and a CSS framework would be a larger download than the app. */
+   buttons and a console, and a CSS framework would be a larger download than the app.
 
+   The look deliberately follows the WinForms desktop app rather than the dashboard
+   template a Blazor project starts life as. The desktop app is what people learn first
+   and what the screenshots in the README show, so the web build reads as the same tool:
+   a title bar, a menu strip, group boxes with their caption sitting on the border, a tab
+   per connected instrument, dense toolbars of small labelled buttons, a dark console
+   beside a results grid, and a status bar along the bottom.
+
+   Where the desktop convention is merely old rather than clear, this does the web thing
+   instead: system fonts, flat borders rather than 3-D bevels, CSS grid for the panes,
+   a real dark mode, and layouts that collapse on a narrow screen. */
+
+/* One palette per theme, and exactly one way of asking for each: the page resolves the
+   choice — a stored preference, or the system's when there is none — and writes it onto the
+   root element before the first paint. So there is no prefers-color-scheme block here to
+   keep in step with a data-theme one; whoever is asking, the answer arrives the same way.
+
+   color-scheme is not decoration. It is what tells the browser to draw its own furniture —
+   scrollbars, the dropdown a <select> opens, form control internals — in the same colours,
+   and without it a dark theme chosen on a light system gets white scrollbars. */
 :root {
-    --bg: #f6f7f9;
+    color-scheme: light;
+    --bg: #eef0f4;
     --panel: #ffffff;
+    --panel-2: #f7f8fa;
+    --chrome: #fbfbfd;
     --ink: #14161a;
     --muted: #5c6470;
-    --line: #d8dce2;
+    --line: #d3d8e0;
+    --line-soft: #e6e9ee;
     --accent: #1f6feb;
     --accent-ink: #ffffff;
+    --accent-soft: #e8f0fe;
     --ok: #1a7f37;
     --bad: #c1121f;
     --console-bg: #0b0d10;
-    --console-ink: #22c55e;
+    --console-ink: #35d07f;
     --console-echo: #9aa4b2;
+    --shadow: 0 1px 2px rgba(16, 22, 34, .06);
+    --radius: 5px;
+
+    /* The metrics every control on a row shares. The desktop settles on one button height
+       for a window and pins each control to it; these are the same idea as two numbers.
+       Their proportion is the desktop's — a 23px box around a 9pt font — rather than its
+       pixels, which are a Segoe UI at 96dpi that a browser has no reason to reproduce. */
+    --ctl: 25px;
+    --ctl-font: 14px;
+    /* Nominal glyph size: 16 against 12 on the desktop, so 18 against 14 here. Some glyphs
+       are drawn smaller than nominal — see the optical corrections down in the glyph rules. */
+    --icon: 18px;
 }
 
-@media (prefers-color-scheme: dark) {
-    :root {
-        --bg: #0f1216;
-        --panel: #171b21;
-        --ink: #e7eaee;
-        --muted: #9aa4b2;
-        --line: #2a313a;
-        --accent: #4c8dff;
-        --console-bg: #05070a;
-    }
+:root[data-theme="dark"] {
+    color-scheme: dark;
+    --bg: #0d1015;
+    --panel: #171b21;
+    --panel-2: #1c2129;
+    --chrome: #12161c;
+    --ink: #e7eaee;
+    --muted: #99a2b0;
+    --line: #2b323c;
+    --line-soft: #232932;
+    --accent: #4c8dff;
+    --accent-soft: #16233a;
+    --ok: #46b96a;
+    --bad: #ff6b6b;
+    --console-bg: #05070a;
+    --shadow: 0 1px 2px rgba(0, 0, 0, .35);
 }
 
 * { box-sizing: border-box; }
 
+html, body { height: 100%; }
+
 body {
     margin: 0;
-    font: 14px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
+    font: 13px/1.45 "Segoe UI Variable Text", "Segoe UI", system-ui, -apple-system, sans-serif;
     background: var(--bg);
     color: var(--ink);
 }
 
 .booting { padding: 3rem; color: var(--muted); }
 
-.shell { display: flex; min-height: 100vh; }
+/* ---- window chrome ------------------------------------------------------ */
 
-.side {
-    width: 240px;
-    flex: 0 0 240px;
-    background: var(--panel);
-    border-right: 1px solid var(--line);
-    padding: 1rem .75rem;
-    display: flex;
-    flex-direction: column;
-    gap: .25rem;
+/* One window: title bar, work area, status bar. Three rows as a grid, so the work area is
+   the only thing that scrolls. There is no menu strip — nothing it could send you to that is
+   not either a setting, a reference, or a tool belonging to one instrument. */
+.app {
+    display: grid;
+    grid-template-rows: auto 1fr auto;
+    height: 100vh;
 }
 
-.brand {
+/* A fixed band, as a window's title bar is. Held at the height it already stood at rather
+   than left to grow with whatever is put on it, so the one control up here can fill it
+   without pushing the bench down the page. */
+/* The side padding is the workspace's, not a smaller number of its own: the gear ends where
+   the cards below it end, and the title starts where they start. It was three quarters of a
+   rem, which put the gear four pixels past the right edge of every card on the page — close
+   enough to look like a mistake rather than a margin. (The workspace's scrollbar is an
+   overlay one and takes no width; a classic scrollbar would inset the cards by its own width
+   and this would need to know about it.) */
+.titlebar {
     display: flex; align-items: center; gap: .5rem;
-    font-weight: 600; padding: .25rem .5rem 1rem;
+    height: 34px;
+    padding: 0 1rem;
+    background: var(--chrome);
+    border-bottom: 1px solid var(--line);
 }
-.brand .mark { color: var(--ok); font-size: 1.4rem; }
-
-.nav {
-    display: block; padding: .5rem .75rem; border-radius: 6px;
-    color: var(--ink); text-decoration: none;
+/* The application's icon, not a drawing of one: app.ico's own artwork, which already has
+   its rounded corners and its own dark ground, so nothing here paints behind it. */
+.titlebar .mark { width: 20px; height: 20px; flex: 0 0 20px; }
+.titlebar .name { font-weight: 600; }
+.titlebar .sub { color: var(--muted); }
+/* Top right, where a window keeps its own controls, and sized like one: square, and as tall
+   as the bar less a hair of daylight at each edge. Flat until you go near it — it is the
+   least important thing on the strip and should not draw the eye off the bench. */
+.titlebar .ghost {
+    align-self: stretch; margin: 2px 0;
+    width: 29px; padding: 0; justify-content: center;
+    border-color: transparent; background: none; color: var(--muted);
 }
-.nav:hover { background: color-mix(in srgb, var(--accent) 10%, transparent); }
-.nav.active { background: var(--accent); color: var(--accent-ink); }
+.titlebar .ghost svg { width: 19px; height: 19px; flex: 0 0 19px; }
+.titlebar .ghost:hover:not(:disabled) { background: var(--accent-soft); border-color: var(--line); color: var(--ink); }
 
-.warn {
-    margin-top: auto; font-size: 12px; color: var(--muted);
-    border-top: 1px solid var(--line); padding-top: .75rem;
+/* Three squares in one box, the way a small toolbar toggle group looks: one border around
+   the set, hairlines between, and the one that is on filled in. */
+.seg { display: inline-flex; border: 1px solid var(--line); border-radius: 4px; overflow: hidden; }
+.seg button {
+    padding: .2rem .4rem;
+    border: 0; border-left: 1px solid var(--line); border-radius: 0;
+    background: none; color: var(--muted);
+}
+.seg button:first-child { border-left: 0; }
+.seg button:hover:not(:disabled) { background: var(--accent-soft); border-color: var(--line); color: var(--ink); }
+.seg button.on { background: var(--accent); color: var(--accent-ink); }
+.seg button.on:hover:not(:disabled) { background: var(--accent); color: var(--accent-ink); }
+.seg svg { width: 13px; height: 13px; flex: 0 0 13px; }
+
+/* ---- the settings menu --------------------------------------------------- */
+
+/* One gear at the end of the title bar, and a small panel under it holding what the
+   application knows about itself rather than about an instrument. */
+/* The wrapper is what the title bar lays out, not the button inside it, so the height has to
+   be handed down: stretch this to the band and let the button fill it. */
+.settings { position: relative; z-index: 20; }
+.titlebar .settings { align-self: stretch; display: flex; }
+.settings .ghost.on { background: var(--accent-soft); border-color: var(--line); color: var(--ink); }
+
+/* An invisible sheet over the page, so a click anywhere else shuts the menu. A document-level
+   listener would do the same job and then outlive the component that added it. */
+.scrim { position: fixed; inset: 0; z-index: 10; }
+
+.menu {
+    position: absolute; top: calc(100% + .35rem); right: 0; z-index: 11;
+    min-width: 210px; padding: .25rem;
+    border: 1px solid var(--line); border-radius: 6px;
+    background: var(--panel);
+    box-shadow: 0 12px 32px rgba(8, 12, 20, .28);
+}
+/* Focused when it opens, so Esc reaches it. The border is already the frame; a focus ring
+   around the whole panel would only repeat what the panel being there says. */
+.menu:focus { outline: none; }
+
+.menu .item {
+    display: flex; align-items: center; gap: .55rem; width: 100%;
+    padding: .4rem .5rem;
+    border: 0; border-radius: 4px;
+    background: none; color: var(--ink); text-align: left;
+}
+.menu .item:hover:not(:disabled) { background: var(--accent-soft); border-color: transparent; color: var(--ink); }
+/* Sized here rather than left to the rule further down, which only reaches glyphs inside a
+   button: the row that opens the submenu is not one, and an unsized SVG falls back to the
+   300×150 every replaced element defaults to. */
+.menu .item svg { width: 14px; height: 14px; flex: 0 0 14px; color: var(--muted); }
+.menu .item:hover svg { color: inherit; }
+
+/* Theme is a choice, not a command, so it keeps its own control and sits on a row of its own
+   rather than posing as an item that does something when pressed. */
+.menu .pick {
+    display: flex; align-items: center; justify-content: space-between; gap: .75rem;
+    padding: .35rem .5rem;
 }
 
-.content { flex: 1; padding: 1.25rem 1.5rem; min-width: 0; }
+.menu .rule { height: 1px; margin: .25rem .3rem; background: var(--line-soft); }
 
-h1 { font-size: 1.35rem; margin: 0 0 .25rem; }
-h2 { font-size: 1.05rem; margin: 1.25rem 0 .5rem; }
-.lede { color: var(--muted); margin: 0 0 1rem; }
+/* Hung off the left edge of its button rather than the right, for a menu in the middle of a
+   toolbar rather than at the end of a title bar. */
+.menu.left { right: auto; left: 0; }
 
+/* The script editors' toolbar. Three groups — the file pair, the three ways a script comes
+   into being, and running it — with a wider gap between them than within them, which is how
+   the desktop's says the same thing. */
+/* The toolbar, and a card’s worth of air under it. The desktop pads its toolbar all round
+   (ScriptForm gives the FlowLayoutPanel Padding(6)) and the editor begins below that; here the
+   row had nothing under it at all, so the buttons sat on the Script card’s top border. .55rem
+   is the distance between two cards, which is what this reads as. */
+.scripttools { gap: .3rem; margin-bottom: .55rem; }
+
+/* On a page it is in a card, because on a page there is nothing else for it to stand on. In a
+   window the body is the panel and a bare row of buttons reads as the window's own furniture,
+   the way a WinForms toolbar sits on the form; on a page the same row floats over the page
+   ground with every other control on the page framed and it alone not. The padding is the
+   desktop's — ScriptForm gives its FlowLayoutPanel Padding(6) all round. */
+.workspace > .row.scripttools {
+    background: var(--panel);
+    border: 1px solid var(--line); border-radius: var(--radius);
+    box-shadow: var(--shadow);
+    padding: .5rem .85rem;
+}
+
+/* A deliberate step between two groups of controls on one row, where the row's own gap says
+   "these belong together". */
+.row .gap { width: .9rem; }
+
+/* The three distances the desktop puts on a row of controls, which it states as three numbers
+   in MainForm: two pixels between a label and the box it names, eight between one pair and the
+   next, and fifty-two before the control that answers the row — Connect after the address and
+   the timeout, Scan after the interface, the range and the ports.
+
+   The row's own gap is the eight. A label pulls its box back to the two, and .answer is the
+   fifty-two less the gap it already has on either side of it. */
+.row label + input, .row label + select { margin-left: calc(2px - var(--rowgap)); }
+.row .answer { width: calc(52px - 2 * var(--rowgap)); }
+
+/* A segmented switch standing on a control row — the script-language switch. Each half is as
+   wide as its own word, so the halves are uneven and that is the intent: matched to the wider
+   of the two, a Network / Serial switch put 22px of empty space either side of "Serial". */
+.row .seg button { padding: 0 .45rem; justify-content: center; }
+
+/* The two windows that poll an instrument on a timer state their own three, and they are not
+   MainForm's: six pixels between a label and the box it names, fourteen between one pair and the
+   next, four before "ms" — which belongs to the number in front of it rather than being the next
+   thing along — and twenty-six before the button that starts it. MultimeterReadoutForm and
+   WaveformForm set the same margins on the same controls, so one rule serves both rows. The row
+   carries the six and every wider distance says what it adds. */
+.row.meterrow, .row.waverow { --rowgap: 6px; }
+.row.meterrow label + select, .row.meterrow label + input,
+.row.waverow label + select, .row.waverow label + input { margin-left: 0; }
+.row.meterrow select + label { margin-left: calc(14px - var(--rowgap)); }
+.row.meterrow #every + .muted, .row.waverow input.num + .muted { margin-left: calc(4px - var(--rowgap)); }
+.row.meterrow .gap { width: calc(26px - 2 * var(--rowgap)); }
+
+/* Run keeps the fourteen after it that WaveformForm gives it, so "every 500 ms" reads as one
+   phrase hanging off the button it belongs to rather than as three more controls in a row. */
+.row.waverow button + label { margin-left: calc(14px - var(--rowgap)); }
+
+/* A channel number is one digit — the box is capped at 4 — so the box is the width of one, plus
+   the spinner the browser insists on drawing inside it. It was five rem: room for a number
+   nothing can enter, beside a label that already says what goes in there. */
+.row.waverow input.ch { width: 3.4rem; }
+
+/* A row that opens a submenu rather than doing something. It is not a button: pressing it has
+   no meaning, and a button that does nothing when pressed is a button that has failed. */
+.menu .branch { position: relative; cursor: default; }
+.menu .branch:hover, .menu .branch:focus, .menu .branch:focus-within { background: var(--accent-soft); }
+.menu .branch > svg:last-of-type { color: var(--muted); }
+
+/* Leftwards, because the menu it hangs off is already against the right edge of the window,
+   and flush against that menu's outer edge rather than over it: two panels side by side read
+   as a menu and the submenu it opened, one panel laid over the other reads as a mistake.
+
+   Getting here still means crossing the parent's own padding, which belongs to neither panel,
+   so the submenu carries a transparent strip of exactly that width along its right edge.
+   Without it the hover breaks in the gap and the submenu shuts under your hand. */
+.menu .sub {
+    display: none;
+    position: absolute; top: -.3rem; right: calc(100% + .25rem + 1px); left: auto;
+    min-width: 230px;
+}
+.menu .sub::after {
+    content: ""; position: absolute; top: 0; bottom: 0;
+    left: 100%; width: calc(.25rem + 1px);
+}
+.menu .branch:hover > .sub,
+.menu .branch:focus > .sub,
+.menu .branch:focus-within > .sub { display: block; }
+
+/* A button that is a link in everything but mechanism: used where following a real link would
+   navigate the page underneath and take the dialog with it. */
+.linky {
+    padding: 0; border: 0; background: none;
+    color: var(--accent); text-decoration: underline; cursor: pointer;
+}
+.linky:hover:not(:disabled) { background: none; border-color: transparent; }
+
+/* A dialog's title bar is also its handle. Shown as one, and not selectable — dragging a bar
+   that highlights its own heading as it goes looks like a bug. */
+.grip { cursor: move; user-select: none; }
+
+/* Something has to give first on a narrow window, and the strapline is the one thing up
+   here that is decoration rather than state. */
+@media (max-width: 720px) { .titlebar .sub { display: none; } }
+
+/* One rhythm down the page: the gap above the first card is the gap between cards, so
+   the stack reads as a stack rather than as a first card that has been pushed away from
+   the title bar. The sides and the foot keep the wider frame — those are the window's
+   edges, and the title bar already draws a line of its own. */
+.workspace { overflow: auto; padding: .55rem 1rem 1rem; }
+/* The last card carries a bottom margin of its own, which lands on top of that padding and
+   made the gap under the page twice the one beside it. One margin or the other, not both. */
+.workspace > :last-child { margin-bottom: 0; }
+/* And a window is not a card. The tool windows are rendered by the page, so a <dialog> exists
+   in here for as long as one is open — and :last-child counts elements, not layout, so opening
+   the script editor stopped the console box being the last child and handed it back the margin
+   it had been relieved of. On a box that fills the window that came straight off the height of
+   the log: the console shrank by .55rem the moment a window opened over it, and grew back when
+   it closed. Stated as well as the rule above rather than instead of it, so a browser without
+   :nth-last-child(… of …) is left where it already was. */
+.workspace > :nth-last-child(1 of :not(dialog)) { margin-bottom: 0; }
+
+.statusbar {
+    display: flex; align-items: center; gap: 0;
+    background: var(--chrome);
+    border-top: 1px solid var(--line);
+    color: var(--muted); font-size: 12px;
+}
+.statusbar .cell { padding: .3rem .7rem; border-right: 1px solid var(--line-soft); white-space: nowrap; }
+.statusbar .cell:last-child { border-right: 0; }
+.statusbar .grow { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+
+/* A detached console is one instrument in a window of its own — the web's InstrumentWindow.
+   No menu strip, because this window goes nowhere else, which leaves the height for the
+   thing you opened it for. */
+.app.detached .workspace { padding-top: .45rem; }
+.app.detached .console { height: calc(100vh - 350px); min-height: 200px; }
+
+/* ---- group boxes -------------------------------------------------------- */
+
+/* A bordered region with its caption at the top — inside it, on its own line, the way a
+   card is titled rather than the way a WinForms GroupBox notches its caption into the top
+   border. The straddling version was the closer copy of the desktop, and it was the thing
+   that made the first row of a table sit awkwardly close under it. */
+.group {
+    position: relative;
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    box-shadow: var(--shadow);
+    /* The bottom is the sides. A frame with less air under its contents than beside them
+       reads as one that ran out of room rather than one that was drawn — and it shows most
+       on the console, where the command box sits hard against the foot of its card. The top
+       is the odd one out on purpose: a caption brings its own air, so the card starts
+       tighter and the rule below evens it up for the cards that have no caption. */
+    padding: .4rem .85rem .85rem;
+    margin: 0 0 .55rem;
+}
+/* Both shapes of caption, because they are the same caption: one on its own line, one on a
+   line it shares with a button. Written as .group > .cap alone it missed the second — the
+   Instrument Consoles heading fell back to the page font and stood a size larger and a
+   weight lighter than every other card on the page. */
+.group > .cap, .group > .cap-row > .cap {
+    display: block;
+    margin: 0 0 .6rem;
+    color: var(--ink); font-weight: 600; font-size: 12px;
+}
+.cap .hint { color: var(--muted); font-weight: 400; }
+
+/* A caption that *is* a control: "Network Scan" and "Serial Scan" are the two things the card
+   can be, and picking one is picking which. The desktop draws the same pair in the same
+   place, over the group box's own top border.
+
+   Sized to the caption rather than to a form control. Everywhere else a .seg is var(--ctl)
+   high because it stands in a row of boxes; here it stands in for the heading itself, so it
+   takes the heading's size and weight and only its border makes it more than text. */
+.cap > .seg { height: auto; vertical-align: middle; }
+.cap > .seg button {
+    height: auto; padding: .08rem .3rem;
+    font-size: 12px; font-weight: 600; line-height: 1.35;
+}
+/* A caption with something beside it. A card whose title line carries one action reads as
+   a titled box with a button, which is what a WinForms group box with a button in its top
+   corner is; two rows would read as a toolbar. */
+/* Hung from the top, not centred and not on the baseline.
+
+   The button beside the caption is nine pixels taller than the caption is, so the row is the
+   button's height whatever else is in it. Centred, the words dropped to the middle of it and
+   Instrument Consoles sat six pixels lower under its card's top edge than every other caption
+   on the page; on the baseline it was worse, because a 25px button carries its own text low.
+   Hung from the top, every caption in the app starts at the same height, and the action beside
+   it hangs from the same line. */
+.group > .cap-row { display: flex; align-items: flex-start; gap: .5rem; margin: 0 0 .6rem; }
+.group > .cap-row > .cap { margin: 0; }
+/* A card with nothing at the top of it but a control has no title to hang from, so its top
+   padding is not the gap above a heading — it is the top of a frame, and a frame is even. The
+   tighter number above is for the ordinary card, where the first thing inside is a caption and
+   the caption brings its own air. */
+.group:not(:has(> .cap, > .cap-row)) { padding-top: .85rem; }
+
+.group.flush { padding: .6rem 0 0; }
+.group.flush > .cap { margin-left: .85rem; }
+
+/* The pages that have not been rebuilt still use .panel with an <h2> heading. Give them
+   the same treatment rather than leaving half the app in the old style. */
 .panel {
+    position: relative;
     background: var(--panel); border: 1px solid var(--line);
-    border-radius: 8px; padding: 1rem; margin-bottom: 1rem;
+    border-radius: var(--radius); box-shadow: var(--shadow);
+    padding: .4rem .85rem .85rem; margin-bottom: .55rem;
+}
+/* A ring that turns while something is on its way back from the instrument. A screen grab
+   is a few hundred kilobytes over a link that answers when it feels like it, so the seconds
+   it takes are the ordinary case rather than a fault, and the window has to say which one it
+   is. The desktop says it in the console — "--- capturing screen ---" — and its viewer does
+   not exist until the bitmap does; here the window is already open, so the saying happens in
+   the window. */
+.spin {
+    display: inline-block; width: 14px; height: 14px; flex: none;
+    border: 2px solid var(--line); border-top-color: var(--accent);
+    border-radius: 50%; animation: spin .8s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+/* Slowed rather than stopped: a still ring is not a loading indicator, it is a circle. */
+@media (prefers-reduced-motion: reduce) { .spin { animation-duration: 2.4s; } }
+.panel.waiting { display: flex; align-items: center; gap: .5rem; }
+
+.panel > h2:first-child {
+    margin: 0 0 .6rem;
+    font-size: 12px; font-weight: 600;
 }
 
-.row { display: flex; gap: .5rem; align-items: center; flex-wrap: wrap; }
-.row.tight { gap: .35rem; }
+/* ---- typography --------------------------------------------------------- */
+
+h1 { font-size: 1.15rem; margin: 0 0 .15rem; font-weight: 600; }
+h2 { font-size: .95rem; margin: 1rem 0 .45rem; font-weight: 600; }
+.lede { color: var(--muted); margin: 0 0 .85rem; max-width: 78ch; }
+
+/* A lede that keeps its height when the words under it change. The language reference has two of
+   them, one per language, of about the same length but not the same number of lines — one
+   wrapped to two and the other to three, so pressing the switch stepped everything below it down
+   the window. The wider measure puts both in two lines at the width the window opens at, and the
+   floor holds the second line whether or not the words need it. */
+.lede.steady { max-width: 96ch; min-height: 2.9em; min-height: 2lh; }
+label { color: var(--muted); font-size: 13px; }
+
+.muted { color: var(--muted); }
+.error { color: var(--bad); }
+.mono, td.mono, th.mono { font-family: ui-monospace, "Cascadia Mono", Consolas, monospace; font-size: 12px; }
+
+/* ---- rows and layout ---------------------------------------------------- */
+
+/* The gap is a variable because two other rules are stated relative to it — a label pulls its
+   box back to two pixels, and .answer widens to fifty-two — and a row that changed its gap
+   without them changing with it would quietly get both of those wrong. */
+.row { --rowgap: .6rem; display: flex; gap: var(--rowgap); align-items: center; flex-wrap: wrap; }
+.row.tight { --rowgap: .3rem; }
 .grow { flex: 1; min-width: 0; }
 .spacer { flex: 1; }
 
-label { color: var(--muted); font-size: 12px; }
+.split { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: .85rem; }
 
-input[type=text], input[type=number], select, textarea {
-    font: inherit; color: var(--ink); background: var(--panel);
-    border: 1px solid var(--line); border-radius: 6px; padding: .4rem .55rem;
+/* The grid gap is what spaces these, so a panel inside one carries no margin of its own —
+   one left a stripe of it standing on top of the card's own bottom padding. Each is a column
+   as well, so the controls that belong at the foot of a panel can be told to go there and
+   stay there however little is above them, which is where the desktop docks its own. */
+.split > .group, .split > .panel { margin-bottom: 0; display: flex; flex-direction: column; }
+
+/* Neither of these carries a caption, so their top padding is not the gap above a title — it is
+   the top of a frame, and a frame is even. The rest of the app keeps the tighter number, where
+   the first thing in the card is a caption rather than a control. */
+.split > .group { padding-top: .75rem; }
+/* The gap over a panel's controls is the gap under them — the card's own bottom padding —
+   so the row sits in the same amount of air top and bottom rather than being pressed against
+   what is above it. */
+.row.foot { margin-top: auto; padding-top: .75rem; }
+.split.wide-left { grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr); }
+@media (max-width: 1100px) { .split, .split.wide-left { grid-template-columns: 1fr; } }
+
+/* ---- controls ----------------------------------------------------------- */
+
+input[type=text], input[type=number], input[type=password], select, textarea {
+    font: inherit; font-size: var(--ctl-font); color: var(--ink); background: var(--panel);
+    border: 1px solid var(--line); border-radius: 4px; padding: .3rem .45rem;
 }
-input[type=text]:focus, textarea:focus, select:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
 
-textarea.code {
-    width: 100%; min-height: 320px;
-    font: 13px/1.45 ui-monospace, "Cascadia Code", Consolas, monospace;
-    white-space: pre; overflow-wrap: normal; overflow-x: auto;
+/* A box is 25px tall around 14px text. It was 30px around 13px, which is a lot of empty box
+   around a small number; the desktop puts a 12px font in a 23px box, and that proportion is
+   the thing worth copying rather than the pixels, which are Segoe UI at 96dpi.
+
+   The height is stated rather than left to fall out of padding, so an input, a select and a
+   button standing on one row cannot disagree about it by a pixel. Textareas are left out:
+   they are sized by what is in them. */
+input[type=text], input[type=number], input[type=password], select {
+    height: var(--ctl); padding: 0 .4rem;
+}
+input:focus, textarea:focus, select:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+
+/* The little triangle the browser draws inside an <input list>. Nothing here asked for it, it
+   cannot be styled to match anything, and beside a box that is already filled it reads as a
+   second dropdown sitting on the first. The presets behind the box are unaffected — they still
+   appear as you type. */
+input[list]::-webkit-calendar-picker-indicator { display: none !important; }
+select { padding-right: .3rem; }
+
+/* A NumericUpDown: narrow, right-aligned, its own spinner. Five digits and no more — the
+   maximum is 30000, and a box sized for numbers it will not accept reads as a box waiting for
+   one. Measured rather than guessed: 30000 is 37.7px at this size, the padding is 12.8, the
+   border 2 and the browser's spinner about 16, which is where this comes from. It was a
+   third wider than that, and the slack sat to the left of a right-aligned number as a hole. */
+input.num { width: 4.3rem; text-align: right; }
+
+/* A worked example in the script-language guide. Boxed, as the desktop's reference window
+   draws them — there the outline has to be painted over a run of RichTextBox text, which has
+   no notion of a box round anything; here it is what a <pre> already is. Not coloured, and
+   deliberately: the desktop tokenizes its examples so that what you read looks like what you
+   type, and what you type here is a plain textarea. */
+/* The meter's current value. Large on purpose: the desktop's readout window shows it "large
+   enough to read from across the bench", which is where the probes are and the chair is not.
+   Tabular figures so the digits do not shuffle sideways as the reading changes. */
+.readout {
+    margin: .6rem 0 .2rem;
+    font: 600 2.6rem/1.1 "Segoe UI Variable Display", "Segoe UI", system-ui, sans-serif;
+    font-variant-numeric: tabular-nums;
+    color: var(--ink);
 }
 
-button {
-    font: inherit; padding: .4rem .7rem; border-radius: 6px;
+/* The box a datasheet is dropped on, and the column that stands beside it.
+
+   The desktop shows the path in an ordinary text box with Browse beside it; a browser cannot be
+   talked out of drawing its own control on a file input, so the input is hidden and this stands in
+   its place — and since it is ours, it can say what it takes. Dashed while it is empty, because a
+   dashed outline is what a drop target looks like; solid once it holds a name, because then it is
+   showing a value.
+
+   A target rather than a strip. This is the one control in the window that takes a dropped file, and
+   a line of dashes across the whole width reads as a disabled text box; the size is the room a file
+   name needs on two lines with the icon over it. No Browse beside it: the box is the button, and a
+   second control opening the same picker only asks which one to press. The three things that say
+   what will read the file go in a column beside it, which is what fills the width the box leaves.
+
+   Sized to that job and no larger: 18rem across, which is wider than the longest file name it has
+   to show. It was 22 by 7.5, and a drop target twice the size of anything else in the window
+   reads as the window's subject rather than as one of its inputs. Long names still fit — .what
+   wraps to two lines and the box grows.
+
+   The two of them stand in a frame of their own, and the box is as tall as that frame. Which is
+   to say the column sets the height and the target fills it: they are one control between them —
+   a file, and what will be done with it — and a short box beside a long column read as two
+   unrelated things that happened to be next to each other. */
+.dropcard {
+    border: 1px solid var(--line); border-radius: 8px;
+    padding: .8rem .85rem; margin: 0 0 .75rem;
+}
+/* A wider gap than the ordinary one between two controls, because these are two halves of the
+   card rather than two things in a row: the file on one side, what will be done with it on the
+   other. At the row gap they read as one long strip of five controls. */
+.dropbay { align-items: stretch; gap: 1.7rem; flex-wrap: nowrap; }
+.dropside { display: flex; flex-direction: column; align-items: flex-start; gap: .55rem; padding-top: .1rem; }
+
+/* Air under the switch, so the button below it reads as the end of the column rather than as the
+   third thing in a list of three. The frame's own padding gives it the same underneath. */
+.dropside > .check { margin-bottom: .55rem; }
+
+.drop {
+    flex: 0 0 18rem; display: flex; flex-direction: column;
+    align-items: center; justify-content: center; gap: .25rem;
+    min-height: 6rem; padding: .6rem .9rem; text-align: center;
+    border: 2px dashed var(--line); border-radius: 8px;
+    background: var(--panel-2); color: var(--muted);
+    cursor: pointer; overflow: hidden;
+}
+.drop:hover { border-color: var(--accent); color: var(--ink); }
+.drop.has { border-style: solid; color: var(--ink); background: var(--panel); }
+.drop svg { width: 26px; height: 26px; flex: 0 0 auto; }
+.drop .what { overflow-wrap: anywhere; }
+.drop .how { font-size: 12px; opacity: .75; }
+
+/* And while a file is over the window, it is the thing that lights up — the drop lands wherever
+   it is let go, but the box is where the eye is. */
+.dropping .drop { border-color: var(--accent); background: var(--accent-soft); color: var(--ink); }
+
+/* An example with a Copy of its own, ghosted into the top corner: the code is what is being read,
+   and the button is there when it is wanted rather than standing in front of it. The block keeps
+   room for it on the right, so a long line does not run underneath. */
+.samplebox { position: relative; }
+.samplebox > pre.sample { padding-right: 3rem; }
+.samplebox > .copy {
+    position: absolute; top: .3rem; right: .3rem;
+    height: auto; padding: .12rem .3rem; gap: .25rem;
+    font-size: 12px; color: var(--muted); opacity: .8;
+}
+.samplebox > .copy svg { width: 14px; height: 14px; flex: 0 0 14px; }
+.samplebox > .copy:hover { opacity: 1; color: var(--ink); }
+.samplebox > .copy.done {
+    opacity: 1; color: var(--ok); border-color: var(--ok); background: var(--panel);
+}
+
+pre.sample {
+    margin: 0; padding: .5rem .65rem; overflow-x: auto; white-space: pre;
+    background: var(--panel-2);
+    border: 1px solid var(--line-soft); border-radius: 4px;
+    font: 12.5px/1.55 ui-monospace, "Cascadia Mono", Consolas, monospace;
+    color: var(--ink);
+}
+
+/* The script editor's frame. Monaco draws everything inside it, so this is only the box: the
+   border and the height the panel gives it, and nothing about the text — the editor is told its
+   own font and colours in js/monaco.js, where the rest of its options live. */
+.code.monaco {
+    width: 100%; min-height: 320px; height: 46vh;
+    border: 1px solid var(--line); border-radius: 4px;
+    overflow: hidden;
+}
+
+/* Monaco's own suggestion list is a fixed-position box it appends to the body. Inside a tool
+   window — which is a <dialog>, and so in the top layer — it would otherwise be drawn under the
+   dialog it belongs to. */
+.monaco-editor .suggest-widget { z-index: 100; }
+
+/* Desktop buttons are small, labelled, and carry a 16px monochrome glyph. Same here, with
+   the icon optional so a bare text button still lines up with the rest.
+
+   a.btn is a link wearing a button's clothes, and is used wherever the action really is an
+   address — detaching a console, opening the catalog for an instrument. Written as a link it
+   cannot be refused by a pop-up blocker, and the browser's own habits come free: Shift for a
+   separate window, Ctrl for a background tab, middle-click for a tab. */
+button, a.btn {
+    display: inline-flex; align-items: center; gap: .4rem;
+    font: inherit; font-size: var(--ctl-font);
+    height: var(--ctl); padding: 0 .55rem; border-radius: 4px;
     border: 1px solid var(--line); background: var(--panel); color: var(--ink);
-    cursor: pointer;
+    cursor: pointer; white-space: nowrap; text-decoration: none;
 }
-button:hover:not(:disabled) { border-color: var(--accent); }
-button:disabled { opacity: .5; cursor: default; }
-button.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+button:hover:not(:disabled), a.btn:hover { background: var(--accent-soft); border-color: var(--accent); }
+button:active:not(:disabled), a.btn:active { transform: translateY(.5px); }
+button:disabled { opacity: .45; cursor: default; }
+/* Half a pixel shorter than the buttons beside it, and centred in the row, so it loses a quarter
+   of a pixel top and bottom. The measured boxes were identical to the hundredth of a pixel and
+   it still read as the taller of the two: a saturated fill against a white one looks larger than
+   it is — irradiation, the same reason a lit window looks bigger than its frame. The correction
+   is optical, so the number is the smallest one that does anything rather than a round one. */
+button.primary {
+    background: var(--accent); color: var(--accent-ink); border-color: var(--accent);
+    height: calc(var(--ctl) - .5px);
+}
+button.primary:hover:not(:disabled) { filter: brightness(1.08); background: var(--accent); }
 button.danger { color: var(--bad); }
-button.quick { font-family: ui-monospace, Consolas, monospace; font-size: 12px; }
+button.danger:hover:not(:disabled) { border-color: var(--bad); background: color-mix(in srgb, var(--bad) 8%, transparent); }
+/* All one width until a label needs more, and centred in it — ButtonStyle.MinWidthLogical is 76
+   and every desktop button carries it. Left to fit their labels these came out as a row of
+   different-sized boxes, which reads as a list of unrelated things rather than as one strip of
+   commands for one instrument. A width, not a size, so the number is literal. */
+button.quick {
+    font-family: ui-monospace, Consolas, monospace; font-size: 13px;
+    min-width: 76px; justify-content: center;
+}
+button.link { border: 0; background: none; color: var(--accent); padding: .2rem; text-decoration: underline; }
+button svg, a.btn svg { width: var(--icon); height: var(--icon); flex: 0 0 var(--icon); }
 
-table { width: 100%; border-collapse: collapse; }
-th, td { text-align: left; padding: .35rem .5rem; border-bottom: 1px solid var(--line); vertical-align: top; }
-th { color: var(--muted); font-weight: 600; font-size: 12px; }
-tr.clickable:hover { background: color-mix(in srgb, var(--accent) 8%, transparent); cursor: pointer; }
-td.mono, th.mono { font-family: ui-monospace, Consolas, monospace; font-size: 12px; }
+/* The buttons that are not controls on a row, and so are not that one height: a menu row, a
+   tab, a cell in a table, a segmented group. Each of these takes its height from the thing it
+   sits in — which is the same rule, applied to a different container. */
+.menu .item, .subtabs button, .tabstrip .tab > .pick, .titlebar .ghost { height: auto; font: inherit; }
+td button, td a.btn { height: auto; font-size: inherit; }
+.seg { height: var(--ctl); }
+.seg button { height: 100%; }
 
-.scroll { max-height: 420px; overflow: auto; }
+/* A short list of facts under the sentence that introduces them — what the model is being given,
+   one instrument to a line, as ScriptAiForm lists them. */
+ul.bullets { margin: .35rem 0 0; padding-left: 1.15rem; color: var(--muted); font-size: 13px; }
+ul.bullets li { margin: .1rem 0; }
 
+/* The AI window's request box: one line, and as many as the text needs.
+
+   It stood six lines deep whether or not there was anything in it, which put a paragraph's worth
+   of empty between the conversation and the row that sends it — and most requests here are one
+   sentence. lec.chatbox sets the height from the content; max-height is the ceiling, after which
+   a pasted script scrolls inside the box rather than eating the transcript above it.
+
+   No resize grip: the height is the content's answer now, and a box dragged to a height the next
+   keystroke overrules is a control that does not work. */
+textarea.prompt {
+    display: block; width: 100%; max-width: var(--prompt-w);
+    min-height: var(--ctl); max-height: 14rem; resize: none; overflow-y: auto;
+    /* A hair's more than the line, so one line of text sits centred rather than high. */
+    padding-top: .3rem; padding-bottom: .3rem;
+}
+
+/* The measure of the window's contents. Asked for directly: the transcript, the box and the rows
+   run the whole width of the window, edge to edge, rather than stopping at a column. It was 52rem
+   — a line of prose that long is hard to read back — but this window is dragged to the width its
+   reader wants, and half of it standing empty is the worse answer. */
+:root { --prompt-w: 100%; }
+.row.promptrow { max-width: var(--prompt-w); margin-top: .4rem; align-items: center; }
+
+/* A column inside a row: two controls that answer one question, kept together and kept narrow.
+   The row holds two of them and the button that acts on all four — across, that is five things
+   in the width of the request box, and it wrapped onto a second line with the button alone on
+   it beside a field of nothing. */
+.row.promptrow > .stack { display: flex; flex-direction: column; gap: .3rem; align-items: start; }
+/* And the two labels are one width, so the pickers under each other start in the same place
+   rather than stepping in and out with the word in front of them. */
+.row.promptrow > .stack > .row.tight > .muted { min-width: 3.3rem; }
+
+/* ---- glyphs -------------------------------------------------------------- */
+
+/* The icons the desktop ships as artwork rather than drawing: the same PNG files out of
+   Assets/icons, carried here as a mask so the button paints them in its own colour. Used
+   as an image they would be black artwork on a dark theme, which is to say invisible; as a
+   mask they are whatever currentColor is, which is what the drawn ones do too.
+
+   The rest are inline SVG in Icon.razor, transcribed from AppIcons.Drawn. */
+.ico {
+    display: inline-block;
+    width: calc(var(--icon) * var(--f, 1)); height: calc(var(--icon) * var(--f, 1));
+    flex: 0 0 calc(var(--icon) * var(--f, 1));
+    background-color: currentColor;
+    -webkit-mask: var(--art) center / contain no-repeat;
+    mask: var(--art) center / contain no-repeat;
+}
+
+/* Per-glyph optical correction, the same fractions ButtonStyle.Optical uses and for the same
+   reason: the bundled artwork does not share a common margin. The play triangle and the stop
+   square are solid shapes drawn edge to edge in their 64px canvas, while the plug, the arrow
+   and the page glyphs are thin outlines inset from theirs. At one nominal size the solid ones
+   read as about twice the weight of the outlines. Drawing them smaller is what makes them look
+   the same size; matching the numbers is not the same as matching the eye.
+
+   The drawn glyphs in Icon.razor need none of this — they are outlines on the same grid. */
+.ico-stop { --f: .60; }   /* a solid square: the heaviest shape in the set */
+.ico-start { --f: .68; }  /* a solid triangle */
+.ico-send { --f: .76; }   /* a thick arrow, corner to corner */
+.ico-scan { --f: .78; }   /* ditto, as a ring; Clear wears this one too */
+.ico-connect { --f: .76; } /* a busy diagonal shape, corner to corner */
+.ico-script { --f: .84; }
+.ico-new { --f: .84; }
+
+/* Connect: the plug and socket, exactly the artwork the desktop's Connect button carries. */
+.ico-connect { --art: url("data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAEAAAABACAQAAAAAYLlVAAAABGdBTUEAALGPC/xhBQAAACBjSFJNAAB6JgAAgIQAAPoAAACA6AAAdTAAAOpgAAA6mAAAF3CculE8AAAAAmJLR0QAAKqNIzIAAAAJcEhZcwAADsQAAA7EAZUrDhsAAAAHdElNRQfjDA8QIw0dqZZ3AAADCElEQVRo3sWZTUtUURiAn8EczRGahJR+QbmUigJd1SKKVjG2sUBooS50Ywt/hK7GFhFBCq1TIywh/AghhNqkEFR/QAINcuU4p4WX8X6cez3vfe9c39nIHe/7POe9556vgTyjxBJ/Gc0H1sp1BugK4NcwGOqMNx8/zh8MhhpzlAP4HBQKPG+gDIZteiixHrjWRIUw3mDYYSNyrUkKBaoRVNynzkQerU9WGDlLvMGwd7Z4w9vs8O7P/uTzmc6sBJ6lwK9S0mI7afH+usCXvFvfyyZ1DpihHYAyWwL8urb1JX43ki17CpIq/OCyTuBBIN1HzoursOPNESmjEkq3nOJBzGsEutlXKxwGJmtxDFJTK/Tr+sEjDkMJpX2hTyegVdjlnFZApzCmx8cpuPSFajb4ZIX4oekFhewE5AoZ46UKSvxN3rDCFG0pFZT4p43hZyWSyEVBhC9xnwqXAvgjX/rb4gchwvd6E+4eFSveWFe0SS/lpKz4m40UNYYseMMN633xCqLopO5LUeNVBP869t4hyzTV5o4+jhYOEofR94kpo1WYltdgJjXepnAgn3jaWY7BL1B0uP9x4EEcpVmE2hVs+FuMcifSx/0KGxJwgUlvwWhTGA79d5H5xtAUfjCD3sLtF1cl+CqGr956Lapw/FKe4Bd9301FsnVT4R4dUrxxVAjiDR8khU7GuygUWQhdVy20bTvcJIXhCP4wZmxMjfcrFHmXODAZ6rrzv/j9vZuCEg+zCcm3vJcyXkGNHz+lvMkKanyrd6rpomAbml7q8HDtVHywCkuRN+KJTmDASSCpCrXGqilVdEVmb7nCXmDtKI55R4EkhYcagTLbYoVwX7ir6wfdfHdW+GYZoH96e+LU4f85wb0KbUzzjyM2uKLDd/BJgPdXAVoks31c61eFeINhUotN33pDphvsxRT42Sz39/tni4exwCYsdzzAiEChCYcrABMWhXV28mh9nMIqJXpCCtXm4cMKa95OrsycN1PuZnWs6KKwFthIXqSfviwOVV1ijH0W9T8lSeI/Fq2fueiuqWAAAAAldEVYdGRhdGU6Y3JlYXRlADIwMTktMTItMTVUMTY6MzU6MTMrMDA6MDCHXb8AAAAAJXRFWHRkYXRlOm1vZGlmeQAyMDE5LTEyLTE1VDE2OjM1OjEzKzAwOjAw9gAHvAAAABl0RVh0U29mdHdhcmUAd3d3Lmlua3NjYXBlLm9yZ5vuPBoAAAAASUVORK5CYII="); }
+/* Scan, and Clear: the desktop uses this one circular arrow for both. */
+.ico-scan { --art: url("data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAEAAAABACAQAAAAAYLlVAAAABGdBTUEAALGPC/xhBQAAACBjSFJNAAB6JgAAgIQAAPoAAACA6AAAdTAAAOpgAAA6mAAAF3CculE8AAAAAmJLR0QAAKqNIzIAAAAJcEhZcwAADsQAAA7EAZUrDhsAAAAHdElNRQfjDA8QHhFjQIKGAAADjElEQVRo3sWZS2xNQRjHf+e2jUtbSm8QQcWjKWprYaGxZaMSj9Cw0EZJakFQC6LVhBJpiIgQEa9YsCMEJRZNLDwarzQekTSll7Ykem8jHvcci9tb2jtz5tHT2/+3m5nz/f9nZs43833HwRQRllJKCcVMooA8IE4vXbzjHc9o4ZuxR22U0kgrCTwfS/CcgywImjpMNU98iYdaK5WM8fW5mHIiOuS57KTTiDxlUfYwVujToQkPjxjLVfRr+WhFnrJ21uKk0Z8a6H/jR15E87DIU3aHaYPoTw/aM1KU8y0Qeg+PHsr7vYY4M6RPskZHAyNPmst+HEKcTesRIIfLAdMn7QLnBK0C+psjQi+x7LTJP88Kna+Tn7wnSh8u+USYzXitp5RQr/1vbrCN+YTSvpkNXKbXeA4GYZVi8Gdqmez7AmOpos1WwCzfDy8ujWtDkcUWum0E+IWdZmYYLeUU7a08gHXSIS51aSuuhsM+XH0BeXySDPjDZmPylIS7+gJ2Sd++0pr+hP4ShIlKuuus6U+a7IFq6dYzX3sz+n4B4ttOzHDn29B7AKWSrj0ZoPcAGoUdnzXDzlAcMKL3AFqFHbWW799nKiAivGj/UsR8uYAeI/rOEEuFO/0OXVYCPI4bjW/KZpGw47YVPUADUcoUOUESfdziGlwRTs18awHGEMWAH5YByAIhYXr0HjdzAvIFrXYb0FJAnqA1lkkBo4wQcUFrvrGfYQgQTbddFLQU0C1onUtW5gS8FbSGKR5dAbAscwJeCtuVpZPgUCg8jn8zNVMz8JUXgvZsNmVuDg4HeiWzgOxSancps4L4Wh5nZqYEyBKTBwEEJIf1lKkGhaW10PphC2jCw2WbathOiQD75DSJmgE/W/0H5tIhkWCfnkPNfzHGZYv/4DXSu7tLvcVeyKIhzU+V/yP3fBKI+4aJ6nQeCrwk/GezSFGk2ss4LfIwtXyXeEmw0e/RlYqqzhdlma6Q3bT7+ujwV39Emc2JC5XZlFDNDX4onz86mDD9Z8JFKrQmOlmqjeMwgQjztJIxuEqFKucYyWL1LXJ0VOZwaUTor+ufrw6NWkVGEztmmoOs5Gtg5DG7gD5Tq9Kpthbm2NAnsVp6RuhZFzXDPdJz2WH54zJOfVBJXphqHhuRv2I7E4Mh/4eFHOKp4ue1SyuHWaLv1NEf2o9JlLGQEooppIA8PGL00s0HXtPGI6Jm7v4C4BrOs7ipjdIAAAAldEVYdGRhdGU6Y3JlYXRlADIwMTktMTItMTVUMTY6MzA6MTcrMDA6MDCVO1BXAAAAJXRFWHRkYXRlOm1vZGlmeQAyMDE5LTEyLTE1VDE2OjMwOjE3KzAwOjAw5Gbo6wAAABl0RVh0U29mdHdhcmUAd3d3Lmlua3NjYXBlLm9yZ5vuPBoAAAAASUVORK5CYII="); }
+/* Stop. */
+.ico-stop { --art: url("data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAEAAAABACAQAAAAAYLlVAAAABGdBTUEAALGPC/xhBQAAACBjSFJNAAB6JgAAgIQAAPoAAACA6AAAdTAAAOpgAAA6mAAAF3CculE8AAAAAmJLR0QAAKqNIzIAAAAJcEhZcwAADsQAAA7EAZUrDhsAAAAHdElNRQfjDA8QGTUQAvCQAAAA0ElEQVRo3u3ZuxGCUBCF4R/wOhZABYYw9uRjLMZW6EBpQhPR0Agf4wwW4MUAHRhz2OTsFnC+3Q0XmnKsybniqXtuz5WcFY5OzTj3HvzfBWkb/xo8vqamaghjg+nbLbiIJXOsKuYSsWFqBoBJwIPYEHALeBMaAnxAbRgPptMLIIAAAggggAACCCCAAAIIIIAAAggggAACCCCAAF+AN833IU9TwD1kbwo4hGSmgAwcJ7PH5ZERQEpl9LpNfotIKQymT7q3cCzZUQ7yvi/ZsmiWDx+rIeDgwYGYmgAAACV0RVh0ZGF0ZTpjcmVhdGUAMjAxOS0xMi0xNVQxNjoyNTo1MyswMDowMMKZbjoAAAAldEVYdGRhdGU6bW9kaWZ5ADIwMTktMTItMTVUMTY6MjU6NTMrMDA6MDCzxNaGAAAAGXRFWHRTb2Z0d2FyZQB3d3cuaW5rc2NhcGUub3Jnm+48GgAAAABJRU5ErkJggg=="); }
+/* Send: the step arrow, as on the console's own Send button. */
+.ico-send { --art: url("data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAEAAAABACAQAAAAAYLlVAAAABGdBTUEAALGPC/xhBQAAACBjSFJNAAB6JgAAgIQAAPoAAACA6AAAdTAAAOpgAAA6mAAAF3CculE8AAAAAmJLR0QAAKqNIzIAAAAJcEhZcwAADsQAAA7EAZUrDhsAAAAHdElNRQfjDA8QICEEXKlXAAACe0lEQVRo3u2YO2gUURRAz26yMYqihkWrKCoqqGBQsdEQFdksWoi/SkgjsRBh27FKk0b8xcYPxE5JoTFRgyhYpBG00GoFieIH1EJUjNmQjyuTYt2EmNn37szOnWlyb7fvcc+5d97CzIP5iDlqFCvnaOElxbhaO4GLyxPqzduSagKNAGS4z8J4BMqRod80BX2B0hQqKkQhYJxCNALQSp+3QlQCkPVWiE6ggkKUApDlHgtm/5QIFdBAE6tJs4I0O9jiuecBx5kMt68ULXTyiM+4ouynLryO2+llWAieyT5S1cO3c4NR3+hyDvx/FvyN/BRDgdHl7A02hRRtvK0aHljhAO9CgpfyDrVy+Ep6QoWX8qYU38ZPBbzLsAReT7cK3MWlw45fxQs1/AU7frfS6F1cztnx+xhRw1+04w8xFif+GEU1/Hk7vjlw90XeMEiP4egK8JsDHL1RBjjDThb9q+EEP/lpPvlC/+UxR+Z8fjhB8Qke+oBPco21nnWcYHjI+cDfYk3FOnMFBCcftjEuhH8gY6zkBMHX8EqIv81iS63ZApckeDgtfO45QS3HP76B7wL8OIdF1WYELsvwcF2AL7BfWM2Zxgu/PRqZsOL/cFDaDVlcXLrknz5dgv7bxXiAvbTKN6cpWPFXfeF9RocVnzff9VQXCd5bn/5Wzf6brf1f0cTb/4DfWK6JT/HDInBWt/9dFvxvlunBk8Aey55ufulO4KllAk26+DrLNcNrXXySTdOvkd5xV1tgo2XHoLbABuP6BM+1BdYb1/OMaQusM64P6eIhydK4Bcxvt1/0BZYY1wtxT2BEX+Crcf2jtkAtRzlZ8brwGXltgfmIPaYABN48PODFVyAAAAAldEVYdGRhdGU6Y3JlYXRlADIwMTktMTItMTVUMTY6MzI6MzMrMDA6MDAnpKMEAAAAJXRFWHRkYXRlOm1vZGlmeQAyMDE5LTEyLTE1VDE2OjMyOjMzKzAwOjAwVvkbuAAAABl0RVh0U29mdHdhcmUAd3d3Lmlua3NjYXBlLm9yZ5vuPBoAAAAASUVORK5CYII="); }
+/* Scripts: the bolt on the desktop's Scripts button. */
+.ico-script { --art: url("data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAEAAAABACAQAAAAAYLlVAAAABGdBTUEAALGPC/xhBQAAACBjSFJNAAB6JgAAgIQAAPoAAACA6AAAdTAAAOpgAAA6mAAAF3CculE8AAAAAmJLR0QAAKqNIzIAAAAJcEhZcwAADsQAAA7EAZUrDhsAAAAHdElNRQfjDA8QHDlkw0j+AAACOklEQVRo3s1Zvy+DURQ9VAkRCQOJxIAIFj4Wi5gkDGLzN5hIJyOLLkUjEoud/4DB5kcsopvGSKSqtCVpmhhQE8H3vR/3fveV88bm3XPuffflnvcVMCOKdeRQMaxbxFFnEY2BNSP551p1QV+LorWADCe8Cb1otY5W70LAKCFa2oWAYUK0CxcCPLcCzLizbsEK+uXp2wn0JYt6+mDaMkKIlcK7vACPEIvVASYBju/AP6iAHo14dduCpgoMIWIdidWCJgEeIRLzAPQCnLfgP6iAXlzJdQvqK9CHZus4zBbUY44wB/SrgCQa6ALiYgIqqCBJF7AvKuAxmETXA57ogdZQBbSjU1TALnXDlOgBZFXeWl0BTzT/RTxRt+wJ5n/A0ZwWoy+jm05PcQKmFePkPyZGf673FKom9DiqA/CKebxxBFCcgA6bSPE2nomU/5owT38hLyJgml+6jAD9ng2RqkPbMMFXDwAoYhZlvoBjRNCDlhACFnASMgUNtozlP1KNXxkcGuhfMOiSHrgxCFh2S9+ENy39FceAUuBp6d8xTgnGeU4MaH/dwanb/IEVTf5ZwmdNdgV038IY1ouOlDJ/lvWiokb5ZGVZLzq6lPnHqkEPTPKslwr0Jgy+hEbrJScg+A6wrRcdQYMohPWiI2gQzVSPPmgQWVkvKYz46AvoCBOQ2oT+FlxCrpoV+D2IHFsvP34+2p1bLz9+DiLH1isIz9/oLzl/VIbFA9d6SSHxJWD7L+iBKBK4Rx4bUuX/AAOsOeeWWjdUAAAAJXRFWHRkYXRlOmNyZWF0ZQAyMDE5LTEyLTE1VDE2OjI4OjU3KzAwOjAwwyjBmQAAACV0RVh0ZGF0ZTptb2RpZnkAMjAxOS0xMi0xNVQxNjoyODo1NyswMDowMLJ1eSUAAAAZdEVYdFNvZnR3YXJlAHd3dy5pbmtzY2FwZS5vcmeb7jwaAAAAAElFTkSuQmCC"); }
+/* Run: the start arrow, on the quick-command button the desktop gives it to. */
+.ico-start { --art: url("data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAEAAAABACAQAAAAAYLlVAAAABGdBTUEAALGPC/xhBQAAACBjSFJNAAB6JgAAgIQAAPoAAACA6AAAdTAAAOpgAAA6mAAAF3CculE8AAAAAmJLR0QAAKqNIzIAAAAJcEhZcwAADsQAAA7EAZUrDhsAAAAHdElNRQfjDA8QFCmxrdKSAAABz0lEQVRo3uXZvUscURTG4Z8L8QNMGSOiFtZBSRfN36CdkCLYiI3aiikXQ2RJn8IyKyhYCZaigiFBtBDERi1ETaMEA/kqdnHfFFMkixtn1b33lXhvN815mDlzP86BPyPDCJ845xsfmaaTyKOJJfTXLJCPi3hbFj6Zv8jxME74NooVAEJ85iV14QHj/wifzC2ehwbMXwkQJWZpDwlYSwEI8ZMczaEAO1UAhDjiRZiM2K0SIMQmfV6AKLFQ6zXieoAkI7I0OQFCnDBUq4y4GUCIDZ55AaJEnlYnQIgfZGl0AoQ4ZsgLEGKNHi9AXJDnsRMgxHeyNDgBQhww6AUIsUK3F5BkRIsTIMRXJtMzIiRAiL20jAgNEGKZJ16AKDLDIydAiFMGvABR4o0XIMSEG1CgKwmcqXalqvF4wJgXAE/dALkB215AkXdewCsOyx/EXYimLotiLsX9lV7JvdiMrNux9UByziT1ab/Ff3ootR7L950XE+vVzHw5XXVez4+cBQpriebCW6Sylumshcpbf/XbAMzF6k16axsc7kDDYrWK4EFbNnOpXz1w02r0yvAR2nb2xiXkKgSP2LqFRhbLghd4H7uDnmGYD5zxhXVe0xEn6G87DXOn4J3YuQAAACV0RVh0ZGF0ZTpjcmVhdGUAMjAxOS0xMi0xNVQxNjoyMDo0MSswMDowMH+FtMkAAAAldEVYdGRhdGU6bW9kaWZ5ADIwMTktMTItMTVUMTY6MjA6NDErMDA6MDAO2Ax1AAAAGXRFWHRTb2Z0d2FyZQB3d3cuaW5rc2NhcGUub3Jnm+48GgAAAABJRU5ErkJggg=="); }
+/* Export Results: the desktop's saveFile artwork, which is not the drawn floppy the
+   console's Save Log carries — two different glyphs there, so two here. */
+.ico-savefile { --art: url("data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAEAAAABACAQAAAAAYLlVAAAB8klEQVR4Ae3Zs4PcURRH8RPbtm27Cco4KWMnfVDvNuE/EFRbx1Yb27Zt50Y35i/3oXnf0+7OfIY7s48fVphpnEecdJXWZFxRliAOO0FnMm004rir9CPDViHOu89w/nk79JdG0t3UYF4iX3rGxKyAZthWlRfIN71iBvmyANpgW20FPOMJos2hUHjAcYZzD9EWUyI04BTQh2uItozy4QHQiZOItpUaIQHP2f++XVxHvrSbpuEAv25TbMCu2IAd/gGFaEqznxpkB9jWIjagjXtAAS0SoCR7OPO+PZSMAyjNAwThAaVjAe4gCHdCAhIgARIgARKgML3+COhFYb+AHF6SS/5fAvKTy0ty/AHyM5nXCMIiSvwEKMEi/R44mfx+ABU5jWirqUyRL4AiVGY1op2moh9APrpwEtG2054bCMIN2rMd0U7ShXx+AAAN2YVoF3mm34EvItouGvp+GVZjPcKvW0818A2AMuQhvyiPMhACAEVYgPzQAopAKADkYxZvEO0Ns8gX/q14HE8QhCeMi/XFZAB33zcAYgGgx/uICQASwDegLo0M1bUC8nOCN4ZOkN8KOIkYOmkHnEMMnbMD1nDI0Jr/A6SXYQIkQDN8rBkKMB3bGRr5d8AqJECr7Ee3tkbbD68tLaEof5ge33vqPNMozHd7B2szpfJOh3QGAAAAAElFTkSuQmCC"); }
+/* New, and the Snippets menu: the desktop gives both the same blank-page glyph. */
+.ico-new { --art: url("data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAEAAAABACAYAAACqaXHeAAAAAXNSR0IArs4c6QAAAARnQU1BAACxjwv8YQUAAAAJcEhZcwAADsMAAA7DAcdvqGQAAAFMSURBVHhe7ZchTsRQGIQrkRwDiUQiOcYeA4lDIpEcAYlErkQiOQISCfMSxIbM/t0X0nntZL7kc5u8nW227TeFEEIIIYQQgpAreA9ff32AN9Cec9iGfx/xCbbP2PII2fBDX6Al15ANZu6gHe1/zsYyn6Edb5CNZX5CO9jQSjvYyEo72MhKO9jISjvYyEo72MhKO9jISjvYyMpNcFh1bMSSDq3IuapTK6/IU6pOrawie6pOraQie6pOraQie6pOraQiPyA7fA1+wcVpd1x2+Bpsj8bFaTcadvgavIMSRrz4zPkOz6CEC7iH7IuMsI2/hHJu4cgfoj2R2hup7Mr/Bzag0g42stIONrLSDjay0g42stIONrLSDjay0g42stKOnoqUVJ2anoqUVJ2anoqUVZ2aUypSWnVq5ipyWNWp+VuRm6q6EEIIIYQQwtaZph+HfuhtDE5bdAAAAABJRU5ErkJggg=="); }
+/* Open: the folder with a page coming out of it. */
+.ico-openfile { --art: url("data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAEAAAABACAYAAACqaXHeAAADHElEQVR42u2aW4hNURjHt3EYDBnFRA0JDyM5GhFh3pQopJNbrok8GOVSUkqSS4rMg4dRJMwLHhx1kig0JZfj8jIP5BaRKA2TMWM0+K+sU6vPceZbZ87ere+c9a/fw7619/+/d+tb+9s7CLy8vLy8vEpe5WADSIF0CDSDQ2Csq+bPgN8R8ArEXQugPiLzGW6DAS4F8DbiABR7XAqAXtwa/ZgWkiQ5RxuY4WoA00M4xzjwnpznHhjiYgCzQjrPavCLnOsmOAvOF5AmcAzMcy2APvriohpnusFREHMlAKVq8DriAXeZSwEozQZPIgwg6VoASoNBHVhaYBJgJ/GTdjGAMFVT6gHEfQAlHsDkqAKI6TdJ15hG/Dwk22O9DaAC7NKl7J2DfCR+fpDtj8A2HYZ1AOURz+bC5AToaxvAiiIxn2GJTQBl4AbZtwN8E0QHuf77NgFMBe3Gfq16wKkSxDritdUmgCNkvwsCS2Qj8ZDiBlAJXpL9FgozP4ZUiC4wlxvAcrJPiyvdHAttJx7ugP7cAFJkn33CzA/U9d/0sJk7D5iiR1CzoVkjLIAFpB33BozkBnAwS4OhTFgAl4iHBu5UeCh4RrYnBPYH2ozr/67LNyuABHl0nuqKIEn7ib/rmSkwJ4Ak2XZYmPlKfdNMDyu5b4MTwVdjfXvg4IfNHkTL93MwjBvAXrL+GqfH7pDUY36VeDjAaYjM1HWzhaxfJezu1+oBzyzfkzgB1OopYrexTn3MGCEsgOPE12VuS0yViHO56qYAVenJTub6VSVbxA1gLfhgLHcG4XwxDlMbs7y7VHACUEldIetugX6CzKu2XTPxsNumK9xFljcJu/tziIfPYLxNACbqp4ZRwgI4TTw09XRArgAahTc9fmaaHvkEoA6uExbADuLhQWD0/20DuMs52CENAo+Jh3rOgf8LYKuwuz+fvLmqUl6dbwCfwGhB5tX/RxfzHb+yBXBK2N2fQN5cOwOLr9zZAtgS/P3MHBdCQ/Dv77ix3gQgnfU2j0+xmX8BhpdqAF/AYtsBJF0EqP+OT9Jur5eXl5eXl1dO/QFsqg+KY4mStQAAAABJRU5ErkJggg=="); }
+
+/* A toolbar is a row of these with a hairline under it, the way the console window
+   separates its quick commands from its tools. */
+.toolbar { display: flex; flex-wrap: wrap; gap: .35rem; align-items: center; }
+.toolbar + .toolbar { margin-top: .35rem; }
+.toolbar.ruled { padding-bottom: .55rem; border-bottom: 1px solid var(--line-soft); margin-bottom: .55rem; }
+
+/* ---- instrument tabs ---------------------------------------------------- */
+
+/* The desktop app gives every connected instrument a tab, and that tab strip is how you
+   move between them everywhere. A <select> was the web shortcut; this is the real thing. */
+/* The line under the strip is a background, not a border, and that is the whole trick: the
+   open tab has to paint over it so that its own inside runs into the pane below, which is what
+   says the two are one surface. A border is drawn outside the padding box, and this is a
+   scroll box — it clips at the padding box, so nothing inside it can ever reach a border. As a
+   background it sits on the last pixel of the padding box instead, and the tab, pulled down by
+   the negative margin below, ends exactly there and covers it. The tabs either side keep their
+   sides and their tops and let the line through underneath.
+
+   Two pixels of headroom at the top for the same clipping reason, and one at the bottom for
+   the tab to overlap into — which also leaves the strip with nothing to scroll vertically, so
+   a stray gesture can no longer shave the top border off every tab. */
+.tabstrip {
+    display: flex; align-items: flex-end; gap: 2px;
+    background: linear-gradient(var(--line), var(--line)) left bottom / 100% 1px no-repeat;
+    margin-bottom: .3rem;
+    padding: 2px 0 1px;
+    overflow-x: auto;
+}
+/* The tab itself is the container, not a control: a tab that closes has two things to click
+   inside it, and a button nested in a button is not a thing HTML has. So the label is one
+   button, the ✕ another, and the tab is the box they sit in — which is exactly how the
+   desktop's owner-drawn tabs hit-test, a label area and a glyph square. */
+.tabstrip .tab {
+    display: inline-flex; align-items: center; gap: .45rem;
+    padding: .4rem .65rem;
+    border: 1px solid transparent; border-bottom: 0;
+    border-radius: 5px 5px 0 0;
+    background: transparent; color: var(--ink);
+    cursor: pointer; white-space: nowrap;
+    margin-bottom: -1px;
+    text-decoration: none;
+}
+.tabstrip .tab:has(> .shut) { padding-right: .3rem; }
+.tabstrip .tab:has(> .pop) { padding-right: .25rem; }
+.tabstrip .tab:hover { background: var(--accent-soft); }
+.tabstrip .tab.on {
+    background: var(--panel);
+    border-color: var(--line);
+    font-weight: 600;
+}
+.tabstrip .tab > .pick {
+    display: inline-flex; align-items: center; gap: .45rem;
+    border: 0; background: none; padding: 0; margin: 0;
+    font: inherit; color: inherit;
+}
+.tabstrip .tab > .pick:hover:not(:disabled) { background: none; border-color: transparent; }
+.tabstrip .tab .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--ok); flex: 0 0 7px; }
+/* The two things you do to a tab, both on the tab: open the console in a browser tab of its own,
+   and disconnect it. A browser puts its own ✕ here for the same reason - it belongs to the tab
+   rather than to what is in it, and it must be reachable without bringing that tab to the front.
+
+   Twenty rather than eighteen: at eighteen the ✕ was a smaller target than anything else on the
+   strip, and it is the one control here that cannot be undone. */
+.tabstrip .tab > .shut,
+.tabstrip .tab > .pop {
+    display: inline-grid; place-items: center;
+    width: 20px; height: 20px; padding: 0;
+    border: 0; border-radius: 3px; background: none;
+    color: var(--muted); text-decoration: none;
+}
+.tabstrip .tab > .shut:hover:not(:disabled) {
+    background: color-mix(in srgb, var(--bad) 20%, transparent); border-color: transparent; color: var(--bad);
+}
+/* Not red on hover, unlike the ✕ beside it: this one opens something and that one ends a
+   connection, and the colour is the difference. */
+.tabstrip .tab > .pop:hover { background: var(--accent-soft); border-color: transparent; color: var(--ink); }
+.tabstrip .tab > .shut svg { width: 13px; height: 13px; flex: 0 0 13px; }
+.tabstrip .tab > .pop svg { width: 13px; height: 13px; flex: 0 0 13px; }
+
+/* A console that is open in a window of its own. The tab stays — it is how you find that
+   window again, and how you ask for it back — but it plainly is not what you are looking at. */
+.tabstrip .tab.out > .pick { color: var(--muted); }
+.tabstrip .tab.out .dot { background: none; border: 1px solid var(--muted); }
+.tabstrip .tab.out.on { border-style: dashed; }
+
+.tabstrip .none { padding: .4rem .65rem; color: var(--muted); }
+
+/* A tab's right-click menu, put where the pointer was. Fixed rather than absolute because it
+   is placed in viewport coordinates, which is what a context menu is given. */
+.menu.tabmenu { position: fixed; min-width: 230px; }
+.menu .item { text-decoration: none; }
+
+/* ---- the consoles group -------------------------------------------------- */
+
+/* The desktop's Instrument Consoles box: the tab strip and the console of whichever tab is
+   on, both inside the group at the foot of the window. */
+
+/* What stands where the tab strip would be while there is nothing to put in it. The desktop
+   puts the same sentence in the same place, for the reason it gives itself: an empty panel
+   with no explanation reads as a broken window. */
+.group.consoles .none {
+    margin: 0 auto; padding: 1.5rem .85rem;
+    max-width: 62ch; text-align: center; color: var(--muted);
+}
+
+/* A console in here is already inside a box, so it does not draw a second one: a border and a
+   shadow inside a border and a shadow reads as a bug. In a window of its own it is not nested
+   and keeps them. */
+.group.consoles > .pane > .group {
+    border: 0; box-shadow: none; background: none;
+    padding: 0;
+    /* Everything but the gap under it, which is the one thing this still has to say: the tool
+       row and the two panels below it are different furniture, and without it they touch. */
+    margin: 0 0 .6rem;
+}
+.tabstrip .strip-end { margin-left: auto; padding: 0 .35rem .3rem; }
+
+/* And the box is the height of the window, as grpConsole is: MainForm anchors it on all four
+   edges and it stretches to whatever height is left under the scan panel. Here the card was
+   the size of what was in it — the log stood at its 360px floor whatever the window did, and
+   every pixel a taller window gave the page went into a field of nothing under the card. That
+   field is the one place on the page where the space below a card is not the space beside it,
+   and no amount of padding fixes it, because it was never padding. The log grows into it now.
+
+   Scoped to the page that has this card rather than set on every workspace: the others are a
+   stack of cards that ends where the last one does, which is what a page of controls is. */
+.workspace:has(> .group.consoles) { display: flex; flex-direction: column; }
+.workspace > .group.consoles { flex: 1 1 auto; display: flex; flex-direction: column; }
+.group.consoles > .pane { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
+.group.consoles > .pane > .split { flex: 1 1 auto; min-height: 0; }
+.group.consoles > .pane > .split > .group { min-height: 0; }
+/* Including the sentence that stands in for the tabs: lblNoConsole is docked Fill and centred,
+   so with the box filling the window the note is in the middle of it rather than at the top of
+   a tall empty frame. */
+.group.consoles > .none { margin: auto; }
+
+/* A pane that is not on top keeps its state and loses its box. The !important is aimed at
+   the display: values above — a hidden thing must stay hidden whatever else it is. */
+[hidden] { display: none !important; }
+
+/* Tabs inside a panel — Results / Plot in the console window. */
+/* A tab here is a word with a line under it, so the box is the word: barely any padding, and the
+   gap between the two comes from the strip rather than from air inside each of them. It was a
+   third of a rem high and six tenths wide, which made a label look like a button. */
+.subtabs { display: flex; gap: .7rem; border-bottom: 1px solid var(--line); margin-bottom: .6rem; }
+.subtabs button {
+    border: 0; border-bottom: 2px solid transparent; border-radius: 0;
+    background: none; padding: .1rem .15rem; line-height: 1.3; color: var(--muted);
+}
+.subtabs button:hover:not(:disabled) { background: var(--accent-soft); border-color: transparent; }
+/* Colour and the rule under it, not weight. Bold is wider than regular, so the tab you pressed
+   grew as it lit and everything to the right of it stepped sideways — on the one row you are
+   most likely to press twice. The desktop's tab control does not bold its selected tab either. */
+.subtabs button.on { color: var(--ink); border-bottom-color: var(--accent); }
+
+/* ---- data grids --------------------------------------------------------- */
+
+/* A DataGridView: ruled header, hairline rows, hover, and a monospace column where the
+   content is a command or an address. Denser than the web default, like the desktop. */
+/* One size for the whole list, and a size you can read at arm's length. The desktop's list
+   views draw every column in the form's own font — no smaller monospace column, no smaller
+   header — and here the identity strings had ended up the smallest text on the page while
+   being the thing people lean in to read. */
+table { width: 100%; border-collapse: collapse; font-size: 13px; }
+
+/* Ruled both ways, as the list views these stand in for are: every ListView in the desktop
+   app but one is built with GridLines on. It is not decoration — a column of addresses beside
+   a column of ports beside a wrapped identity string is far easier to read down when the
+   columns are actually separated, and reading down one column is what these lists are for.
+   One weight for both directions, because a grid drawn heavier one way reads as rows with
+   hints of columns rather than as a grid.
+
+   The right-hand edge is left to the .scroll box that frames the whole thing, so the last
+   column does not draw a line on top of one. */
+th, td {
+    /* Tight rows. These are lists to read down — an address, a port, an identity — and the
+       air between them is space that could have been another instrument on screen. The
+       desktop's list views draw a row barely taller than its text, and the rules doing the
+       separating means the padding does not have to. */
+    text-align: left; padding: .2rem .45rem; vertical-align: middle;
+    border-bottom: 1px solid var(--line);
+    border-right: 1px solid var(--line);
+}
+th:last-child, td:last-child { border-right: 0; }
+
+/* A button in a data row is part of the row rather than a control standing on its own, so it
+   takes the row's height instead of setting it. Left at its ordinary size it was the tallest
+   thing in the cell by nine pixels, and no amount of trimming the cell padding would have
+   shown against that. */
+td button, td a.btn { padding: .12rem .45rem; }
+
+/* The monospace columns hold addresses and identity strings — the subject of the row, not an
+   annotation on it — so they are the size of the words beside them rather than a step down.
+   After the base .mono rule, which is about code inline in prose and stays where it is. */
+td.mono, th.mono { font-size: inherit; }
+
+/* Except where a column holds prose. A command's description runs to three lines and the
+   Category beside it is one word; centred, that word floats in the middle of nothing. Rows
+   that can grow hang their cells from the top, which is what reading a description down the
+   page wants anyway. Marked on the table rather than sniffed out of the cells, so it says
+   which lists these are rather than depending on how one of them happened to wrap. */
+table.prose th, table.prose td { vertical-align: top; }
+
+/* The command reference, which is the one list in the desktop app that is not a grid.
+
+   CommandReferenceForm never turns GridLines on, and the reason shows once the categories stop
+   being a column: with a heading over each group there is nothing left to rule off, and rules
+   drawn through a grouped list cut the headings into cells. Three columns, in that form's own
+   proportions — the mark, the command sized to what is in it, and the description taking the
+   rest — set a size smaller than the page, because the window sets Segoe UI 9pt where the page
+   runs at ten.
+
+   One line per row, and an ellipsis where it will not fit. A ListView row is one line: the
+   description of a long command ran to three of them here, which turned a list you read by
+   running your eye down the left edge into one you had to step through. The full text is on the
+   row as a tooltip, which is where the desktop puts it too. */
+/* The filter, on the caption line of the list it filters. It takes what the caption leaves and
+   no more than the width of what it holds, so a wide card does not stretch one input across it
+   and a narrow one gives it back rather than pushing the caption out.
+
+   Shorter than a control on a row of its own, and its label set at the size of what goes in it.
+   There is no row of controls here for it to line up with, so the full 25 made the box the
+   tallest thing on the line by a clear margin; and the word naming a box, a size smaller than
+   the text typed into it, is what made the pair read as assembled rather than made. */
+.cap-row > .filter { flex: 0 1 24rem; min-width: 8rem; height: 22px; }
+.cap-row > label { font-size: var(--ctl-font); }
+
+/* The commands and the guide they came from, side by side — CommandLibraryForm splits its right
+   half the same way, a little over half the width to the list. Reading a command against the page
+   it was transcribed from is the reason to have the guide at hand at all.
+
+   One column under a narrow window, list first: a PDF beside a list of commands is worth having
+   and a PDF beside four columns of a command is not. */
+.library { display: grid; grid-template-columns: minmax(0, 55fr) minmax(0, 45fr); gap: .55rem; align-items: start; }
+/* The list stands at three-fifths of the window on a page, which is what it was given inline
+   — here, so that a window can raise it. */
+.scroll.cmds { max-height: 60vh; }
+@media (max-width: 1100px) { .library { grid-template-columns: minmax(0, 1fr); } }
+
+/* The guide fills its card and the card is the height of the list beside it, so the two halves of
+   the split line up rather than one ending halfway down the other. */
+.group.guide { display: flex; flex-direction: column; }
+.group.guide > .pdf { flex: 1 1 auto; width: 100%; min-height: 60vh; border: 0; border-radius: 6px; background: var(--panel-2); }
+.group.guide > .noguide { display: flex; flex-direction: column; gap: .6rem; }
+.group.guide > .noguide > .row { gap: .5rem; }
+
+table.cmdref { font-size: 12px; }
+table.cmdref th, table.cmdref td {
+    padding: .1rem .5rem; border: 0; vertical-align: middle;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+table.cmdref thead th { border-bottom: 1px solid var(--line); }
+
+/* The mark column is the width of the mark. The command column is the width of the longest
+   command in it and no wider than a third of the list, which is FitColumns clamping it between
+   a floor and a cap; the description is left auto and takes the remainder.
+
+   max-width: 0 on the cell that shrinks. On a table laid out automatically it is not a width —
+   it is the only way to tell the layout that this cell may be narrower than its content, which
+   is what makes the ellipsis possible at all. */
+table.cmdref .mark { width: 2rem; text-align: center; color: var(--muted); }
+table.cmdref td.cmd { width: 1%; max-width: 34rem; }
+table.cmdref td.desc { max-width: 0; }
+table.cmdref td.mono { font-size: 12px; }
+table.cmdref .mark .ok { color: var(--ok); }
+table.cmdref .mark .ai { color: var(--accent); }
+
+/* A ListViewGroup header: the category, in the accent colour, with the rule that separates it
+   from what came before running the width of the list. Not a row of the grid — a caption over
+   the rows under it — so it takes the air a caption takes and none of the cell borders. */
+table.cmdref tr.cat > td {
+    color: var(--accent); font-weight: 600;
+    padding: .7rem .5rem .15rem; border-bottom: 1px solid var(--line);
+}
+table.cmdref tr.cat:first-child > td { padding-top: .3rem; }
+table.cmdref tr.cat:hover { background: none; }
+
+/* The same three glyphs where the page explains them. */
+.mark.ok { color: var(--ok); }
+.mark.ai { color: var(--accent); }
+/* A ListView's header: the same words, in the same font as the rows, in the case they were
+   written in. It was set in small uppercase with letter-spacing, which is a web-dashboard
+   habit — it turns "Identity (*IDN?)" into "IDENTITY (*IDN?)" and a column called IP Address
+   into one called IP ADDRESS. The desktop draws its headers in the form's own font, and these
+   headings are quoted from the manufacturers' own words in places, so the case is not ours to
+   change. The band behind them is what says they are headings. */
+thead th {
+    position: sticky; top: 0; z-index: 1;
+    background: var(--panel-2); color: var(--muted);
+    font-weight: 600;
+    border-bottom: 1px solid var(--line);
+}
+tbody tr:hover { background: var(--accent-soft); }
+/* A row you can take with two clicks does not also select the word under the pointer on the
+   second: the desktop's list has no text to select, and a flash of highlighted text where an
+   insert was meant reads as the gesture having missed. */
+tr.clickable { cursor: pointer; user-select: none; }
+tr.on { background: var(--accent-soft); }
+
+/* The frame round a scrolling list. Same weight as the grid inside it, so the outer edge
+   reads as the last rule rather than as a lighter box drawn round a darker table. */
+.scroll { max-height: 420px; overflow: auto; border: 1px solid var(--line); border-radius: 4px; }
+
+/* A grid as wide as what is in it. The card still spans the page; the list inside it does not,
+   because a column of ports stretched across a fifth of a wide screen is a hand's width of
+   nothing between an address and a transport, and the eye has to cross it on every row. Each
+   column takes its widest cell and stops, and the frame takes the table — a full-width box
+   drawn round a narrow grid reads as a box that failed to fill.
+
+   Still capped at the card, so a long identity string scrolls inside the frame rather than
+   pushing the card wider than the window. */
+.scroll.fit { width: fit-content; max-width: 100%; }
+
+/* A scroll box that takes what the panel has left rather than what is in it. min-height: 0 is
+   the whole trick — a flex item will not shrink below its content without it, so the box grew
+   past its share and pushed the controls under it off the card instead of scrolling. */
+.scroll.fill { flex: 1 1 auto; min-height: 0; max-height: none; }
+
+/* A heading that carries an action as well as a name: the name at the left of the cell and the
+   button hard against its right edge, which is the right edge of the table. The desktop says the
+   same thing as an arithmetic — Place(btnExport, lstDevices.Right - btnExport.Width).
+
+   The padding comes off the cell so the button can set the row's height without the heading
+   growing round it, and the button itself is trimmed the way one in a data row is: it belongs to
+   the table rather than standing on its own. */
+thead th.act { padding-top: 0; padding-bottom: 0; }
+thead th.act > .cell { display: flex; align-items: center; justify-content: space-between; gap: 1.2rem; }
+th button, th a.btn { height: auto; font-size: inherit; padding: .1rem .4rem; margin: .15rem 0; }
+
+/* The console's command row: the box, six pixels, Send — then the wide step, then Clear Log
+   and Save Log six apart. That step is the whole point of the row. Send acts on the box to
+   its left and those two act on the log above, and the distance is what says they are
+   different jobs sharing a row.
+
+   InstrumentConsole draws Send hard against the box, with no margin at all, and gives Clear
+   Log forty. Six and fifty-two here: at this font the box and the button ran together as one
+   control, and once they are apart the step after Send has to grow to stay the larger of the
+   two. Fifty-two is the number the rest of the page already uses for a step this size.
+
+   The desktop shrinks its gap toward six as the window narrows, to keep 140 pixels of command
+   box. Here the box keeps its 140 and the row wraps instead, which is the same promise kept
+   the way a browser keeps it. */
+.row.cmd { --rowgap: 6px; }
+.row.cmd > .grow { min-width: 140px; }
+.row.cmd > .grow + button + button { margin-left: calc(52px - var(--rowgap)); }
+.scroll.fit table { width: auto; }
+
+/* A list and the controls that act on it, as one block. The column is as wide as the wider of
+   the two, and the list is at least as wide as the column — so an empty table reaches the end
+   of the row under it instead of stopping in the middle of the card, and a table full of long
+   identity strings widens the block and leaves the row where it is.
+
+   Inside it the table fills, with the slack going to the last column: the first three are an
+   address, a port and a word, and stretching those to share out the room puts a hand's width
+   of nothing between an address and its transport. */
+.fitcol { width: fit-content; max-width: 100%; }
+.fitcol > .scroll.fit { min-width: 100%; }
+.fitcol > .scroll.fit table { width: 100%; }
+.fitcol > .scroll.fit th:not(:last-child), .fitcol > .scroll.fit td:not(:last-child) {
+    width: 1%; white-space: nowrap;
+}
+
+/* The readings grid: every column as wide as the widest thing in it, and the last one taking
+   whatever is left over to the panel’s edge. Three short columns each taking a third of a wide
+   panel puts a hand’s width of nothing between a time and the reading it belongs to, which is
+   the same argument MainForm settles for the device list — fixed widths for the narrow columns,
+   and Identity given “whatever room is left over”.
+
+   width: 1% is not a width. On a table-layout: auto grid it is the smallest number the browser
+   will honour, so each of those columns falls back to its own content; the last is left auto and
+   absorbs the remainder. */
+table.results th, table.results td { width: 1%; white-space: nowrap; }
+table.results th:last-child, table.results td:last-child { width: auto; }
+
+/* SequenceForm's binding strip, docked between its toolbar and its editor: what each DEVICE
+   line resolves to, right now, said without being asked for it.
+
+   A table rather than the line of prose it was. The line and the card of bindings under the
+   editor said the same three facts about the same aliases — the name, the model the script asks
+   for, and what is playing the part — and only one of the two could be answered: the line
+   reported that something was not connected and left you to go and find where to say otherwise.
+   One of them had to go, and it was not the one with the pickers in it.
+
+   The sentence survives for the state a table cannot hold: a script that names no instruments
+   has no rows, and an empty table under a heading says less than the sentence does. Grey, as
+   SequenceForm greys it. */
+.group.editor > .devices { margin: 0 0 .45rem; white-space: pre-wrap; font-size: 13px; }
+/* It is the size of what is in it, and it is framed.
+
+   Not a card — a card would be the thing that was taken away, with its heading and its padding
+   and its paragraph — but a table with no edge, docked against an editor that has one, reads as
+   part of the editor's frame rather than as a thing standing in front of it. Three aliases and
+   three pickers, boxed, at the width the words in them come to: stretched across the window the
+   picker column ended a screen away from the alias it belongs to.
+
+   Separate rather than collapsed, so the corners round: the cells carry only a right and a
+   bottom border, so at zero spacing they draw the same single-line grid either way, and this
+   way the frame can be a rounded box rather than four hairlines. */
+.group.editor > .bindings {
+    /* align-self as well as width: the card is a flex column, and a flex item is stretched to
+       the width of the column whatever its own width says. */
+    width: auto; align-self: start; margin: 0 0 .45rem;
+    border: 1px solid var(--line); border-radius: 6px;
+    border-collapse: separate; border-spacing: 0;
+}
+.group.editor > .bindings th, .group.editor > .bindings td { white-space: nowrap; }
+/* The frame draws the outside; the cells draw the inside and stop at it. */
+.group.editor > .bindings tr:last-child > * { border-bottom: 0; }
+.group.editor > .bindings thead th:first-child { border-top-left-radius: 5px; }
+.group.editor > .bindings thead th:last-child { border-top-right-radius: 5px; }
+.group.editor > .bindings select { padding: .12rem .35rem; }
+/* Red where SequenceForm's line was red: a part with nothing playing it. On the two columns
+   that name the part rather than on the picker, which is the answer and not the complaint. */
+.group.editor > .bindings tr.unbound td.mono { color: var(--bad); }
+
+/* The script windows' status line, along the foot of the window under the split — where
+   ScriptForm docks its own. It says what the last thing to happen was: saved, loaded, running,
+   run complete. It sat under the editor before, inside the card with it, which made it read as
+   something about the text rather than about the window. */
+.row.runstatus { margin-top: .55rem; min-height: 1.15rem; }
+
+/* ---- the queue ------------------------------------------------------------ */
+
+/* What is waiting on the connection, above the log. One small box per command with an arrow
+   between them: each is a thing waiting its turn, and the arrows are the order they will be
+   taken in.
+
+   The outline is drawn whether or not anything is in it, and the strip keeps its height —
+   a box that appears with the first command and vanishes with the last reads as a thing
+   arriving rather than as the place where things arrive, and it would shove the log down and
+   up again on every press. */
+.queue {
+    display: flex; align-items: center; gap: .4rem;
+    /* As tall as a chip and no taller. There is no vertical padding: the chip is the tallest
+       thing the strip ever holds, so its height is the strip's height, and the floor is here
+       only so that an empty strip is the same size as a full one rather than shrinking to the
+       height of the words in it. */
+    min-height: 1.45rem; margin-bottom: .4rem;
+    /* And no horizontal padding either. The desktop gives the strip Padding(8, 0, 8, 0), but
+       the desktop’s strip is a grey band with no border, where 8 lines the first chip up with
+       the log text under it. This one is drawn as a box, so the same 8 read as an inset from a
+       border — a gap round the thing the box is there to hold. */
+    padding: 0;
+    border: 1px solid var(--line); border-radius: 4px;
+    background: var(--panel-2);
+    overflow: hidden; white-space: nowrap;
+    font-family: ui-monospace, Consolas, monospace; font-size: 12px;
+    color: var(--muted);
+}
+/* What the empty strip says it is. Not a chip - it is a label on the box rather than something
+   in it, so it takes the strip's own muted colour and none of the chip's furniture. */
+/* The word gets the inset the strip does not. A chip is meant to sit against the border — the
+   box is there to hold it, and a gap round it read as one — but the word naming an empty strip
+   was pressed into the corner. The exact number is a chip's own: its border plus its padding, so
+   the word stands where the first chip's text will stand when one arrives. */
+.queue .idle { color: var(--muted); padding-left: calc(.35rem + 1px); }
+
+.queue .chip {
+    padding: .1rem .35rem;
+    border: 1px solid var(--line); border-radius: 3px;
+    background: var(--panel); color: var(--ink);
+}
+.queue .to { color: var(--muted); }
+
+/* ---- the capture windows -------------------------------------------------- */
+
+/* The picture fills the window and the buttons sit under it, which is how ScreenCaptureForm
+   and WaveformForm are built. Black behind the screenshot for the same reason the desktop's
+   PictureBox has a black BackColor: an instrument's screen is black, and letterboxing it on
+   white puts a bright frame round a dark picture. */
+.shot, .trace {
+    display: block; width: 100%; margin: .6rem 0 .5rem;
+    background: #05070a; border-radius: 6px;
+}
+.shot { max-height: 62vh; object-fit: contain; }
+
+/* The trace takes the wheel and the drag, so it says so under the pointer — and while a drag is
+   in progress it is the sideways cursor the desktop switches to, which is the only thing on screen
+   saying the gesture was picked up. */
+.trace { cursor: ew-resize; touch-action: none; }
+.trace.dragging { cursor: grabbing; }
+
+/* One capture, drawn on as many cards as are wanted.
+
+   A card is a set of channels and a picture of them. Alone on a card a channel gets the whole
+   vertical scale to itself; together on one card they share it, which is what makes them
+   comparable. Which of those two a measurement wants is not something the app can know, so it is
+   asked — the chips say which channels, the ✕ takes the card away, and the dashed frame under the
+   last one is where the next goes. The desktop draws one plot and has no equivalent; see SPEC §9. */
+/* The bottom is the sides, as it is on a card: this had .35rem under it against .6rem beside
+   it, which is a quarter of the air missing from the one edge where it shows — the foot of a
+   console sits against it, and so does the last button on a waveform card. */
+.pane { margin: .6rem 0 0; padding: .4rem .6rem .6rem; border: 1px solid var(--line); border-radius: 8px; }
+.panehead { align-items: center; }
+.panehead > .muted:first-child { margin-right: 8px; }
+
+/* Away to the right, past everything the card is made of — the same place the tool window and the
+   console tab keep theirs, and red under the hand for the same reason: it removes something. The
+   spacer before the zoom buttons is what pushes both over there now. */
+.panehead > .shut {
+    padding: .2rem;
+    border-color: transparent; background: none; color: var(--muted);
+}
+
+/* The three gestures, as buttons, next to the ✕ and set apart from it: two of them change what
+   is on screen and the third takes the screen away, which is not the same kind of thing. Drawn
+   as one control with three ends — no gap between them, one frame round the lot — because zoom
+   in, zoom out and show-it-all are three answers to one question. */
+.zoomers {
+    display: inline-flex; align-items: center;
+    margin-right: .55rem;
+    border: 1px solid var(--line); border-radius: 6px; overflow: hidden;
+}
+.zoomers > .zoom {
+    /* Centred, both ways. A button in this app is a flex row of glyph-then-label, which puts
+       the glyph at the start — right for a button with a label after it, and wrong for one
+       with nothing after it at all: the mark sat hard against the left edge of its box,
+       six pixels off centre, with the space it should have been sharing all on its right. */
+    display: flex; align-items: center; justify-content: center;
+    height: 22px; width: 28px; padding: 0;
+    border: 0; border-radius: 0; background: none; color: var(--muted);
+}
+.zoomers > .zoom + .zoom { border-left: 1px solid var(--line); }
+.zoomers > .zoom:hover:not(:disabled) { background: var(--accent-soft); color: var(--ink); }
+.zoomers > .zoom:disabled { opacity: .45; }
+.zoomers > .zoom svg { width: 13px; height: 13px; flex: 0 0 13px; }
+
+/* The third one drawn larger than the two beside it, because it is drawn lighter: two thin
+   walls and an arrow against a pair of thick bars. Matched by weight rather than by the number
+   in the stylesheet — a glyph that measures the same and reads smaller is smaller. */
+.zoomers > .zoom.fit svg { width: 16px; height: 16px; flex: 0 0 16px; }
+.panehead > .shut:hover:not(:disabled) {
+    background: color-mix(in srgb, var(--bad) 20%, transparent); border-color: transparent; color: var(--bad);
+}
+.panehead > .shut svg { width: 13px; height: 13px; flex: 0 0 13px; }
+
+.pane > .trace { margin: .4rem 0 .3rem; }
+/* The foot belongs to the card it is in, not to the bottom of the window: .row.foot pushes itself
+   down with margin-top:auto, which inside a card that is only as tall as its contents would put
+   the buttons nowhere in particular. */
+.pane > .row.foot { margin-top: 0; padding-top: .3rem; }
+.pane > .empty { margin: .45rem .1rem .4rem; color: var(--muted); font-size: 13px; }
+
+/* The way to another card: a card-shaped hole where the next one goes. Dashed rather than drawn as
+   a button, for the same reason the datasheet target is — dashes are what an empty place that takes
+   something looks like, and a solid button here would read as a fifth control in the row above. */
+.addpane {
+    display: flex; align-items: center; justify-content: center; gap: .45rem;
+    width: 100%; height: auto; margin: .6rem 0 0; padding: .55rem;
+    border: 2px dashed var(--line); border-radius: 8px;
+    background: none; color: var(--muted);
+}
+.addpane:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); background: none; }
+.addpane svg { width: 15px; height: 15px; flex: 0 0 15px; }
+
+/* ---- the plot ------------------------------------------------------------ */
+
+/* The desktop's ResultPlotPanel: a strip of pickers, then the curve. The strip reads as four
+   groups — what runs across and in what unit, what goes up, how the axes are spaced, and the
+   camera — and the gaps between them are what say so. */
+/* Room under the curve as well as over it. The buttons that act on it — Clear, Save CSV, Save
+   Results — sit directly below, and pressed against the frame they read as part of the plot
+   rather than as things you do to it. */
+/* No margin of its own. The tabs already put six tenths of a rem under themselves, and a
+   second helping on top of that stood the curve lower under its tab than the table stands
+   under its own — two panes of one control starting at two different heights. */
+/* The picture takes whatever height is left after the strip under it, and the strip is the only
+   thing in here with a size of its own. The canvas used to be sized by its own aspect ratio,
+   which made the plot tab a different height from the table tab beside it — so switching tabs
+   resized the card, and the card beside it in the grid row with it. ResultPlotPanel fills its
+   tab page and repaints; this fills its card and redraws. */
+.plot { margin: 0; display: flex; flex-direction: column; flex: 1 1 auto; min-height: 0; }
+
+/* The canvas is laid over this rather than measured into it: the box says how big the picture
+   is, the picture is told, and it draws at exactly that many units. A viewBox with an aspect
+   ratio of its own would letterbox instead. */
+.plotbox { position: relative; flex: 1 1 auto; min-height: 170px; }
+
+/* Except where the card has a height of its own to give — in a console's grid row, or in a script
+   window's split. There the floor is not a floor but a wedge: drag the window short enough and the
+   picture refuses to fit, the strip under it goes past the bottom of the card, and the status line
+   is pushed out of the window. The floor is for a card with no height of its own, where a box that
+   can be zero tall is a box that is. */
+.split .plotbox { min-height: 0; }
+/* Under the curve, not over it. The pickers are what you reach for after looking at the plot
+   — a wrong axis is something the picture tells you — and above it they pushed the picture
+   down the panel and put a row of boxes between the tab you pressed and the thing it drew. */
+.plotpick { align-items: flex-start; gap: 1rem; margin: .4rem 0 0; }
+
+/* A plot that is the window rather than a panel in it has no floor to keep: the readout's is
+   given whatever the fixed rows above it leave, and a window dragged short should shorten the
+   curve rather than push the picker strip out of the frame. */
+.group.tall .plotbox { min-height: 0; }
+.plotpick .stack { display: flex; flex-direction: column; gap: .25rem; }
+/* Nothing between the three switches. ResultPlotPanel sets their margins to zero and says why:
+   at their natural spacing they make a taller column than the pickers beside them, and that
+   column sets the height of the whole strip — which comes off the curve. */
+.plotpick .stack.scales { gap: 0; }
+.plotpick .pair { display: flex; align-items: center; gap: .35rem; }
+.plotpick .pair label { min-width: 3.4rem; color: var(--muted); }
+.plotpick .pair select, .plotpick .pair input { width: 9rem; }
+.plotpick .ylabel { color: var(--muted); margin-top: .3rem; }
+
+/* A checked list rather than a second dropdown: a sweep that records two readings wants both
+   curves on one pair of axes, which is the comparison the measurement was for. Scrolls at
+   four columns rather than growing the strip, as the desktop's does. */
+.plotpick .ylist {
+    display: flex; flex-direction: column; gap: 0;
+    /* 150×62, which is what the desktop gives it. Taller than three switches and no taller
+       than it has to be; past that it scrolls rather than pushing the picture up. */
+    min-width: 9rem; max-height: 3.9rem; overflow: auto;
+    padding: .2rem .35rem;
+    border: 1px solid var(--line); border-radius: 4px;
+    background: var(--panel);
+}
+/* Rows a checkbox tall, not a line of prose tall. The desktop gives its column list 62 pixels and
+   puts four items in it — about sixteen each — and its three switches below sit at zero margin for
+   the same reason: this strip is a set of small controls, and the space between them is space the
+   curve above them does not get. Ordinary line spacing made each row a fifth taller than the box
+   it holds. */
+.plotpick .check { display: block; white-space: nowrap; line-height: 1.15; }
+.plotpick .check input { vertical-align: -.1em; margin: 0 .35rem 0 0; }
+.plotpick .check:has(input:disabled) { color: var(--muted); opacity: .6; }
+
+.plotcanvas {
+    position: absolute; inset: 0;
+    display: block; width: 100%; height: 100%;
+    border: 1px solid var(--line); border-radius: 4px;
+    background: var(--panel);
+}
+.plotcanvas .grid { stroke: var(--line-soft); }
+.plotcanvas .frame { stroke: var(--line); }
+.plotcanvas .tick { fill: var(--muted); }
+
+/* ---- console ------------------------------------------------------------ */
+
+/* It takes the whole of the panel that is left after the queue above it and the command row
+   below, rather than standing at a fixed 360 with a field of empty card under it: the two
+   panels are stretched to the same height by the grid, and whichever is shorter was spending
+   the difference on nothing. 360 stays as the floor, for when the panel beside it is short. */
 .console {
     background: var(--console-bg); color: var(--console-ink);
-    font: 12.5px/1.45 ui-monospace, Consolas, monospace;
-    padding: .6rem .75rem; border-radius: 6px;
-    height: 380px; overflow: auto; white-space: pre-wrap; word-break: break-word;
+    font: 12.5px/1.45 ui-monospace, "Cascadia Mono", Consolas, monospace;
+    padding: .55rem .7rem; border-radius: 4px; border: 1px solid var(--line);
+    flex: 1 1 auto; min-height: 360px;
+    overflow: auto; white-space: pre-wrap; word-break: break-word;
 }
 .console .echo { color: var(--console-echo); }
 .console .err { color: #ff6b6b; }
 .console .info { color: #7aa2f7; }
+.console .empty { color: var(--console-echo); opacity: .7; }
+
+/* The identity line the console window prints above its buttons.
+
+   The space under it is the desktop’s, and it is generous on purpose: InstrumentConsole gives
+   the header Padding(6, 4, 6, 18) with a note saying why — this row says what the console is
+   attached to, and the strip below it sends commands to an instrument. Those are different
+   jobs, and the gap is what says so. 18 logical units against the desktop’s 23px control box
+   is 1.2rem against this build’s 25. It was .45rem, which read as one block of six rows. */
+.idline {
+    display: flex; align-items: center; gap: .5rem; flex-wrap: wrap;
+    padding: .1rem .1rem 1.2rem;
+    color: var(--muted); font-size: 12px;
+}
+.idline .addr { color: var(--ink); font-family: ui-monospace, Consolas, monospace; }
+
+/* A card a file can be dropped on, while something is over it. Inside the border rather than
+   outside, so nothing moves and nothing beside it is nudged — the card says "in here" without
+   the layout twitching under the pointer. */
+.group.dropping, .panel.dropping {
+    outline: 2px dashed var(--accent); outline-offset: -5px;
+    background: var(--accent-soft);
+}
+
+/* ---- odds and ends ------------------------------------------------------ */
 
 .pill {
-    display: inline-block; padding: .05rem .4rem; border-radius: 999px;
+    display: inline-block; padding: .02rem .4rem; border-radius: 999px;
     font-size: 11px; border: 1px solid var(--line); color: var(--muted);
 }
 .pill.ok { color: var(--ok); border-color: var(--ok); }
 .pill.bad { color: var(--bad); border-color: var(--bad); }
 
-.error { color: var(--bad); }
-.muted { color: var(--muted); }
-.mono { font-family: ui-monospace, Consolas, monospace; }
-
-.split { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
-@media (max-width: 1100px) { .split { grid-template-columns: 1fr; } }
-
 .chip {
     display: inline-flex; align-items: center; gap: .4rem;
-    border: 1px solid var(--line); border-radius: 999px; padding: .2rem .6rem;
+    border: 1px solid var(--line); border-radius: 999px; padding: .15rem .55rem;
 }
 .chip.on { border-color: var(--accent); }
+
+/* A channel chip carries the colour the instrument draws that channel in — yellow, cyan, magenta,
+   blue, printed beside the BNC connectors on the front panel of every scope this app talks to. The
+   colour is on the chip whether or not it is on, because the question the chip answers is "which
+   channel is this", and that does not change with the tick. Lit, it takes the colour as its border
+   too, so the picker and the traces name the same channel the same way.
+
+   Small enough to sit four in a row: the number is the whole label, and the colour is the rest. */
+.row.waverow .chip, .panehead .chip { padding: .15rem .45rem; gap: .3rem; }
+.row.waverow .chip.on, .panehead .chip.on { border-color: currentColor; }
+.row.waverow .chip.ch1, .panehead .chip.ch1 { color: #b58900; }
+.row.waverow .chip.ch2, .panehead .chip.ch2 { color: #0e7490; }
+.row.waverow .chip.ch3, .panehead .chip.ch3 { color: #a21caf; }
+.row.waverow .chip.ch4, .panehead .chip.ch4 { color: #1d4ed8; }
+
+/* The dark theme takes the trace colours themselves, which are chosen against black; the light
+   theme takes them a few steps down, because #f5d90a on white is not a colour, it is a rumour. */
+:root[data-theme="dark"] .row.waverow .chip.ch1,
+:root[data-theme="dark"] .panehead .chip.ch1 { color: #f5d90a; }
+:root[data-theme="dark"] .row.waverow .chip.ch2,
+:root[data-theme="dark"] .panehead .chip.ch2 { color: #22d3ee; }
+:root[data-theme="dark"] .row.waverow .chip.ch3,
+:root[data-theme="dark"] .panehead .chip.ch3 { color: #e879f9; }
+:root[data-theme="dark"] .row.waverow .chip.ch4,
+:root[data-theme="dark"] .panehead .chip.ch4 { color: #60a5fa; }
+
+/* The scan's progress bar. Its own element rather than <progress>, which cannot be given a
+   flat 3px look without a different set of vendor pseudo-elements per browser. Fixed width,
+   like the desktop's: a bar that resizes as the status text beside it grows is a bar that
+   appears to move on its own. */
+.bar {
+    width: 140px; height: 5px; flex: 0 0 140px;
+    background: var(--line-soft); border-radius: 3px; overflow: hidden;
+}
+/* The line beside the bar: one line, clipped, never wrapped. It grows to "Scanning 254
+   address(es) on port(s) 5025, 5555, 3490, 111… 128/254 probed, 1 instrument found." and a
+   second line would push the instrument list down mid-scan — which is the shift the bar
+   being permanently on screen exists to avoid, arriving by another route. The desktop's
+   status label is AutoEllipsis for the same reason, and keeps the whole string in a tooltip. */
+.bar + .muted {
+    flex: 1; min-width: 0;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+
+.bar .fill {
+    height: 100%; background: var(--accent);
+    /* Reports arrive in steps of about half a percent, so the bar is animated between them
+       rather than ticking. Short enough that it is never behind the number beside it. */
+    transition: width .15s linear;
+}
+
+/* ---- the small modal sheets ---------------------------------------------- */
+
+/* The About box and the AI connection box: one shape, because they are the same kind of
+   thing — a short page of facts read off the server, with a heading and a way out.
+
+   A real <dialog>: it draws its own backdrop, traps focus, gives it back, and closes on
+   Esc — every one of which a div-and-overlay gets subtly wrong. */
+dialog.sheet {
+    width: min(540px, calc(100vw - 2rem));
+    padding: 1.1rem 1.2rem 1rem;
+    border: 1px solid var(--line); border-radius: 8px;
+    background: var(--panel); color: var(--ink);
+    box-shadow: 0 18px 48px rgba(8, 12, 20, .3);
+}
+dialog.sheet::backdrop { background: rgba(8, 12, 20, .45); }
+
+.sheet-head { display: flex; align-items: flex-start; gap: .85rem; }
+.sheet-head h2 { margin: 0; font-size: 1.05rem; }
+.sheet-head .ver { display: flex; align-items: center; gap: .45rem; margin: .2rem 0 0; color: var(--muted); }
+.sheet-head .shut, .tool-head .shut {
+    margin-left: auto; padding: .25rem;
+    border-color: transparent; background: none; color: var(--muted);
+}
+.sheet-head .shut:hover:not(:disabled),
+.tool-head .shut:hover:not(:disabled) { background: var(--accent-soft); border-color: var(--line); color: var(--ink); }
+
+.mark-lg { width: 48px; height: 48px; flex: 0 0 48px; }
+
+/* The About box leads with the application's icon; the AI box leads with the glyph its
+   subject wears everywhere else in the app. Same size, so the two line up. */
+.sheet-head .mark-ico { width: 44px; height: 44px; flex: 0 0 44px; color: var(--accent); }
+.sheet-head .mark-ico svg { width: 100%; height: 100%; }
+
+/* A settings form, laid out the way the desktop's dialogs are: a label column that sizes
+   itself to its longest label, and the controls taking everything else.
+
+   Baselines, not tops and not middles. A label has to sit on the same line as the writing in
+   the control beside it, and where that writing starts differs by control: an input holds it
+   a border and a padding down from its own top edge, a bare checkbox holds it nowhere at all.
+   Matching that by hand meant one fixed offset on the label that was measured off an input
+   and left the PDF row's label five pixels below its own checkbox. The browser knows where
+   each control's first line is; asking it is both shorter and right for controls this form
+   does not have yet. Middles would not do either — two rows carry a note under the control,
+   and a label floating halfway down one of those reads as belonging to the note. */
+.sheet .fields {
+    display: grid; grid-template-columns: max-content minmax(0, 1fr);
+    gap: .6rem .9rem; align-items: baseline;
+    margin: 1rem 0 0;
+}
+.sheet .fields input[type=text],
+.sheet .fields input[type=password],
+.sheet .fields select { width: 100%; }
+.sheet .fields input[type=number] { width: 5rem; }
+
+/* Except on the row that has buttons beside it. A select told to be the whole width is a select
+   that pushes whatever follows it onto the next line, which is how New and Delete ended up
+   under the picker they belong to rather than beside it. */
+.sheet .fields .row.tight > select { width: auto; flex: 1 1 auto; min-width: 0; }
+
+/* A button carrying one mark and no label: square, quiet, and the same height as the box it
+   stands next to. The delete one goes red under the hand, as every ✕ in this app does. */
+.sheet .fields .mark {
+    display: flex; align-items: center; justify-content: center;
+    flex: 0 0 auto; width: 30px; padding: 0;
+}
+.sheet .fields .mark svg { width: 13px; height: 13px; flex: 0 0 13px; }
+.sheet .fields .mark.bad:hover:not(:disabled) {
+    background: color-mix(in srgb, var(--bad) 18%, transparent);
+    border-color: var(--bad); color: var(--bad);
+}
+
+/* A checkbox and the words that name it, with nothing drawn round the pair. A chip's outline
+   says "one of a set you pick from", which is what it means everywhere else in the app; this
+   is a single setting on a form, and the box itself already shows its state.
+
+   A block with one line in it rather than a flex row, so that the line of writing is what the
+   grid beside it finds when it looks for a baseline. A flex box offers the browser its first
+   item's baseline, and the first item here is the checkbox — a replaced element, whose
+   baseline is its bottom edge, which would hang the row's label a checkbox lower than the
+   words it belongs to. The box is centred on the line instead, which is what the browser's
+   own label-and-checkbox pairing does. */
+.sheet .check { display: block; color: var(--ink); font-size: inherit; }
+/* Sat on the words rather than on the baseline. "middle" is not the middle of the line — it
+   lines the box up with the baseline plus half an x-height, which left it two pixels low
+   against these words. Measured back onto their centre, and in em so it stays there if the
+   size changes. */
+.sheet .check input { vertical-align: -.1em; margin: 0 .4rem 0 0; }
+
+/* A field's footnote — what this provider charges for a PDF, where a key actually lives.
+   Under the control it is about, not out in the label column. */
+.sheet .note { margin: .35rem 0 0; color: var(--muted); font-size: 12px; }
+
+.sheet .actions { display: flex; justify-content: flex-end; gap: .5rem; margin-top: 1.1rem; }
+.sheet .applied { margin: .8rem 0 0; color: var(--ok); }
+
+.sheet .blurb { margin: .9rem 0 0; }
+.sheet dl { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: .35rem .9rem; margin: .9rem 0 0; }
+.sheet dt { color: var(--muted); font-size: 12px; padding-top: .12rem; }
+/* The colon belongs to the layout rather than to the word, so it is drawn rather than typed:
+   a <dl> already says which term names which description, and a colon typed into every <dt>
+   is four chances to forget one. */
+.sheet dt::after { content: ":"; }
+.sheet dd { margin: 0; overflow-wrap: anywhere; }
+.sheet .fine {
+    margin: 1rem 0 0; padding-top: .7rem;
+    border-top: 1px solid var(--line-soft);
+    color: var(--muted); font-size: 12px;
+}
+
+/* ---- the console's tool dialogs ------------------------------------------ */
+
+/* Scripts, the command library and the capture panes, opened over the console they belong
+   to rather than in a browser tab of their own. Large, because they hold a script editor
+   and a table of several hundred commands — but not the whole window, because the point is
+   that the console is still there underneath. */
+dialog.tool {
+    width: min(1180px, calc(100vw - 3rem));
+    max-height: calc(100vh - 3rem);
+    padding: 0; overflow: hidden;
+    border: 1px solid var(--line); border-radius: 8px;
+    background: var(--panel); color: var(--ink);
+    box-shadow: 0 18px 48px rgba(8, 12, 20, .3);
+}
+/* Not modal, so the browser does not centre it and does not put it in the top layer — both
+   have to be asked for. Fixed and centred with auto margins; the drag sets left and top, which
+   win over the inset in a box that has a width of its own.
+
+   And sizeable, because every window in the desktop app is: a reference that has to be read
+   beside a script wants to be narrow, and a capture wants to be as large as the screen allows.
+   The browser draws the grip in the bottom-right corner, which is where a window manager puts
+   it. The floors are so that a window cannot be shrunk past its own title bar and lost.
+
+   Only these. A modal box has nothing behind it to uncover and nothing to make room for, and
+   the desktop’s two are ShowDialog with a fixed border — see §6. */
+dialog.tool[open] {
+    display: flex; flex-direction: column;
+    position: fixed; inset: 0; margin: auto;
+    z-index: 30;
+    min-width: 420px; min-height: 220px;
+}
+
+/* A title bar, as the dialogs it stands in for have. It names the instrument as well as the
+   tool: with several consoles open, which one this was opened from is the whole question. */
+.tool-head {
+    display: flex; align-items: center; gap: .5rem;
+    padding: .4rem .5rem .4rem .85rem;
+    background: var(--chrome); border-bottom: 1px solid var(--line);
+}
+.tool-head .name { font-weight: 600; }
+
+/* The tool scrolls; the frame does not. And the body is what grows when the window is dragged
+   bigger — without that the extra height went to a strip of nothing under the last control, which
+   is what dragging the corner appeared to do. */
+.tool-body { flex: 1 1 auto; min-height: 0; overflow: auto; padding: .85rem; }
+
+/* The corner you size it by, drawn rather than left to the browser. resize: both puts the UA's
+   own grip in the bottom-right corner — a few hairlines the colour of the border, directly under
+   the end of the body's scrollbar, where they read as the bottom of the scrollbar rather than as
+   a control. This is the same corner with an edge, a hover state and a hand-sized target. */
+.tool .sizer {
+    position: absolute; right: 2px; bottom: 2px; width: 20px; height: 20px;
+    cursor: nwse-resize; border-radius: 3px 3px 7px 3px;
+    background: var(--chrome); box-shadow: inset 0 0 0 1px var(--line);
+    display: grid; place-items: center;
+}
+.tool .sizer svg { width: 14px; height: 14px; color: var(--ink); opacity: .7; }
+.tool .sizer:hover { background: var(--accent-soft); box-shadow: inset 0 0 0 1px var(--accent); }
+.tool .sizer:hover svg { opacity: 1; color: var(--accent); }
+
+/* Except where the tool is a window rather than a page of controls. ScriptForm is an editor over
+   a split, both docked, and dragging its corner gives the height to them; here the editor stood
+   at a fixed 46vh whatever the window did, so making the window taller bought a longer scrollbar
+   and nothing else. Filled instead: the toolbar and the status line keep their heights, and
+   everything between shares what is left.
+
+   The editor takes the larger share — about two thirds of what is between the toolbar and the
+   status line, against the third it had. The argument for the other way round was that a log and
+   a table both grow while a script runs and a script is a dozen lines written before it started;
+   the answer is that a dozen lines is what a *finished* script is, and the window is where it
+   gets written. Eleven lines of a sweep visible at a time is reading it through a slot, while
+   under it two empty boxes wait for a run that has not been started yet. */
+/* The toolbar's distance from the title bar is its distance from the card under it. A window
+   whose first control is a toolbar has no caption to hang from, so the space above it is not the
+   gap under a heading — it is the top of the frame, and the toolbar sits in the same air top and
+   bottom. The other three sides keep the body's own padding. */
+.tool-body.fill { display: flex; flex-direction: column; overflow: hidden; padding-top: .55rem; }
+
+/* And it opens large. ScriptForm asks for 1960×1640 and SequenceForm for 1990×1400, both clamped
+   to the screen as they load — which is to say: as much of it as there is. A window whose whole
+   job is an editor over a log over a table is not worth opening small, and with the content
+   filling rather than scrolling there is nothing else to take its height from. */
+dialog.tool[open]:has(> .tool-body.fill) {
+    width: min(1480px, calc(100vw - 3rem));
+    height: min(1040px, calc(100vh - 3rem));
+}
+/* Two parts to the editor and one to the split, out of whatever is left once the toolbar and the
+   status line have taken their own heights.
+
+   Shares of the remainder rather than percentages of the window: written as 68% and 32% the two
+   of them ask for the whole of the body between them, and the toolbar and the status line are
+   then an overflow to be shrunk out of somebody — which came out of whichever of the two could
+   still give, until neither could and the status line went out of the bottom of a window dragged
+   short. A basis of nought and a grow of 2 against 1 says the same thing about the proportion and
+   cannot overflow to say it. */
+.tool-body.fill > .group.editor { flex: 2 1 0; min-height: 4.5rem; }
+/* And a floor under the split, because the cards in it are told they may shrink to nothing —
+   which they need to be, so the log scrolls inside its card rather than growing it, and which
+   leaves the split itself with no minimum of its own to stand on. Squeezed to a third of a
+   window dragged short it was 70px holding a caption, a log and a row of buttons that come to
+   twice that, and the difference went out through the bottom of the window. Ten rem is those
+   three things at the sizes they are already given. */
+.tool-body.fill > .split { flex: 1 1 0; min-height: 10rem; }
+.tool-body.fill > .split > .group, .tool-body.fill > .split > .panel { min-height: 0; }
+.tool-body.fill .console { min-height: 5rem; }
+.tool-body.fill .group.editor { display: flex; flex-direction: column; }
+.tool-body.fill .code.monaco { flex: 1 1 auto; height: auto; min-height: 0; }
+
+/* A card that is the whole window: the AI one, where the request is at the top and the draft
+   below it takes whatever is left. ScriptAiForm is a split with both halves docked, and the
+   draft's box is there whether or not there is a draft in it. */
+.tool-body.fill > .group.tall { flex: 1 1 auto; min-height: 0; }
+
+/* The reference, which is two halves docked side by side rather than a page of controls.
+   CommandReferenceForm docks its list Fill and CommandLibraryForm docks the viewer Fill in
+   the panel beside it, so both are the height of the window and both grow when it is dragged.
+   Here each stood at three-fifths of the viewport whatever the window did — the list at its
+   ceiling, the guide at its floor — which left the shorter of the two with a strip of empty
+   card under it and gave the rest of the window to nothing at all.
+
+   Stretched rather than started, too: on a page the guide is as tall as it needs to be, but
+   in a window the two halves are one thing read across, and a guide that stops short of the
+   list beside it is a column that ran out. */
+.tool-body.fill:has(> .library) { padding-top: .85rem; }
+.tool-body.fill > .library { flex: 1 1 auto; min-height: 0; align-items: stretch; }
+/* And no gap under the last card, which here is both of them: the rule that drops it names
+   .tool-body > .group, and in this window the body’s last child is the pair rather than a card.
+   Left on, the foot of the window stood a card’s margin deeper than its sides. */
+.tool-body.fill > .library > .group { min-height: 0; display: flex; flex-direction: column; margin-bottom: 0; }
+.tool-body.fill > .library .scroll.cmds { max-height: none; flex: 1 1 auto; min-height: 6rem; }
+.tool-body.fill > .library .group.guide > .pdf { min-height: 6rem; }
+.group.tall { display: flex; flex-direction: column; }
+/* The conversation takes the window and the composer keeps its own height, which is the way
+   round every chat is laid out: the history scrolls and the box you type in does not move.
+   ScriptAiForm's splitter does the same thing with a bar you can drag, and the box below is
+   resizable here for the same reason.
+
+   Both are the same measure across — the transcript is read the way the request is written. */
+.group.tall > .chatwrap {
+    flex: 1 1 0; min-height: 8rem; max-width: var(--prompt-w);
+    display: flex; flex-direction: column; position: relative;
+    /* And a clear step down to the box you type in, rather than the two touching. */
+    margin-bottom: .85rem;
+}
+.chatwrap > .chat {
+    flex: 1 1 0; min-height: 0; overflow-y: auto;
+    border: 1px solid var(--line); border-radius: 6px; padding: .55rem .7rem;
+    background: var(--panel-2);
+}
+.group.tall > textarea.prompt { flex: 0 0 auto; }
+
+/* Clear in the transcript's own top corner, over the first line of it — which is the nearest
+   thing the pane has to a header. On the wrapper rather than inside the scroller, so it stays
+   put at the bottom of a long conversation. */
+.chatwrap > .clearchat { position: absolute; top: .4rem; right: .5rem; z-index: 2; }
+/* And the two things that can reach that corner keep out of its way. Only those two: a script
+   line indented for a button three inches above it would be the tail wagging the dog. */
+.chat > .muted.empty,
+.chat > .turn:first-child > .who:first-child { padding-right: 7.5rem; }
+
+/* The row above it: what the transcript costs. */
+.row.chathead { max-width: var(--prompt-w); align-items: center; padding-bottom: .35rem; }
+
+/* One exchange. The rule between turns rather than around each: a box per turn is a stack of
+   cards inside a card, and what is actually wanted is to see where one answer stops. */
+.chat > .turn + .turn { border-top: 1px solid var(--line); margin-top: .7rem; padding-top: .7rem; }
+.chat > .turn > p { margin: 0 0 .35rem; }
+.chat > .turn > p:last-child { margin-bottom: 0; }
+
+/* The button that takes this answer's script, under the script and at its right edge — where
+   the eye ends up having read it. */
+.row.taketurn { margin: 0 0 .5rem; }
+
+/* Who is speaking, small and quiet — it is a label on the paragraph under it, not a heading. */
+.chat .who {
+    font-size: 11px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase;
+    color: var(--muted);
+}
+.chat .said { white-space: pre-wrap; }
+
+/* The script itself. Wrapped rather than scrolled sideways: a transcript that scrolls in two
+   directions hides half of what it is for. */
+.chat pre.code {
+    margin: 0 0 .45rem; padding: .45rem .6rem; border-radius: 5px;
+    background: var(--bg); border: 1px solid var(--line);
+    font-family: ui-monospace, Consolas, monospace; font-size: 12.5px; line-height: 1.45;
+    white-space: pre-wrap; overflow-wrap: anywhere;
+}
+
+.chat > .muted.empty { margin: 0; }
+
+/* And the row that takes the draft sits under the draft — the width of the box it acts on, as
+   the request's row is, and against it rather than out at the foot of an empty card. */
+.row.userow { max-width: var(--prompt-w); padding-top: .55rem; }
+/* The grid starts a card's distance under the row that fills it, rather than against it. */
+.group.tall > .scroll.fill { margin-top: .5rem; }
+.tool-body > .group:last-child, .tool-body > .panel:last-child { margin-bottom: 0; }
 
 #blazor-error-ui {
     display: none; position: fixed; bottom: 0; left: 0; right: 0;
     background: #ffdf99; color: #000; padding: .6rem 1rem; z-index: 1000;
 }
 #blazor-error-ui .dismiss { cursor: pointer; float: right; }
+
+/* ---- the server is not answering ---------------------------------------- */
+
+/* Over everything, and nothing behind it reachable.
+ *
+ * Not a <dialog>: the ones elsewhere are opened by a person pressing something, and this one
+ * appears because a call failed — showModal() from a render is a fight with the browser about
+ * who owns the top layer, and a dialog that is already open when another opens stacks rather
+ * than replaces. A pair of fixed boxes says the same thing with none of that.
+ */
+.veil {
+    position: fixed; inset: 0; z-index: 90;
+    background: rgba(8, 12, 20, .55);
+}
+
+.offline {
+    position: fixed; z-index: 91;
+    top: 50%; left: 50%; transform: translate(-50%, -50%);
+    width: min(30rem, calc(100vw - 2rem));
+    padding: 1.1rem 1.2rem 1.2rem;
+    background: var(--panel); color: var(--ink);
+    border: 1px solid var(--line); border-radius: var(--radius);
+    box-shadow: 0 8px 30px rgba(0, 0, 0, .35);
+}
+.offline h2 { margin: 0 0 .6rem; font-size: 1.05rem; }
+.offline p { margin: 0 0 .7rem; }
+/* The exception's own words, kept but kept small: "TypeError: Failed to fetch" is the truth and
+   it is not the sentence anyone needs first. */
+.offline p.muted { font-size: 12px; overflow-wrap: anywhere; }

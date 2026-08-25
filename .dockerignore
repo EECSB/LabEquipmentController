@@ -17,7 +17,7 @@ docs/images/
 
 # The desktop app and the CLI are not part of this image.
 Tests/
-installer/
+Desktop/
 
 .env
 *.user

@@ -20,6 +20,41 @@ public enum AiProvider
 }
 
 /// <summary>
+/// How hard the model is asked to think before it answers.
+///
+/// Every provider offers this and every one of them spells it differently — Gemini as
+/// generation_config.thinking_level, an OpenAI-compatible endpoint as reasoning_effort,
+/// Anthropic as a token budget for an extended-thinking block. One scale here, translated
+/// per provider in <see cref="AiRequest"/>, because the question a user is answering is the
+/// same question either way: is this worth the wait and the tokens.
+///
+/// It is worth asking about for the job this app uses a model for. Reading a command out of
+/// a two-column programming guide is transcription, which more thinking does not improve;
+/// working out what a sequence of SCPI commands ought to be is not.
+/// </summary>
+public enum AiEffort
+{
+    /// <summary>
+    /// Say nothing about it and let the provider decide.
+    ///
+    /// What a connection starts as, and the only setting that sends no such field at all —
+    /// which matters because the OpenAI-compatible shape covers endpoints that have never
+    /// heard of reasoning_effort and reject a request carrying it. Choosing anything else is
+    /// opting in on an endpoint you know takes it.
+    /// </summary>
+    Default,
+
+    /// <summary>As little as the model can get away with. Gemini answers with no thinking at all.</summary>
+    Minimal,
+
+    Low,
+    Medium,
+
+    /// <summary>As much as it will spend. Slower, and billed for.</summary>
+    High,
+}
+
+/// <summary>
 /// What a provider can do, and the defaults its preset fills in.
 ///
 /// The only capability the rest of the app branches on is
@@ -98,12 +133,33 @@ public sealed record AiProviderInfo(
 /// </summary>
 public sealed class AiConnection
 {
+    /// <summary>
+    /// What this connection is called in the lists that offer it, and in the settings that
+    /// hold its key. Generated once and never shown: a name can be edited and a provider can
+    /// be switched, and neither should lose the key that was stored against it.
+    /// </summary>
+    public string Id { get; set; } = Guid.NewGuid().ToString("N");
+
+    /// <summary>
+    /// What the user calls it. Empty means "say what it is instead" — see
+    /// <see cref="EffectiveName"/>: a bench with one Gemini connection on it does not need to
+    /// have named it, and a bench with three does.
+    /// </summary>
+    public string Name { get; set; } = "";
+
     public AiProvider Provider { get; set; } = AiProvider.Gemini;
 
     /// <summary>Scheme and host, no trailing slash. Empty means "use the provider default".</summary>
     public string BaseUrl { get; set; } = "";
 
     public string Model { get; set; } = "";
+
+    /// <summary>
+    /// How hard to ask the model to think. <see cref="AiEffort.Default"/> asks for nothing,
+    /// which is what a connection starts as — see <see cref="AiEffort"/> for why the absence
+    /// of the field is a setting in its own right rather than a missing one.
+    /// </summary>
+    public AiEffort Effort { get; set; } = AiEffort.Default;
 
     /// <summary>
     /// Flatten PDFs to text here before sending, rather than uploading the file.
@@ -170,6 +226,19 @@ public sealed class AiConnection
         string.IsNullOrWhiteSpace(Model) ? Info.DefaultModel : Model.Trim();
 
     /// <summary>
+    /// What to put in a picker: the user's name for it, or the model it reaches.
+    ///
+    /// The model rather than the provider, because that is what a person choosing between two
+    /// connections is choosing between — two Gemini connections both labelled "Google Gemini"
+    /// is a list with nothing to pick from.
+    /// </summary>
+    public string EffectiveName =>
+        string.IsNullOrWhiteSpace(Name) ? EffectiveModel : Name.Trim();
+
+    /// <summary>The provider and the model, for a line that has room to say both.</summary>
+    public string Describe => $"{Info.Label} · {EffectiveModel}";
+
+    /// <summary>
     /// Whether local extraction applies, given the provider. True whenever the provider
     /// cannot accept an uploaded PDF, whatever the stored preference says.
     /// </summary>
@@ -181,9 +250,12 @@ public sealed class AiConnection
 
     public AiConnection Clone() => new()
     {
+        Id = Id,
+        Name = Name,
         Provider = Provider,
         BaseUrl = BaseUrl,
         Model = Model,
+        Effort = Effort,
         ExtractTextLocally = ExtractTextLocally,
         TimeoutSeconds = TimeoutSeconds,
     };

@@ -1,6 +1,14 @@
 {
   "instrument": "Keysight DC power supply (E36300 series)",
   "source": "Transcribed from the Keysight E36300 Series Programmable DC Power Supplies Programming Guide (9018-04577). Cross-checked against pymeasure keysightE36312A/keysightE3631A and python-ivi agilentE3600A.",
+  "parse": [
+    {
+      "input": "parsed/keysight-e36300.json",
+      "manual": "manuals/keysight-e36300.txt",
+      "style": "block",
+      "known": "measured"
+    }
+  ],
   "groups": [
     {
       "file": "parsed/keysight-e36300.json"

@@ -1,6 +1,14 @@
 {
   "instrument": "DC power supply (Rigol DP800 series)",
   "source": "Transcribed from the Rigol DP800 Series Programming Guide (Dec. 2015, PGH03108-1110). Cross-checked against python-ivi rigolDP800/rigolBaseDCPwr and the OriginalCircuit RigolDP800Instrument driver.",
+  "parse": [
+    {
+      "input": "parsed/rigol-dp800.json",
+      "manual": "manuals/rigol-dp800.txt",
+      "style": "rigol",
+      "known": "measured"
+    }
+  ],
   "groups": [
     {
       "file": "parsed/rigol-dp800.json"

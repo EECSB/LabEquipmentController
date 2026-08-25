@@ -1,6 +1,14 @@
 {
   "instrument": "B&K Precision DC electronic load (8600 series)",
   "source": "Transcribed from the B&K Precision 8600 Series Programmable DC Electronic Load Programming Manual. The level-setting commands are supplemented by hand: the guide prints them only in a right-hand 'Command Syntax' column whose entry carries no prose of its own. Cross-checked against pymeasure bkprecision and the Siglent SDL1000X set, which follows the same SCPI structure.",
+  "parse": [
+    {
+      "input": "parsed/bk-8600.json",
+      "manual": "manuals/bk-8600.txt",
+      "style": "plain",
+      "known": "measured"
+    }
+  ],
   "groups": [
     { "file": "parsed/bk-8600.json" }
   ],

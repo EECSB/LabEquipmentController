@@ -3,17 +3,21 @@
 What the software is meant to do and the rules it must keep to. This is the durable
 document: it should stay true release to release.
 
-- [README.md](../README.md) — how to build, run and use it.
+- [README.md](../README.md) — what it is and what it looks like; each program's own README
+  (Desktop, Core, Cli, Web, Tests) has the build, run and test instructions for it.
 - [ARCHITECTURE.md](ARCHITECTURE.md) — how the pieces that satisfy this document fit together.
+- [UI-SPEC.md](UI-SPEC.md) — what is on screen and where, in both builds: the control
+  inventory, the metrics, and the rule that the web is a port of the desktop rather than a
+  redesign of it.
 
 ---
 
 ## 1. Purpose and scope
 
 A Windows desktop application for finding and driving bench instruments — oscilloscopes,
-function generators, multimeters — over **Ethernet** using **SCPI**. It replaces
-per-vendor utilities and a VISA runtime with one small app that speaks the wire protocols
-directly.
+function generators, multimeters — over **Ethernet** or **RS-232**, using **SCPI**. It
+replaces per-vendor utilities and a VISA runtime with one small app that speaks the wire
+protocols directly.
 
 **In scope:** LAN discovery, connecting to several instruments at once, sending SCPI and
 reading replies, instrument-aware shortcuts, small scripts, screen and trace capture,
@@ -21,7 +25,9 @@ export of what it finds.
 
 **Out of scope, deliberately:**
 
-- Non-LAN interfaces — USB/USBTMC, GPIB, RS-232. TCPIP only.
+- **USB/USBTMC and GPIB.** Not for the same reason each, and §17 records both. Serial was
+  on this list until it was built (§13); it is here as the one that turned out to be worth
+  revisiting, which is what §17 said about it while it was still an argument.
 - Any dependency on NI-VISA, IVI, or a vendor SDK. The transports are implemented here.
 - Instrument *emulation*, calibration workflows, or measurement automation beyond scripts.
 - Inventing SCPI. Every command shipped in a catalog or a quick-command button is
@@ -35,14 +41,14 @@ export of what it finds.
 | Target | `net10.0-windows`; the UI-free `Core` library is plain `net10.0` |
 | Runtime | 64-bit Windows 10/11 |
 | Distribution | Self-contained single-file `.exe` (~48 MB), or framework-dependent |
-| Dependencies | None beyond the .NET BCL |
+| Dependencies | No VISA, IVI or vendor SDK — the transports are implemented here. In `Core`, two packages: PdfPig (reading text out of datasheets, §11b) and `System.IO.Ports` (the serial transport, §13). In the desktop app, WebView2 (the guide viewer, §11a) |
 
 ## 3. Concepts
 
 | Term | Meaning |
 |---|---|
 | **Device** | An address found by a scan (`ScpiDevice`): IP, port, transport, `*IDN?` reply |
-| **Transport** | How bytes reach the instrument: raw TCP socket or VXI-11 (`IInstrumentClient`) |
+| **Transport** | How bytes reach the instrument: raw TCP socket, VXI-11, or a serial port (`IInstrumentClient`) |
 | **Identity** | The instrument's `*IDN?` string, `Manufacturer,Model,Serial,Firmware` |
 | **Family** | Broad class inferred from the identity: oscilloscope, Siglent generator, SCPI generator, multimeter, generic |
 | **Profile** | What a family implies: quick-command buttons, capture support (`InstrumentProfile`) |
@@ -96,19 +102,74 @@ most ~200 times per scan — a per-host report would swamp the UI thread on a /2
 the Stop button behind the backlog. A scan is cancellable, and results found before the
 stop are kept.
 
+**Serial ports are swept differently**, and the difference is the physics rather than a
+preference. Everything above rests on asking every address the same harmless question and
+believing the answers. A serial port cannot be asked anything until its baud rate, framing
+and flow control already match, and what is on the other end may be a printer, a modem or a
+3D printer rather than an instrument. So the serial half of the scan card
+(`SerialScanner`) splits the two halves of "discovery" that a subnet sweep gets to run
+together:
+
+- **Listing opens nothing.** `SerialScanner.List()`, over `SerialPorts.Names()` — the CLI's
+  `lec ports`, the web's `GET /api/ports` and `/api/serial/list`, the desktop's port
+  dropdown and its results list. This is what the card shows the moment it switches to
+  Serial, and it is already enough to pick a port and connect. Nothing on anyone's bench is
+  touched by looking at this list.
+- **Probing opens ports, and only on a button press.** `SerialScanner.ScanAsync()` opens
+  each port the user chose, at each baud rate the user named, in order, stopping at the
+  first that answers `*IDN?`. It does **not** sweep parity, data bits or flow control: that
+  is a combinatorial search against hardware that cannot say "wrong number", and it is the
+  thing §17 refuses. What it does sweep is disclosed on the button, because opening a port
+  asserts DTR and RTS and sends text to whatever is there.
+
+Two further differences from a subnet sweep follow from a port being a thing rather than an
+address. **Every port stays listed**, answered or not — an IP that does not answer is simply
+not a row, but a serial port that does not answer is still a port on this machine and still
+connectable at settings the scan did not try. And **a reply is checked before it is
+believed**: TCP either delivers the sender's bytes or delivers nothing, while a UART at the
+wrong baud rate delivers *different* bytes, so a reply is accepted as an identity only if it
+is printable and comma-separated. One that arrives and fails that test is reported as noise
+at those settings, which is the fact that sends someone to the baud rate rather than to the
+cable (§5, §13, §17).
+
 ## 5. Addressing and connection
 
 The Address box accepts, in this order of precedence:
 
-1. **A VISA resource string** — `TCPIP0::192.168.1.19::inst0::INSTR` (VXI-11) or
-   `TCPIP0::192.168.1.19::5025::SOCKET` (raw). Parsed natively so a user can paste what
-   NI-MAX or Connection Expert reports. Only the `TCPIP` interface is accepted.
-2. **`host:port`** — the explicit port wins.
-3. **A bare host** — the port and transport of a matching discovered row are reused, so a
-   previously found address still connects the right way.
-4. **Nothing typed** — the selected row in the device list.
+1. **A VISA resource string** — `TCPIP0::192.168.1.19::inst0::INSTR` (VXI-11),
+   `TCPIP0::192.168.1.19::5025::SOCKET` (raw), or `ASRL3::INSTR` / `ASRL::COM3::INSTR`
+   (serial). Parsed natively so a user can paste what NI-MAX or Connection Expert reports.
+   `TCPIP` and `ASRL` are the interfaces there are transports for; a `GPIB` or `USB`
+   resource string is **refused by name, with the reason** — it used to fall through to
+   the host branch and be accepted as a hostname, which got the user as far as a DNS
+   failure for an instrument sitting on their desk.
+2. **`vxi://host`** — VXI-11 without writing a resource string, and `vxi://host/gpib0,9`
+   for an instrument behind a gateway. **`tcp://host`** says raw socket the same way.
+3. **`serial://COM3`**, or `serial:///dev/ttyUSB0` — a serial port, with the line settings
+   as a query when they are not the usual ones. In the GUI the scan card's heading switches
+   to `Serial Scan` and the address box becomes a list of the machine's ports, so the scheme
+   need not be typed ([UI-SPEC.md](UI-SPEC.md) §3.2); everywhere else it is written out:
+   `serial://COM3?baud=115200&parity=even&databits=8&stopbits=1&flow=rtscts&term=crlf`.
+   A bare number is the baud rate, so `serial://COM3?115200` means what it looks like.
+   Anything unrecognised is refused rather than defaulted: connecting at 9600 to an
+   instrument set to 115200 does not fail, it answers with rubbish. Defaults are
+   **9600-8-N-1, no flow control, LF**. The scheme is not optional — `COM3` on its own is
+   a legal hostname and cannot be told from a machine on the network.
+4. **`host:port`** — the explicit port wins.
+5. **A bare host** — the port and transport of a matching discovered row are reused, so a
+   previously found address still connects the right way; with no matching row it takes the
+   first port the Port(s) list offers.
+6. **Nothing typed** — the selected row in the device list.
 
-An explicit port of `111` means VXI-11.
+An explicit port of `111` means VXI-11. **A form that names its transport is taken at its
+word** — a discovered row never overrides it, because saying it is the reason to type it.
+For serial there is nothing to override it with: the device list is what a subnet sweep
+found, and a subnet sweep does not find COM3 (§17).
+
+**One parser, for all three front ends.** The desktop, the CLI and the web server read a
+typed address through the same `InstrumentAddress` in Core. They did not: the CLI and the
+server each carried a copy of it and the desktop carried neither, so its box refused
+`vxi://` though [UI-SPEC.md](UI-SPEC.md) §3.3 describes both builds' boxes as taking one.
 
 On connect: open the transport, query `*IDN?` (falling back to what the scan learned if
 the instrument won't answer now), derive the profile, and open a console.
@@ -126,15 +187,18 @@ RPC call (which also names the procedure: a stalled `create_link` and a stalled
 "cancelled" — a word that tells the user they stopped something. When both land in the
 same instant, cancellation wins.
 
-One read is deliberately not a timeout: a **text line** that runs out of time returns what
-arrived, so an instrument that never answers a query reads as `(no response)` rather than
-an error. A *binary* block does throw, because a screenshot or waveform cut short would
-otherwise come back looking complete.
+**A reply that never ended is a failure, not a short answer.** A text line that runs out of
+time throws rather than returning what arrived — this once returned the fragment, which is
+harmless for an empty reply and dangerous for a partial one: `+8.39` in place of
+`+8.39319298E-04` is a plausible voltage, is recorded and plotted as one, and leaves the
+rest of the line in the buffer to corrupt the read after it. A binary block throws for the
+same reason, a screenshot cut short being one that comes back looking complete.
 
 **Disconnect** returns the instrument to local (front-panel) control before dropping the
 link. This applies on explicit disconnect *and* on application exit, where each close runs
 on a worker thread with a short bounded wait so a powered-off instrument cannot hang the
-exit.
+exit. A raw socket does this by closing; a serial port has no connection whose closing
+means anything, so it asks in band with `SYSTem:LOCal` (§13).
 
 ## 6. Sessions, tabs and detached windows
 
@@ -202,8 +266,8 @@ Keysight scope `MSO-X 3054T` — neither would match a prefix test as printed.
 | 6 | Fluke multimeter | maker Fluke **and** `884x`, `8808`, `45` |
 | 7 | Keithley SMU | maker Keithley **and** `24`, `26`, `6221`, `6430`, `6514`, `6517` |
 | 8 | Keithley multimeter | maker Keithley **and** `DMM`, `20`, `21`, `27` |
-| 9 | R&S spectrum analyzers | maker Rohde&Schwarz **and** `FPC`, `FSL`, `FSW`, `FSU`, `FSP` (not `FSPN`), `FSQ`, `FSV`/`FSVA` — a separate catalog each, from that line's own manual |
-| 10 | *(Generic)* | maker Rohde&Schwarz **and** any other analyzer prefix (`FSE`, `FSIQ`, `FSPN`) — no catalog |
+| 9 | R&S spectrum analyzers | maker Rohde&Schwarz **and** `FPC`, `FSL`, `FSW`, `FSU`, `FSP` (not `FSPN`), `FSQ`, `FSIQ`, `FSV`/`FSVA` — a separate catalog each, from that line's own manual |
+| 10 | *(Generic)* | maker Rohde&Schwarz **and** any other analyzer prefix (`FSE`, `FSPN`) — no catalog |
 | 11 | Spectrum analyzer | `DSA`, `RSA`, `SSA`, `SVA`, `FPC`, `FSL`, `FSV`, `FSW`, `N90`, `MS2` |
 | 12 | Multimeter | `SDM`, `DM`, `344`, `34401`, `2000`, `2110` |
 | 13 | B&K electronic load | maker B&K Precision **and** any electronic-load prefix |
@@ -221,11 +285,14 @@ Keysight scope `MSO-X 3054T` — neither would match a prefix test as printed.
 | 25 | Oscilloscope | `DS`, `MSO`, `SDS`, `TDS`, `MDO`, `DPO`, `DSO` |
 | 26 | Generic | anything else — IEEE 488.2 common commands only |
 
-Rows 10 and 16 route **to `Generic` on purpose**. An R&S FSU and a Chroma 63800 would
+Rows 10 and 16 route **to `Generic` on purpose**. An R&S FSE and a Chroma 63800 would
 otherwise fall through to the generic analyzer and load catalogs, which are the Siglent
 SSA3000X and SDL1000X sets. Those partly work, which is the problem: the buttons appear,
 some succeed, and the failures read as the instrument misbehaving. A vendor-specific test
 that matches and then declines is the only way to stop a later generic test claiming it.
+
+Row 16 is now permanent as far as anyone can tell. The Chroma 63800 guide has been found
+and is a scan with no text layer, so there is nothing to extract from it — see §10.
 
 The order is load-bearing and every collision below is real:
 
@@ -340,6 +407,12 @@ Rules:
   puts almost every point above 10 kHz and skims the corner.
 - An unknown `$name` is left as written rather than blanked: `FRQ,$typo` becoming `FRQ,`
   is a command an instrument may well accept, carrying a value nobody chose.
+- **`RECORD`'s columns are the commas written in the script, not the commas in the data.**
+  The line is split first and each field substituted afterwards, so a captured `*IDN?` —
+  four commas in every one of them — stays a single column instead of silently becoming
+  five. A field left empty by a reading that never arrived is kept as a gap, because
+  dropping it slides every later value one column left and turns missing data into wrong
+  data; a field left empty by a trailing comma is punctuation and is dropped.
 - `->` on a line without `?` is an error — there is no reply to capture.
 - **Lines run in order.** Two instruments never run concurrently: the measurement is
   inherently ordered, and a connection carries one conversation at a time (§6).
@@ -405,49 +478,98 @@ Catalogs are JSON, embedded as `commands.<family>.json`, each entry carrying cat
 syntax, description, optional example, whether it is a query, and how far it is trusted.
 Each catalog records the guide it was transcribed from.
 
-35 catalogs, 23,174 entries, of which 518 carry a bench tick.
+36 catalogs, 23,978 entries, of which 518 carry a bench tick and 2,778 a cross-check.
+
+**No description stops mid-sentence.** A guide wraps a description at the margin, and the
+extractors used to stop at the line it started on whenever the next line began with
+something command-shaped — so "…the external generator selected with" lost its second half,
+and the full stop `emit` adds to every description made the cut look deliberate. **Six**
+readers had the fault, each in its own shape: breaking on a command-shaped continuation,
+never joining at all, stopping at the blank line inside a wrapped sentence, and stopping at
+the label a wrap runs into in a two-column layout.
+
+All 129 were repaired from the guides they came from — which meant fetching thirteen guides
+that were missing, the last of them by hand because its URL serves a landing page rather
+than the file. `CatalogDescriptionTests` keeps the count at zero per family; a family is
+listed there only when its guide cannot be had and the missing words would have to be
+invented, which is now true of none of them.
+
+**A further 307 were finished the same way**, and none of them looked broken. A sentence cut
+after "…the next data after the last fetched" or "…an event on a selected trigger" ends on an
+ordinary noun, so no rule catches it — they were found by re-reading every guide with the
+mended readers and keeping only text that *continues* what shipped. 54 command names quoted
+in prose lost a stray space at the same time ("CALC:LIM:CONT: OFFS" was never a command).
+
+**A description ending in a colon now keeps its list.** The guides put the alternatives a
+parameter accepts in a table under the sentence that introduces them, so "sets the sort mode
+for the search for maxima:" answered everything except what the modes are. 60 of the 92 have
+been filled in — "…: X — the maxima are sorted … according to increasing X values; Y — …" —
+and the rest are tables too wide or too deep to read as a sentence. Only a description ending
+in a colon is extended, and only when what precedes it reads as a sentence rather than a
+heading: "Impedance:" over a list of related commands is a label, and treating it as a promise
+gave three FPC entries a description made entirely of cross-references.
+
+One of the 49 was never damage. English stands a preposition at the end of a sentence after
+certain verbs, and "…the type of information that a test report consists of." finishes on
+the same word a severed sentence would. The check now allows that handful of verbs and
+nothing looser, because a cut that goes uncounted is the failure it exists to catch.
 
 | Family | Entries | Bench ✓ | Cross-checked • | Source |
 |---|---:|---:|---:|---|
-| R&S FSW analyzer | 2358 | 0 | 0 | R&S FSW User Manual (1173.9411.02 v56), chapter 13 |
-| R&S FSU analyzer | 1043 | 0 | 0 | R&S FSU Operating Manual (1313.9646.12-02), chapter 6 |
-| R&S FSP analyzer | 1123 | 0 | 0 | R&S FSP Operating Manual (1164.4556.12-02), chapter 6 |
-| R&S FSQ analyzer | 1065 | 0 | 0 | R&S FSQ Operating Manual (1313.9681.12-02), chapter 6 |
-| R&S FSL analyzer | 2256 | 0 | 0 | R&S FSL Operating Manual (1300.2519.12-12) |
+| R&S FSW analyzer | 2358 | 0 | 111 | R&S FSW User Manual (1173.9411.02 v56), chapter 13 |
+| R&S FSU analyzer | 975 | 0 | 91 | R&S FSU Operating Manual (1313.9646.12-02), chapter 6 |
+| R&S FSP analyzer | 1044 | 0 | 92 | R&S FSP Operating Manual (1164.4556.12-02), chapter 6 |
+| R&S FSQ analyzer | 997 | 0 | 91 | R&S FSQ Operating Manual (1313.9681.12-02), chapter 6 |
+| R&S FSL analyzer | 2256 | 0 | 119 | R&S FSL Operating Manual (1300.2519.12-12) |
 | Tektronix scope | 2031 | 0 | 186 | Tektronix MDO4000C/MDO4000B/MSO4000B/DPO4000B/MDO3000 Programmer Manual |
 | Keysight scope | 1793 | 0 | 142 | Keysight InfiniiVision 3000T X-Series Programmer's Guide (9018-07265) |
-| R&S scope | 1469 | 0 | 94 | R&S RTB2000 User Manual (1333.1611.02 v09), plus the RTM3000 and RTA4000 manuals |
-| R&S FSV analyzer | 1279 | 0 | 0 | R&S FSVA/FSV Operating Manual (1307.9331.12-17) |
-| Oscilloscope | 1200 | 409 | 100 | Rigol MSO2000A/DS2000A Programming Guide (Feb 2016) |
+| R&S scope | 1449 | 0 | 85 | R&S RTB2000 User Manual (1333.1611.02 v09), plus the RTM3000 and RTA4000 manuals |
+| R&S FSV analyzer | 1279 | 0 | 109 | R&S FSVA/FSV Operating Manual (1307.9331.12-17) |
+| Oscilloscope | 1200 | 409 | 147 | Rigol MSO2000A/DS2000A Programming Guide (Feb 2016) |
+| R&S FSIQ analyzer | 1051 | 0 | 0 | R&S FSIQ Operating Manual (1119.5063.12), chapter 6 — first extraction, no adoption pass |
 | Siglent scope | 859 | 0 | 120 | Siglent SDS Series Programming Guide (EN11D) + SDS3000X HD (EN11F) |
-| Rigol spectrum analyzer | 587 | 0 | 0 | Rigol DSA800 Series Programming Guide (Aug. 2016) |
-| R&S spectrum analyzer | 537 | 0 | 0 | R&S FPC Spectrum Analyzer User Manual (1178.4130.02 ─ 08) |
-| R&S power supply | 445 | 0 | 148 | R&S NGL200/NGM200 User Manual, plus the NGE100 and HMP guides |
+| Rigol spectrum analyzer | 586 | 0 | 88 | Rigol DSA800 Series Programming Guide (Aug. 2016) |
+| R&S spectrum analyzer | 537 | 0 | 99 | R&S FPC Spectrum Analyzer User Manual (1178.4130.02 ─ 08) |
+| R&S power supply | 434 | 0 | 139 | R&S NGL200/NGM200 User Manual, plus the NGE100 and HMP guides |
 | Waveform generator | 430 | 0 | 89 | Rigol DG1000Z Programming Guide |
-| Keysight multimeter | 390 | 0 | 0 | Keysight Truevolt Series Operating and Service Guide |
-| GW Instek GDS-1000B scope | 383 | 0 | 0 | GW Instek GDS-1000B Series Programming Manual (v1.10) |
+| Keysight multimeter | 390 | 0 | 100 | Keysight Truevolt Series Operating and Service Guide |
+| GW Instek GDS-1000B scope | 383 | 0 | 69 | GW Instek GDS-1000B Series Programming Manual (v1.10) |
 | Keithley multimeter | 376 | 0 | 78 | Keithley DMM6500 Reference Manual (DMM6500-901-01 Rev. A) |
-| Siglent generator | 343 | 107 | 0 | Siglent SDG Series Programming Guide (PG02_E05B) |
-| Chroma electronic load | 339 | 0 | 0 | Chroma 63200A Series Operation & Programming Manual (Oct 2024) |
+| Siglent generator | 343 | 27 | 42 | Siglent SDG Series Programming Guide (PG02_E05B) |
+| Chroma electronic load | 339 | 0 | 31 | Chroma 63200A Series Operation & Programming Manual (Oct 2024) |
 | Power supply | 309 | 0 | 65 | Rigol DP800 Programming Guide (Dec 2015) |
 | Keithley SMU | 293 | 0 | 74 | Keithley Model 2450 SourceMeter Reference Manual (2450-901-01 Rev. E) |
 | Electronic load | 292 | 0 | 29 | Siglent SDL1000X Programming Guide (E02B) |
-| Chroma modular load | 286 | 0 | 0 | Chroma 63600 Series Operation & Programming Manual (V2.2) |
-| Multimeter | 206 | 82 | 0 | Siglent SDM Series Programming Guide (EN02A) |
+| Chroma modular load | 286 | 0 | 30 | Chroma 63600 Series Operation & Programming Manual (V2.2) |
+| Multimeter | 206 | 82 | 20 | Siglent SDM Series Programming Guide (EN02A) |
 | Spectrum analyzer | 202 | 0 | 55 | Siglent SSA3000X Programming Guide (PG0703X-E03D) |
-| Rigol multimeter | 186 | 0 | 0 | Rigol Programming Guide for DM3058/DM3058E (Jan. 2015) |
+| Rigol multimeter | 186 | 0 | 28 | Rigol Programming Guide for DM3058/DM3058E (Jan. 2015) |
 | Keysight power supply | 171 | 0 | 61 | Keysight E36300 Series Programming Guide (9018-04577) |
 | GW Instek scope | 169 | 0 | 36 | GW Instek GDS-2000 Series Programming Manual |
-| B&K triple-output supply | 144 | 0 | 0 | B&K Precision 9130B Series Programming Manual (V051415) — 22 entries flagged misprinted |
-| Rigol electronic load | 144 | 0 | 0 | Rigol DL3000 Series Programming Guide (Apr. 2019) |
+| B&K triple-output supply | 144 | 0 | 58 | B&K Precision 9130B Series Programming Manual (V051415) — 22 entries flagged misprinted |
+| Rigol electronic load | 144 | 0 | 59 | Rigol DL3000 Series Programming Guide (Apr. 2019) |
 | B&K electronic load | 136 | 0 | 64 | B&K Precision 8600 Series Programming Manual |
 | Fluke multimeter | 125 | 0 | 77 | Fluke 8845A/8846A Programmers Manual (Sept 2006), hand-transcribed |
 | Chroma power supply | 121 | 0 | 51 | Chroma 62000L Series User Manual, Remote Control Reference |
-| B&K power supply | 84 | 0 | 0 | B&K Precision 9200B Series User Manual, chapter 5 — 16 entries flagged misprinted |
+| B&K power supply | 84 | 0 | 43 | B&K Precision 9200B Series User Manual, chapter 5 — 16 entries flagged misprinted |
 
 The counts are generated from the catalogs rather than kept by hand — several rows had
 drifted by one or two before that was noticed, which is exactly how much a hand-maintained
-table can be wrong without anyone seeing it.
+table can be wrong without anyone seeing it. `node tools/catalog-table.js` regenerates them
+and `CatalogTableTests` fails if they are stale, because for a while "generated" meant
+generated once: the numbers had been read out of the catalogs by hand and every edit since
+drifted away from them.
+
+**The two marks mean different things, and only one of them needs the bench.** A `✓` says
+the command was sent to the real instrument and answered. A `•` says the same command was
+found in an independent open-source driver — pymeasure, python-ivi, QCoDeS, tm_devices,
+OriginalCircuit — which is weaker evidence, and free: it needs no hardware, only the driver
+sources, and `tools/scpi-extract/README.md` gives the clone lines that produce the corpora.
+Those corpora are not committed, and while they were absent every catalog built without
+them silently gained no marks at all. Re-running the check against 7,581 driver commands
+took the cross-checked count from 1,460 to 2,778, twenty catalogs gaining marks and twelve
+of them going from none. The bench count did not move and cannot for now: all three
+instruments here are unreachable, so `✓` is stuck at 518 until they are back.
 
 One catalog corrects its guide. The Chroma manual prints `VOLTaget:PROTection` and
 `PROTecton:TRIPped?` a handful of times while spelling both correctly everywhere else;
@@ -511,6 +633,57 @@ Two levels of confidence, both weaker than the guide is authoritative:
   instrument driver (pymeasure, python-ivi, QCoDeS, tm_devices, OriginalCircuit). This
   catches a command transcribed correctly from a guide that the hardware never honoured.
 
+### How much of this is right
+
+Everything above describes how a catalog is built and what is checked. None of it says how
+much of the result is correct, and for a long time nothing did. Every count this project
+produced answered *"how many entries match a pattern someone thought to look for"* — which
+measures the search, not the data. Fixing one such pattern reliably exposed another, and
+there was no way to tell a long tail from an endless one.
+
+So it was measured, on 15 August 2026. `tools/sample-catalog-accuracy.js` draws entries
+uniformly from all 23,978 — including the ones whose guide is not in this checkout, which
+are judged unverifiable rather than dropped, since dropping them would quietly measure the
+best-documented half. The draw is seeded, so the same sample can be redrawn and rechecked.
+100 entries, each read against its guide:
+
+> **7 defective. A 7% error rate, 95% Wilson interval 3.4% to 13.7%** — between 800 and
+> 3,300 entries across the catalogs, most likely about 1,700.
+
+83 of the 100 had guide text to compare against; the other 17 were judged on internal
+evidence, so if any of those are wrong the true rate is higher, not lower.
+
+The seven were: two with a margin label spliced into the sentence, one describing a
+different command outright, one opening on a stray digit, one promising three values and
+giving one, one trailing off mid-clause, one missing a space.
+
+Two of the seven turned out to belong to classes nobody had counted — 323 Rigol
+descriptions opening on the tail of the guide's "Description 1", and 89 Keysight
+descriptions carrying a left-margin label inline. Both were repaired the same day (421
+entries with the strays they exposed) and are now held by
+`No_description_carries_the_guide_page_furniture`. Neither had ever surfaced from reading
+the catalogs directly; both fell out of a hundred random entries within an hour.
+
+The rate above is therefore stale by construction — it was measured before that repair, and
+those 421 entries are about a quarter of what it projected. It is left as measured rather
+than adjusted by arithmetic. **Redraw the sample with a new seed before quoting a number.**
+
+The distribution matters more than the headline. The R&S catalogs, roughly half of all
+entries, gave 1 defect in 28 sampled; the Rigol and Keysight scopes gave 4 in 12. Remaining
+work is concentrated, not spread.
+
+What is known to be left, as distinct from what the sample estimates:
+
+| | |
+|---|---|
+| 347 | descriptions cut at a character count that `tools/finish-capped-descriptions.js` declined to finish — 235 where the guide does not carry the words they stop on, 66 with no heading found, 44 that were already two descriptions merged before the cut, 2 where the guide says no more. The 44 are wrong rather than short. |
+| 47 | descriptions shared between commands with different roots. Sampled and read as correct — a guide really does give `*LRN?` and `SET?` one sentence — but not audited one by one. |
+| 13 | catalogs never audited for mispaired descriptions. Every one audited so far (Tektronix, the Keysight DMM, the R&S scope) found some. |
+| 4 | B&K 9130B entries whose guide misspells `INSTrument` as `INSTument` in both its index and its body. Only a 9130B can say whether the firmware accepts the misspelling, and there is none on this bench. |
+
+None of these blocks anything. They are recorded so the next person does not have to
+rediscover them, and so that "what else is left" has an answer that is not a search.
+
 **Never invent SCPI.** If a command cannot be transcribed from the guide, leave it out.
 This is enforced, not merely stated: `CatalogCoverageTests` fails the build if any
 quick-command button, live-readout query or bundled script line is not an instance of a
@@ -568,10 +741,70 @@ The guides themselves:
 - Chroma 62000L Series User Manual —
   <https://assets.testequity.com/te1/Documents/pdf/62000L-um.pdf>
 
+Two more turned up later. The FSIQ's has since been catalogued — a first extraction, its
+caveats recorded in the catalog's own `source` field — and the FSE's cannot be: the copy is
+Volume 1, and chapter 6, the command reference, is in Volume 2:
+
+- R&S FSEA/FSEB/FSEM/FSEK Operating Manual, Volume 1 (1065.6016.12) —
+  <https://sky-brokers.com/wp-content/uploads/2020/10/Operations-Manual-Rohde-Schwarz-Spectrum-Analyzer-FSEM30.pdf>
+- R&S FSIQ Operating Manual (1119.5063.12) —
+  <https://hamwan.org/Labs/Radio%20Analysis/fsiq_02e.pdf>
+  (also archived: <https://web.archive.org/web/20230925101545/http://hamwan.org/Labs/Radio%20Analysis/fsiq_02e.pdf>)
+
+And one was found and **cannot be used**, which is worth recording so nobody hunts it twice:
+
+- Chroma 63800 Series Operation & Programming Manual, Version 1.1, April 2009 —
+  <https://web.archive.org/web/20250805042045id_/https://www.transcat.com/media/pdf/Chroma-63800-Series-User-Manual.pdf>
+
+  The live Transcat copy now answers 403 and no other mirror is known; the Wayback capture
+  of 5 August 2025 serves the original bytes intact. It is the right document, and it is a
+  **scan**: 44 MB of page images with no text layer, from which `pdftotext` recovers 550
+  bytes — the cover, and nothing else. Extraction has nothing to read. Making it usable
+  means OCR, and OCR of a 2009 scan produces command spellings that would have to be
+  reviewed character by character against the page images before any of it could be
+  trusted, which is a different undertaking from transcription and is not planned. The
+  `638` AC loads therefore stay routed to `Generic` (§8, row 16) — by document, not by
+  oversight.
+
 `pdftotext -layout` makes them far cheaper to work from than reading page images.
 The extraction pipeline built on that is in
 [tools/scpi-extract](../tools/scpi-extract), and each catalog's own `source` field records
 which guide it came from, what that guide covers, and what was deliberately left out.
+
+**How far a catalog can be rebuilt from its guide.** Each config records its `parse` recipe
+— manual, reader style, any flags — and `node rebuild.js --all` runs the lot and reports
+where each one stands. Before that the recipe was written down nowhere: a config named the
+extracted files it was built from, but those live in `parsed/`, which is regenerated and not
+committed, so the step that produces them survived only in whoever last ran it. Eleven
+catalogs were listed as unrebuildable for having no config, which was true and beside the
+point — none of the other twenty-four could be rebuilt either.
+
+As measured on 14 August 2026, after fetching twelve guides that were missing: **1 rebuilds
+byte-identically**, **21 rebuild but differ**, and **2 cannot be attempted** — the Keysight
+scope because its guide no longer serves as a file, and Fluke because it is curated by hand
+and extracts nothing. Before those guides were fetched only twelve of the twenty-four could
+be attempted at all.
+
+**"Differs" is the expected state, not a defect to close.** A catalog is extraction *plus*
+curation, and the curation is load-bearing: query forms the guide states in prose rather than
+prints, entries transcribed by hand where the layout defeats the reader, and junk removed
+after reading the page it came from. Re-emitting throws all of that away and keeps only what
+a parser can see.
+
+Measured, rather than assumed. A wholesale re-emit today would **gain 153 entries and lose
+129**, and the losses are real commands: `*CAL?` and `*IST?` from the R&S scope, `ALIas?`
+and `CH<x>?` from the Tektronix, `:ERRor?` and `:VERsion?` from the B&K load, the whole
+`:HARDcopy` tree from the GW Instek, `READ?` and both `MEASure` queries from the R&S supply.
+Meanwhile the "gains" include `*PSC {OFF|ON|NR1>}` with a bracket missing,
+`CH<x>:PRObe:MODel<String>` with its space eaten, and — in the supply catalog — `RUN` and
+`RUN?`, the parameter values deleted by hand earlier the same day.
+
+So the pipeline is for *building* a catalog and for checking what a guide contains, not for
+regenerating one that people have since worked on. `node rebuild.js --all` reports where each
+stands; a catalog that has drifted is telling you curation happened, and the way to harvest a
+genuine addition from a re-read is to adopt it deliberately, entry by entry, not to overwrite
+the file. A missing dump is likewise not usually a defect: `manuals/` is ignored for the same
+reason `datasheets/` is, and every guide is named and linked in the list above.
 
 ## 11. Capture
 
@@ -591,7 +824,7 @@ Offered for Rigol (`:DISPlay:DATA?`), Keysight (`:DISPlay:DATA? PNG,COLor`), Tek
 Five dialects, because no two vendors agree on the command tree, the way the scaling is
 described, or the arithmetic that turns a stored sample into volts. Each is transcribed
 from that vendor's guide and named in `WaveformDialect`; the sequences live in
-`Core/WaveformReader` so they can be exercised against a fake client.
+`Core/Capture/WaveformReader` so they can be exercised against a fake client.
 
 | Dialect | Reads | Scaling |
 |---|---|---|
@@ -735,7 +968,8 @@ reconnecting on launch would be guesswork (and risks §13).
 ## 13. Transports and instrument-specific behaviour
 
 `IInstrumentClient` is the transport abstraction — connect, send, query, query-binary,
-return-to-local, close — with two implementations. The UI must not care which is beneath it.
+return-to-local, close — with three implementations. The UI must not care which is beneath
+it, and neither must the sessions, the script runners, the capture path or the catalogs.
 
 **Raw socket.** TCP; commands terminated with a newline; replies read to the terminator.
 
@@ -743,9 +977,46 @@ return-to-local, close — with two implementations. The UI must not care which 
 then `create_link`, `device_write`, `device_read`, `device_clear`, `device_local`,
 `destroy_link`. XDR encoding, big-endian, 4-byte record marking.
 
+**Serial (RS-232).** A serial port opened at the line settings the address named (§5),
+`System.IO.Ports` underneath, so `COM3` on Windows and `/dev/ttyUSB0` or
+`/dev/cu.usbserial-*` elsewhere all work — including the USB-to-serial adapter most benches
+actually use. DTR is asserted on open, and RTS too unless hardware flow control is driving
+it; a good many instruments and nearly every adapter want to see them before they will
+talk. Four things differ from the LAN transports and nothing else does:
+
+- **The line settings have to be right first.** There is nothing on the wire to negotiate
+  them with, and a wrong baud rate does not fail — it answers with rubbish.
+- **The terminator is not always LF.** A good many RS-232 instruments want CRLF and treat a
+  bare LF as no command at all, which looks exactly like a dead port. Replies are read to
+  the line feed either way, with carriage returns discarded.
+- **Nothing happens when the port closes.** A raw socket returns the front panel to local
+  by being closed; RS-232 has no such signal, so the request is made in band with
+  `SYSTem:LOCal` — SCPI-99's own answer for an interface with no bus-level Go To Local, and
+  documented in 12 of the 36 catalogs. Best-effort: on an instrument that does not have it,
+  it costs one entry in an error queue that is about to be disconnected from.
+- **A binary read has no total deadline**, only a gap-between-bytes one, which the driver
+  enforces. That is the better question to ask of a transport this slow: 100 KB of
+  screenshot at 9600 baud is a minute and three quarters of perfectly healthy transfer, and
+  no fixed total that allowed for it would still catch an instrument that had stopped
+  talking. A socket uses a total deadline only because an async read on a `NetworkStream`
+  ignores its own read timeout.
+
+**Discovery extends to it only as far as the physics allows** (§4, §17). Ports are *listed*
+without being opened — the CLI's `lec ports`, `SerialPorts.Names()` — and that listing is
+what arriving at the card gives you. Opening them is a separate act on a separate button:
+`SerialScanner.ScanAsync()` tries the baud rates it was given against the ports it was
+given, and nothing else. A subnet sweep can ask every address the same harmless question;
+a serial port cannot be asked anything until the settings already match, and what is on the
+other end may be a printer or a modem.
+
 **IEEE 488.2 blocks.** `#<n><length><data>` definite-length blocks are parsed and the
 payload returned with the header and any trailing newline stripped. A response that is not
-a block is returned whole.
+a block is returned whole. The framing — writing a command, reading a line, reading a block
+— is **one implementation** (`ScpiFraming`), shared by the socket and the serial port,
+because SCPI over RS-232 is line-based in exactly the way SCPI over a raw socket is. It is
+where the careful parts live and they are worth having once: a block is read by its
+declared length rather than until a pause, since binary data contains newlines and arrives
+in pieces.
 
 ### Hard-won facts the software must respect
 
@@ -789,6 +1060,9 @@ Instruments are on **DHCP and their addresses move**. Match on the `*IDN?` model
 hardcode an IP.
 
 ## 14. UI conventions
+
+Rules for building a UI in WinForms at all. Which controls exist, in what order, with what
+words on them — for this build and for the web one — is [UI-SPEC.md](UI-SPEC.md).
 
 - **Every control gets a hover tooltip** describing what it does. The labels alone don't
   explain the controls. This is a standing requirement, not a one-off — anything added
@@ -953,7 +1227,7 @@ identity, per-family profiles, three simultaneous console tabs, read-only querie
 capture (1.15 MB BMP), waveform capture (1400 samples), detach into a window, re-attach by
 closing it, and disconnecting each console back down to none.
 
-**585 of the 11,853 catalog entries answered on the bench** in that run, from a sweep of every
+**585 of the 11,853 entries then catalogued answered on the bench** in that run, from a sweep of every
 query that can be sent without changing an instrument's state — 388 of the Rigol scope's,
 104 of the Siglent generator's, 82 of the multimeter's. What each refused is coherent: the
 scope's misses are CAN triggering and bus decode, options a base DS2202 does not carry, and
@@ -965,12 +1239,12 @@ Implemented but never run against the instrument it is for:
 - **Four of the five waveform dialects** (§11) and the Tektronix screen dump. Only the Rigol
   path has met hardware. The decoders are checked against each vendor's own published
   worked example, which is a different claim from working.
-- **Eighteen of the twenty-one catalogs** (§10). Transcribed and cross-checked, not proven.
-  Three catalogs have hardware here; there is no such instrument for the rest.
+- **Thirty-three of the thirty-six catalogs** (§10). Transcribed and cross-checked, not
+  proven. Three catalogs have hardware here; there is no such instrument for the rest.
 
 **AI datasheet extraction** (§11b) has run end to end against Gemini on the Siglent SDM
 guide, returning 211 commands where the catalog transcribed from the same document by hand
-holds 207, with 89% recognised. Every one of the unrecognised was checked against the guide
+holds 206, with 89% recognised. Every one of the unrecognised was checked against the guide
 text and appears in it verbatim: nothing was invented. That is a measurement on a guide whose
 answer was already known, which is what makes it worth anything — it says the pipeline works,
 not that an extraction from an unknown guide can be trusted without the review step.
@@ -986,3 +1260,72 @@ Deliberately not built:
 - Remembering open tabs across runs — only worth doing alongside a way to re-find an
   instrument whose DHCP address has changed (§12), otherwise launch-time reconnects are
   guesswork against the one-session rule (§13).
+- **USB/USBTMC and GPIB** (§1). Nothing is planned. What follows is the reasoning, written
+  down because "no USB, GPIB or serial" read as one decision and was actually three — and
+  the third of them has since been built, which is the best evidence that keeping them
+  apart was worth the trouble.
+
+  **GPIB — no, and not for want of effort.** It needs a controller card or adapter, and
+  every one of them ships its own proprietary driver. There is no protocol to implement
+  here that would get round that, so it would mean the NI-VISA or vendor-SDK dependency
+  §1 exists to refuse. The instruments are also a generation older than anything on this
+  bench, which is the smaller half of the reason.
+
+  **USB/USBTMC — no, on cost.** The class protocol itself is tractable (bulk endpoints,
+  bTag sequencing, a header per transfer), but reaching it means WinUSB on Windows and
+  libusb elsewhere.
+
+  Serial having landed with a native shim of its own, the distinction that matters here is
+  worth stating precisely rather than by the word "native". `System.IO.Ports` does carry
+  per-platform native code — a 15 KB `libSystem.IO.Ports.Native` for each non-Windows
+  runtime — but it is Microsoft's own, restored by NuGet, and travels inside the package
+  with nothing to install and no driver to bind. libusb is a **system library the user has
+  to already have**, and on Windows a USB device speaks to WinUSB only once someone has
+  bound that driver to it by hand. One is a build artefact; the other is a prerequisite on
+  somebody else's machine. That is the line, and USBTMC is on the far side of it: it would
+  either break Core's "plain `net10.0`, nothing Windows-only" rule or ship as a
+  Windows-only transport the other two front ends could not offer — and a transport that
+  exists in one build and not the others is the thing UI-SPEC §0 spends its first page
+  arguing against.
+
+**Built after being deliberated over here** (kept, because what a decision cost is worth
+having next to it):
+
+- **Serial (RS-232) — was "the one that would make sense, if any did", and now exists**
+  (§13). The prediction was that `SerialInstrumentClient : IInstrumentClient` would be a
+  short file because SCPI over serial is line-based exactly as `ScpiClient` already is, and
+  that everything above the transport would not know the difference. Both held. What it
+  actually cost was the framing being lifted out of `ScpiClient` into `ScpiFraming` so the
+  two clients could share it, which the socket was better for anyway.
+
+  The two objections held too, and became the shape of what was built rather than reasons
+  not to:
+
+  - **Discovery did not transfer, and the shape of what replaced it is the argument.** §4
+    is built on sweeping a subnet and asking `*IDN?`, and a serial port cannot be swept that
+    way — you can enumerate the ports, but not the baud rate, parity or handshaking each
+    instrument was set to, and probing a port that turns out to be a modem or a printer is
+    not the harmless connect a TCP probe is.
+
+    That first became "ports are listed and never probed, and the choosing is the user's",
+    which was right about the danger and wrong about where the line sat. It put the whole
+    of `*IDN?` behind the user typing an address, when the part that was actually
+    unacceptable was doing any of it *unasked*. The line that holds is **automatic**: a
+    card arriving on Serial opens nothing, and no combination of settings is ever tried
+    behind anyone's back. A `Scan` somebody pressed, over the ports they chose, at the baud
+    rates they named, with what it does written on the button, is an act they authorised —
+    and it is the only thing that opens a port. Everything the original objection was
+    protecting is still protected; what changed is that the protection is a button rather
+    than an absence (§4).
+
+    Two things the subnet sweep gets for free had to be built by hand. A port that answers
+    nothing **stays in the list**, because it is still a port and still connectable at
+    settings the scan did not try. And a reply is **checked before it is believed**: TCP
+    delivers the sender's bytes or nothing, a UART at the wrong rate delivers different
+    ones, so an "identity" is only an identity if it is printable and comma-separated.
+  - **It added a dependency**, taking Core from one to two (§2). Costed rather than waved
+    through: 10.5 KB gzipped in the browser payload, against PdfPig's 1.83 MB.
+
+  Addressing was the part already done, exactly as this entry predicted: `InstrumentAddress`
+  was the single place `serial://COM3?baud=9600` needed reading, and all three front ends
+  took it from there.

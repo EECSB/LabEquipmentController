@@ -84,6 +84,16 @@ public static class AiRequest
                 ["schema"] = schema.DeepClone(),
             },
         };
+
+        // How hard to think, where Gemini keeps it. Verified against the live API: it
+        // rejects unknown parameters, at the top level and inside generation_config alike,
+        // so a request that goes through is a field that exists. It bites, too — the same
+        // arithmetic question came back after 519 thought tokens at "low" and 3,030 at
+        // "high". The four names below are the four the API listed when asked for one it
+        // does not take.
+        if (Level(cn.Effort) is string level)
+            body["generation_config"] = new JsonObject { ["thinking_level"] = level };
+
         return body.ToJsonString(Compact);
     }
 
@@ -121,6 +131,26 @@ public static class AiRequest
                 new JsonObject { ["role"] = "user", ["content"] = content },
             },
         };
+
+        // Anthropic buys thinking by the token rather than by the word, so the scale is
+        // spent rather than named. Minimal is thinking off, which is what the Messages API
+        // does when asked for nothing — so it sends nothing, and differs from Default only
+        // in that the user chose it.
+        //
+        // max_tokens has to leave room for the answer as well as the thinking: the API
+        // requires it to exceed the budget, and a ceiling only a little over the budget is a
+        // model that thinks and then has nowhere to write. The eight thousand the reply was
+        // already given is kept on top of whatever is spent thinking.
+        if (Budget(cn.Effort) is int budget)
+        {
+            body["thinking"] = new JsonObject
+            {
+                ["type"] = "enabled",
+                ["budget_tokens"] = budget,
+            };
+            body["max_tokens"] = 8192 + budget;
+        }
+
         return body.ToJsonString(Compact);
     }
 
@@ -147,8 +177,47 @@ public static class AiRequest
             },
             ["response_format"] = new JsonObject { ["type"] = "json_object" },
         };
+
+        // The one field of the three that is sent only when asked for. This shape covers
+        // endpoints that have never heard of reasoning_effort — Ollama, LM Studio, an older
+        // model behind OpenAI's own URL — and some of them refuse a request carrying a field
+        // they do not know rather than ignoring it. Default sends nothing, which is why it
+        // is the default.
+        if (Level(cn.Effort) is string effort)
+            body["reasoning_effort"] = effort;
+
         return body.ToJsonString(Compact);
     }
+
+    /// <summary>
+    /// The effort as a word, for the two providers that take one — Gemini's thinking_level
+    /// and an OpenAI-compatible endpoint's reasoning_effort, which happen to spell the same
+    /// four the same way. Null for <see cref="AiEffort.Default"/>, and null means the field
+    /// is left out rather than sent empty.
+    /// </summary>
+    private static string? Level(AiEffort effort) => effort switch
+    {
+        AiEffort.Minimal => "minimal",
+        AiEffort.Low => "low",
+        AiEffort.Medium => "medium",
+        AiEffort.High => "high",
+        _ => null,
+    };
+
+    /// <summary>
+    /// The effort as a token budget, for the provider that takes one.
+    ///
+    /// Null where no thinking block should be sent at all, which is both Default and Minimal:
+    /// the Messages API has no way to ask for a little thinking — the floor is 1,024 tokens —
+    /// so the honest reading of "minimal" there is none.
+    /// </summary>
+    private static int? Budget(AiEffort effort) => effort switch
+    {
+        AiEffort.Low => 4096,
+        AiEffort.Medium => 12288,
+        AiEffort.High => 24576,
+        _ => null,
+    };
 
     private static string Prompt(string instruction, AiPayload payload)
         => payload.IsDocument

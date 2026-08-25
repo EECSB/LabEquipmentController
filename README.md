@@ -1,32 +1,48 @@
 # Lab Equipment Controller
 
 [![CI](https://github.com/EECSB/LabEquipmentController/actions/workflows/ci.yml/badge.svg)](https://github.com/EECSB/LabEquipmentController/actions/workflows/ci.yml)
-[![NuGet](https://img.shields.io/nuget/vpre/LabEquipmentController.svg?label=nuget)](https://www.nuget.org/packages/LabEquipmentController)
+[![NuGet](https://img.shields.io/nuget/v/LabEquipmentController.svg?label=nuget)](https://www.nuget.org/packages/LabEquipmentController)
+[![Docker](https://img.shields.io/docker/v/eecsb/labequipmentcontroller-web?label=docker&sort=semver)](https://hub.docker.com/r/eecsb/labequipmentcontroller-web)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-A Windows desktop app for discovering and controlling lab instruments (oscilloscopes,
-function generators, …) over Ethernet using **SCPI**. It scans the local network, lists
-the instruments it finds, and lets you connect to several at once and drive each one from
-a command console, instrument-aware quick-command buttons, or a small scripting window.
+A software suite for discovering and controlling lab instruments (oscilloscopes,
+function generators, …) over Ethernet or RS-232, using **SCPI**. It scans the local
+network, lists the instruments it finds, and lets you connect to several at once and drive
+each one from a command console, instrument-aware quick-command buttons, or a small
+scripting window.
 
-Built with **C# / WinForms** targeting **.NET 10** (`net10.0-windows`).
+Originally built as a desktop app with **C# / WinForms** targeting **.NET 10** (`net10.0-windows`) and then
+extended so the same core engine also drives **[a web version](Web/README.md)**, hosted in a docker container, **[a cross-platform CLI](Cli/README.md)**
+(`lec`) for benches without a desktop and for scripting a measurement into CI and the engine
+itself is **[on NuGet](Core/README.md)** as
+`LabEquipmentController`, for driving instruments from your own code.
 
 How the pieces fit — the windows, the transport stack, the catalog pipeline and the
 tests that hold them together — is in **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)**.
-
-## What it looks like
 
 Every screenshot below is a real session against the bench this project is developed on —
 a Rigol DS2202 oscilloscope, a Siglent SDG2042X generator and a Siglent SDM3065X
 multimeter, all answering over VXI-11. Nothing is mocked up.
 
+![The oscilloscope, the generator and the multimeter on the bench](docs/images/06-instruments.jpg)
+
+Left to right: the oscilloscope, the generator and, on the shelf above, the multimeter.
+
 **Scan, then a console per instrument.** The sweep found all three; each opened its own
 tab, and the quick-command row is built from that family's catalog rather than a fixed
-list. Here the oscilloscope's tab is in front, being polled for peak-to-peak voltage — the
-log carries every command and reply, and each numeric answer also lands in the results
-table with a timestamp.
+list. The card's heading is itself the switch — `Network Scan` or `Serial Scan` — and it
+changes what the whole card is about. Here the oscilloscope's tab is in front, being polled
+for peak-to-peak voltage — the log carries every command and reply, and each numeric answer
+also lands in the results table with a timestamp.
 
-![The main window: network scan, discovered instruments, and a console tab per instrument](docs/images/01-scan.png)
+![The main window: the scan card with its Network / Serial heading switch, the discovered instruments, and a console tab per instrument](docs/images/01-scan.png)
+
+**And the same bench in a browser.** The web build is a control-for-control port of that
+window — same controls, same order, same words — served by a container that owns the
+sockets. Here it is against the same bench, with the meter and the generator connected and
+the generator's console in front. The rest of the screenshots are the desktop app.
+
+![The web version: the same scan panel, discovered instruments and console tabs, in a browser](docs/images/09-web.png)
 
 **Any tab detaches into its own window,** so instruments can be watched side by side. The
 recorded readings plot as they arrive: pick which column runs across and which are drawn
@@ -34,7 +50,7 @@ up, switch either axis to log, and save the chart or the table.
 
 ![A detached console for the oscilloscope, with its recorded readings plotted](docs/images/02-console.png)
 
-**The command library** browses all 35 catalogs — 23,174 commands — by manufacturer, with
+**The command library** browses all 36 catalogs — 23,978 commands — by manufacturer, with
 the vendor's own programming guide open beside them. A `✓` marks an entry confirmed on real
 hardware; the filter here is showing the 206-command Siglent SDM catalog narrowed to
 voltage commands, next to page 1 of the 158-page guide those entries were transcribed from.
@@ -46,14 +62,53 @@ what each resolved to on this bench, and `WITH`/`FOR`/`RECORD` interleave the ge
 the scope inside one loop — which is the measurement a single-instrument script cannot
 express.
 
-![The multi-instrument script editor with the filter-response example loaded](docs/images/04-sequence.png)
+This is the shipped example, run as it comes: it sets the generator to a 2 Vpp sine, sets
+the scope up to look at the band, then walks 20 MHz to 35 MHz in 100 kHz steps, reading
+`:MEASure:VRMS?` at each one. **151 rows in 73 seconds**, and the curve is the low-pass
+section of the board below — flat at about 750 mVrms to 24 MHz, through −3 dB at roughly
+27.5 MHz, down to 181 mVrms at 35 MHz.
+
+![The multi-instrument script editor after running the filter-response example: the sweep loop, the log of commands and replies, and the measured roll-off plotted](docs/images/04-sequence.png)
+
+### The bench it was measured on
+
+Wired for the sweep above: the generator's channel 1 feeds the filter's input, and the
+filter's output goes to channel 1 of the scope. That is the whole of what the example's
+opening comment asks for.
+
+![The generator and scope cabled to the filter board on the bench](docs/images/07-measurement-setup.jpg)
+
+The filter itself is one section of an RF demo board — a 30 MHz low-pass, which is why the
+sweep runs 20 to 35 MHz and why the curve turns over where it does.
+
+![The RF demo board, with the coax on the low-pass filter section](docs/images/08-test-board.jpg)
 
 **Waveform capture** pulls the trace off the scope and applies that vendor's own scaling to
 turn raw bytes into volts and seconds — the part that is different for every manufacturer,
-and where a wrong answer looks most like a right one. 1,400 points, 1.07 V peak-to-peak
-across 140 ns, and **Run** re-reads it on an interval so the trace follows the instrument.
+and where a wrong answer looks most like a right one. Here the generator is feeding channel
+1 a 20 MHz sine: **1,400 points, 2.12 V peak-to-peak across 280 ns**, sampled every 200 ps.
+**Run** re-reads it on an interval so the trace follows the instrument.
 
-![The waveform viewer showing a captured sine with its axes and measurements](docs/images/05-waveform.png)
+A capture is drawn on **cards** — a card is a set of channels, so channels on one card share
+a vertical scale and compare directly, while a channel on its own card gets the scale to
+itself. Each card zooms independently (wheel, Ctrl+wheel, drag, or the three buttons), and
+one read of the instrument serves every card on screen.
+
+![The waveform viewer: a 20 MHz sine captured from channel 1, with its channel chips, zoom controls and measurements](docs/images/05-waveform.png)
+
+**Or describe the measurement and let a model write the script.** Bring your own AI
+provider and **Script with AI…** hands it the connected instrument's catalog — 343
+documented commands for this generator — and tells it to use nothing else. Every command
+header that comes back is checked against that catalog, and the window says so rather than
+letting silence read as "verified".
+
+It is a conversation: every exchange stays on screen and goes back with the next request,
+which is what makes the follow-up below — *"now do the same at 5 Vpp and 10 kHz"* — a
+request at all. The line above the transcript says what that history costs to send, and
+**Clear** starts again without it. Nothing is run and nothing is saved: a draft reaches the
+editor when you press **Use This Script**, and runs when you press Run.
+
+![Write a Script with AI: the request, the script that came back, its catalog check, and a follow-up asking for a change](docs/images/10-ai-script.png)
 
 ## Features
 
@@ -61,8 +116,20 @@ across 140 ns, and **Run** re-reads it on an interval so the trace follows the i
   identifies responders via `*IDN?`. An **IP range** box narrows it to the part of the subnet
   your bench actually lives on — `192.168.1.20-60`, a bare `20-60`, a single address, a
   `/28` block, or any comma-separated mixture. Leave it empty to sweep everything.
-- **Two transports** — raw TCP socket *and* a hand-rolled native **VXI-11** (ONC-RPC) client,
-  for instruments that only speak VXI-11.
+- **Serial scan** — the card's heading is a switch, `Network Scan` · `Serial Scan`, and it
+  governs the whole card: the inputs, the columns of the list under it, and which box the
+  address row shows. On Serial it lists this machine's ports without opening any, which is
+  already enough to pick one and connect; **Scan** then opens the ports you chose and asks
+  each for its identity at the baud rates you named, stopping at the first that answers.
+  Every port stays listed either way — one that says nothing is still a port, still
+  connectable at settings the scan did not try — and a reply only counts as an identity if
+  it reads like one, because an instrument at the wrong baud rate does not fail to answer,
+  it answers with rubbish.
+- **Three transports** — raw TCP socket, a hand-rolled native **VXI-11** (ONC-RPC) client
+  for instruments that speak nothing else, and **RS-232 serial** for the ones with a socket
+  on the back instead of a network port. A line setting can be typed after a port where it
+  is not the usual `9600-8-N-1`: `COM3?baud=115200`, and likewise parity, databits,
+  stopbits, flow and term.
 - **Several instruments at once** — each connection opens its own console tab, with its own
   log, history and tools. The scan and the discovered-instruments list stay shared above them.
 - **Detachable consoles** — pull any tab out into its own window (its **Detach** button, or
@@ -70,7 +137,7 @@ across 140 ns, and **Run** re-reads it on an interval so the trace follows the i
   console back in a tab.
 - **Command console** — type SCPI and see colour-coded replies; history with the arrow keys.
 - **Instrument-aware quick commands** — the button set adapts to the connected instrument.
-  Thirty-five families are recognised from `*IDN?`: Rigol, Tektronix, Keysight, Siglent,
+  Thirty-six families are recognised from `*IDN?`: Rigol, Tektronix, Keysight, Siglent,
   Rohde & Schwarz and GW Instek oscilloscopes; waveform generators (standard SCPI and
   Siglent's own dialect); Fluke, Keithley and generic multimeters; Keithley SourceMeter
   SMUs; Keysight, R&S, Chroma and generic DC power supplies; B&K, Chroma and generic
@@ -93,11 +160,11 @@ across 140 ns, and **Run** re-reads it on an interval so the trace follows the i
   commands (Ctrl+Space), and carry a **Snippets** dropdown listing every construct with a
   description. Pick one — or type its short name and press Tab — and it is written in with
   its blanks selected, Tab stepping to the next.
-- **Command reference** — a searchable, curated catalog of **23,174 SCPI commands**
+- **Command reference** — a searchable, curated catalog of **23,978 SCPI commands**
   transcribed from vendor programming guides, with each entry marked as confirmed on the
   bench (`✓`), corroborated by an independent open-source driver (`•`), or from the guide
   alone.
-- **Command library** — Help ▸ Command Library browses all 35 catalogs by manufacturer,
+- **Command library** — Help ▸ Command Library browses all 36 catalogs by manufacturer,
   filters by maker, model or command text, and links each one to the guide it came from.
   Point it at a folder of downloaded PDFs and clicking an instrument opens its guide in a
   third column, beside the commands it was transcribed from.
@@ -109,11 +176,14 @@ across 140 ns, and **Run** re-reads it on an interval so the trace follows the i
   shown for review before it is saved, kept apart from the curated catalogs, and marked
   `◆` wherever it appears.
 - **AI script writing** — **Script with AI…** in either editor turns a plain-English
-  description into a script. The model is handed the command catalogs of the instruments
-  involved, told to use nothing else, and — when you ask it to fix something — the last
-  run's output, errors included. What comes back is a draft in a preview pane with any
-  command header the catalog does not know flagged underneath; it reaches the editor when
-  you press Use, and runs when you press Run.
+  description into a script, in a conversation: every exchange stays on screen and goes back
+  with the next request — which is what makes *"now do the same at 5 V"* answerable — and a
+  Clear starts over when the transcript has grown longer than it is useful. The model is
+  handed the command catalogs of the instruments involved, told to use nothing else, and —
+  when you ask it to fix something — the last run's output, errors included. Each answer is
+  a draft with any command header the catalog does not know flagged underneath and a
+  **Use This Script** of its own; a draft reaches the editor when you press Use, and runs
+  when you press Run.
 - **Capture** — screen and waveform, for the scopes whose guides document how. Traces plot
   in a viewer and export to CSV.
 - **Discover commands** — attempts `SYSTem:HELP:HEADers?` and falls back to the curated
@@ -127,230 +197,34 @@ across 140 ns, and **Run** re-reads it on an interval so the trace follows the i
 
 See [docs/SPEC.md](docs/SPEC.md) for what the app is specified to do — discovery and probing rules,
 addressing, the scripting language, file formats, and the instrument-specific protocol
-quirks the code has to respect.
+quirks the code has to respect, and [docs/UI-SPEC.md](docs/UI-SPEC.md) for what is on
+screen and where, in both the desktop and the web build.
 
-## Requirements
+## Run it, build it, test it
 
-- **Running the published build:** 64-bit Windows 10/11. Nothing else — the self-contained
-  build bundles the .NET runtime.
-- **Building from source:** the [.NET 10 SDK](https://dotnet.microsoft.com/download).
+The root of the tree is a showcase; the instructions live with the thing they are about.
 
-## Build & run
+| | | |
+|---|---|---|
+| **[Desktop/](Desktop/README.md)** | The WinForms app | build and run, publish a single-file `.exe`, build the installer |
+| **[Web/](Web/README.md)** | The browser version | `docker compose up` or pull the image, running the server directly, host networking, the Playwright suite |
+| **[Cli/](Cli/README.md)** | `lec`, the command line | every verb, streaming rows, SVG plots, a standalone binary per platform |
+| **[Core/](Core/README.md)** | The engine | using the NuGet package in your own code, the catalogs, how a release is published |
+| **[Tests/](Tests/README.md)** | The xUnit suite | what each folder pins, how to filter, and the guards that make SPEC §10 mechanical |
+| **[Tests/Bench/](Tests/Bench/README.md)** | The real instruments | the suite that only runs with hardware on the bench |
+| **[tools/scpi-extract/](tools/scpi-extract/README.md)** | The catalog pipeline | turning a vendor PDF into a committed catalog |
 
-From the project folder:
-
-```bash
-dotnet run --project LabEquipmentController.csproj
-```
-
-Or open `LabEquipmentController.slnx` in Visual Studio 2022 (17.14 or later, for the XML solution format) and press F5.
-
-**If the build fails with a file-lock error**, a previous `LabEquipmentController.exe` is
-still running (Visual Studio also holds `Core.pdb`). Close it, or:
-
-```bash
-powershell -c "Get-Process LabEquipmentController -EA SilentlyContinue | Stop-Process -Force"
-```
-
-## Tests
-
-The transport, protocol, scanner, scripting, settings, and export logic live in a UI-free
-`Core` library covered by an xUnit suite:
+Building anything from source needs the [.NET 10 SDK](https://dotnet.microsoft.com/download).
+Running a published desktop build needs nothing at all: 64-bit Windows 10/11, with the
+runtime bundled inside the executable.
 
 ```bash
-dotnet test Tests\LabEquipmentController.Tests.csproj
+dotnet build LabEquipmentController.slnx        # everything, on Windows
+dotnet test Tests/LabEquipmentController.Tests.csproj
 ```
 
-## Publish a single-file executable
-
-A self-contained, single-file profile for 64-bit Windows is included:
-
-```bash
-dotnet publish -p:PublishProfile=win-x64
-```
-
-The result is one `LabEquipmentController.exe` (~48 MB, runtime included) under
-`bin/Release/publish/win-x64/`. It runs on a clean Windows machine with no .NET install.
-
-For a much smaller, framework-dependent build (requires the .NET 10 Desktop Runtime on the
-target machine) publish without self-containment instead:
-
-```bash
-dotnet publish -c Release -r win-x64 --self-contained false -p:PublishSingleFile=true
-```
-
-## The command line (`lec`) — Windows, Linux and macOS
-
-The same Core library has a terminal front end, for benches without a desktop and for
-scripting a measurement into CI or a cron job. It targets plain `net10.0` rather than
-`net10.0-windows`, so unlike the GUI it runs anywhere .NET does.
-
-```bash
-dotnet run --project Cli/LabEquipmentController.Cli.csproj -- scan --range 192.168.1.20-60
-```
-
-| Command | What it does |
-|---|---|
-| `lec scan` | Sweep the subnet (or `--range`) and identify what answers |
-| `lec interfaces` | List local interfaces worth scanning |
-| `lec id <address>` | `*IDN?`, plus the family and catalog it resolves to |
-| `lec send <address> <cmd>…` | Send commands; any containing `?` is read back |
-| `lec run <address> <file>` | Run a `.scpi` script against one instrument |
-| `lec seq <file> --device gen=…` | Run a multi-instrument `.seq` script |
-| `lec watch <address> <query>…` | Poll on an interval, one CSV row per reading |
-| `lec screenshot <address>` | Save the instrument's screen |
-| `lec capture <address>` | Read a scope trace as CSV or SVG |
-| `lec plot <csv-file>` | Draw a recorded CSV as an SVG chart |
-| `lec catalog <text>` | Search all 35 catalogs, by syntax or description |
-| `lec version` | Version, runtime, and the catalog totals |
-
-Addresses take a bare host (raw socket on 5025), `host:port`, `vxi://host`, or a full VISA
-resource string. `--json` and `--csv` make any result machine-readable, `--out <file>`
-writes it to disk, and `--quiet` drops everything but the result. Exit codes are 0 for
-success, 1 for a failure, 2 for a usage mistake — so `lec` composes into a shell script.
-
-**Live readings.** `--stream` on `run` and `seq` sends each recorded row to stdout the
-moment it happens, flushed, instead of printing a table when the script ends — so a
-twenty-minute sweep is watchable for twenty minutes:
-
-```bash
-lec run 192.168.1.20 sweep.scpi --stream | tee live.csv
-```
-
-`lec watch` is the same idea without a script: poll one or more queries forever (or
-`--count n` times) and emit a timestamped CSV row per reading.
-
-```bash
-lec watch 192.168.1.22 "MEASure:VOLTage:DC?" --every 500ms --out log.csv
-```
-
-**Pictures.** `lec screenshot` writes the instrument's own image bytes — the format is the
-instrument's choice, so a Rigol sends BMP and a Tektronix set to PNG sends PNG, and the
-file extension is corrected to match what actually arrived rather than what you named it.
-Nothing is re-encoded: the only in-box converter is Windows-only, and a native imaging
-dependency would cost this tool its portability.
-
-**Plots** come out as SVG, for the same reason — it is text, it opens in any browser, it
-scales, and it needs no library. `lec capture --svg` draws a scope trace, `--svg` on
-`run`/`seq` draws whatever the script recorded, and `lec plot` draws a CSV recorded
-earlier by any of them (or by the GUI).
-
-Build a standalone binary for whichever machine will run it:
-
-```bash
-dotnet publish Cli/LabEquipmentController.Cli.csproj -c Release -r linux-x64 --self-contained false -p:PublishSingleFile=true
-```
-
-Swap `linux-x64` for `osx-arm64`, `osx-x64`, `win-x64` or `linux-arm64`. The result is a
-single ~11 MB `lec` that needs the .NET 10 runtime; add `--self-contained true` for one
-that needs nothing at all.
-
-**On Linux and macOS, build the projects rather than the solution** — the solution
-contains the WinForms app, which is Windows-only by nature:
-
-```bash
-dotnet build Cli/LabEquipmentController.Cli.csproj && dotnet test Tests/LabEquipmentController.Tests.csproj
-```
-
-## The web version (Blazor, in a container)
-
-The same bench in a browser. `Web/` holds two projects: a Blazor WebAssembly client that is
-only a UI, and an ASP.NET Core server that owns every socket. A browser cannot open a TCP
-connection to port 5025 and never will, so **all instrument traffic happens on the server** —
-the client asks over HTTP, and script output streams back over SignalR.
-
-```bash
-docker compose up --build     # then open http://localhost:8080
-```
-
-or, without Docker:
-
-```bash
-dotnet run --project Web/LabEquipmentController.Web
-```
-
-It reaches parity with the desktop app for everything that makes sense over a network:
-scan and discovery, a console per instrument with that family's quick commands, the results
-table and plot, the command library, single- and multi-instrument script runners with live
-output, waveform and screen capture, and the two AI features.
-
-**Discovery needs the container on your network.** Sweeping a subnet from inside Docker's
-default bridge network scans the container's own private network and finds nothing, so the
-compose file uses `network_mode: host`. That mode is **Linux-only** — on Docker Desktop for
-Windows or macOS the engine runs in a VM, so "host" is the VM's network and not your
-laptop's, and discovery will not see the bench. There, run the server directly with
-`dotnet run` instead, or give the container its own address on the bench VLAN with macvlan.
-
-**Two things differ from the desktop app by necessity.** Connections belong to the server,
-not to a browser tab, so a sweep survives a refresh — and two people with the page open are
-driving *one* bench, not two. And the AI key comes from server configuration
-(`Ai__ApiKey`), which means it is one key shared by everyone who can reach the page; there
-is no Windows DPAPI in a Linux container to hold a per-user one. Both are stated in the UI
-rather than left to be discovered.
-
-## Use the engine in your own project (NuGet)
-
-The UI-free `Core` library is published as **`LabEquipmentController`** — the transports,
-discovery, instrument identification, script runners, capture decoding and all 35 curated
-catalogs, with no UI dependency and nothing Windows-only.
-
-```bash
-dotnet add package LabEquipmentController --prerelease
-```
-
-It is published as a **beta** (`1.0.0-beta.N`) while the shape of the public API settles —
-prerelease versions need the `--prerelease` flag and do not show up in search by default.
-The code behind it is what the app and CLI use daily; it is the naming that may still move.
-
-```csharp
-using LabEquipmentController;
-
-using var client = new SerializedInstrumentClient(new ScpiClient("192.168.1.20", 5025));
-await client.ConnectAsync();
-
-string idn     = await client.QueryAsync("*IDN?");
-var    family  = InstrumentProfile.FamilyForIdentity(idn);
-var    catalog = CommandReference.ForFamily(family);   // 23,174 commands across 35 families
-```
-
-The package id drops the `.Core` suffix the assembly carries, so it does not read as a
-.NET Core component; inside, the assembly is still `LabEquipmentController.Core.dll`.
-Build it with:
-
-```bash
-dotnet pack Core\LabEquipmentController.Core.csproj -c Release
-```
-
-That produces `LabEquipmentController.<version>.nupkg` and a matching `.snupkg` of symbols
-under `Core/bin/Release/`.
-
-### Publishing (trusted publishing, no API key)
-
-Releases are published by GitHub Actions using
-[NuGet trusted publishing](https://learn.microsoft.com/en-us/nuget/nuget-org/trusted-publishing):
-GitHub issues a short-lived signed OIDC token describing this repository and workflow,
-nuget.org validates it against a registered policy and returns an API key that expires in
-an hour. **No key is stored in this repository or in GitHub secrets.**
-
-[`publish-nuget.yml`](.github/workflows/publish-nuget.yml) is **manual only** — run it from
-the Actions tab and type the version. Nothing publishes on a commit, and there is
-deliberately no release trigger: this library and the desktop app version independently, so
-an app release tagged `v1.1.0` would otherwise publish library version 1.1.0 permanently
-without anyone deciding to. The workflow runs the full suite before it packs, and pushes
-with `--skip-duplicate` so a re-run is harmless.
-
-It needs two one-time settings:
-
-| Where | What |
-|---|---|
-| nuget.org → your username → **Trusted Publishing** | A policy with Repository Owner `EECSB`, Repository `LabEquipmentController`, Workflow File `publish-nuget.yml` (name only, no path), Environment empty |
-| GitHub → Settings → Secrets and variables → Actions | `NUGET_USER` = your nuget.org **username**, not your email |
-
-The policy is keyed to the workflow's *file name*, so renaming that file breaks publishing
-until the policy is updated. A policy on a private repository stays "temporarily active"
-for seven days and becomes permanent on the first successful publish — nuget.org needs the
-repository and owner IDs that only arrive inside a real token, which is what stops someone
-deleting the repo and recreating it under the same name to publish as you.
+The solution contains the WinForms app, so on Linux and macOS build the portable projects
+directly instead — [Cli/README.md](Cli/README.md) has the line.
 
 ## Continuous integration
 
@@ -359,61 +233,38 @@ every push and pull request. The whole solution is built on Windows; elsewhere t
 portable projects are, because the WinForms app is Windows-only. Each platform then
 actually runs `lec` — version, a catalog search, a plot — which is the only way the
 cross-platform claim gets checked rather than assumed, and packs the NuGet package so a
-broken package surfaces long before a release. The Node toolchain tests run too.
+broken package surfaces long before a release. It also builds the web container and starts
+it, checking that one process really does serve both the API and the browser half. The Node
+toolchain tests run too.
 
-## Build the installer
-
-The [releases page](https://github.com/EECSB/LabEquipmentController/releases) offers both
-shapes: a **portable zip** carrying the self-contained build (~46 MB, runs anywhere), and
-a **setup.exe** carrying the framework-dependent one (~4 MB, wants the .NET 10 Desktop
-Runtime and offers to fetch it if missing). The installer is
-[Inno Setup 6](https://jrsoftware.org/isinfo.php); its script lives in `installer/`.
-
-Publish the framework-dependent payload into the directory the script expects, then
-compile it:
-
-```bash
-dotnet publish LabEquipmentController.csproj -c Release -r win-x64 --self-contained false -p:PublishSingleFile=true -p:PublishDir=bin\Release\publish\win-x64-fd\
-```
-
-```bash
-"%LOCALAPPDATA%\Programs\Inno Setup 6\ISCC.exe" installer\LabEquipmentController.iss
-```
-
-The result is `bin\LabEquipmentController-v<version>-setup.exe`. It installs per-user into
-`%LocalAppData%\Programs` with no UAC prompt (the app needs no administrator rights); the
-wizard offers a machine-wide install, and `/ALLUSERS` does the same from the command line.
-Verify a build end to end — install, launch, uninstall — with:
-
-```bash
-powershell -ExecutionPolicy Bypass -File installer\Test-Installer.ps1
-```
+Two workflows publish, both deliberate rather than automatic.
+[`publish-nuget.yml`](.github/workflows/publish-nuget.yml) pushes the library to nuget.org,
+by hand, with the version typed into the form — a version there can never be reused or
+deleted, so the typing *is* the gate. [`publish-docker.yml`](.github/workflows/publish-docker.yml)
+pushes the web image to Docker Hub on a `v*` tag, for **amd64 and arm64**, after starting it
+and checking it serves. Container tags can be overwritten, so that one is tag-driven for
+predictability rather than for safety. Neither runs on its own.
 
 ## Project layout
 
+One folder per program, each with its own README saying how to build, run and test it.
+
 | Path | What |
 |------|------|
-| `MainForm.cs` | Main window: scan, discovered instruments, and the console tabs |
-| `InstrumentConsole.cs`, `InstrumentWindow.cs` | One console per instrument, and its detached-window host |
-| `ScriptForm.cs` | Script editor, one instrument |
-| `SequenceForm.cs` | Multi-Instrument Scripts editor, several instruments at once |
-| `ResultPlotPanel.cs` | The results plot and its axis pickers |
-| `ScriptEditor.cs`, `SnippetMenu.cs` | The coloured editor with completion, and the Snippets menu |
-| `ScriptAiForm.cs` | Script with AI — the request, the draft, and the catalog check on it |
-| `AppIcons.cs`, `ButtonStyle.cs` | Button glyphs, and the metrics every button is built with |
-| `AboutForm.cs` | The About box, opened from Help ▸ About |
-| `Core/` | UI-free logic: transports, scanner, profiles, scripting, settings, export |
-| `Core/CommandData/` | The curated SCPI catalogs, embedded as `commands.<family>.json` |
-| `Tests/` | xUnit tests against a fake instrument |
-| `Tests/Bench/` | Tests that talk to the real instruments, off unless `LEC_BENCH=1` — see its [README](Tests/Bench/README.md) |
-| `Cli/` | The `lec` command-line front end — same Core, no UI, runs on Windows/Linux/macOS |
-| `Web/` | The Blazor version: `…Web` is the server that owns the sockets, `…Web.Client` is the browser UI |
-| `installer/` | Inno Setup script for the setup.exe, and its end-to-end smoke test |
-| `tools/scpi-extract/` | Node pipeline that turns a vendor PDF guide into a catalog (not part of the build) |
-| `docs/ARCHITECTURE.md` | How the pieces fit: system diagrams, the pipeline, per-component internals |
-| `docs/SPEC.md` | What the app is specified to do — the document the tests are written against |
-| `datasheets/` | Where the app looks for the vendor guides, alongside the pages and forum threads archived while hunting for them — the two indexes are committed, the guides and pages are not |
-| `Assets/icons/` | Button glyphs, embedded into the executable |
+| [`Desktop/`](Desktop/README.md) | The WinForms app — one `.cs` per window, its glyphs, and the installer |
+| [`Core/`](Core/README.md) | The engine: transports, scanner, profiles, scripting, capture, settings — no UI, and the NuGet package |
+| `Core/CommandData/` | The 36 curated SCPI catalogs, embedded as `commands.<family>.json` |
+| [`Cli/`](Cli/README.md) | The `lec` command line — same Core, no UI, runs on Windows/Linux/macOS |
+| [`Web/`](Web/README.md) | The Blazor version: `…Web` owns the sockets, `…Web.Client` is the browser UI |
+| `Web/tests/` | Playwright end-to-end tests, and the fake instrument they run against |
+| `Web/…Web.Client/wwwroot/lib/` | Vendored third-party libraries, served as-is — see the [README beside them](Web/LabEquipmentController.Web.Client/wwwroot/lib/README.md) |
+| [`Tests/`](Tests/README.md) | The xUnit suite, a folder per area, against a fake instrument |
+| [`Tests/Bench/`](Tests/Bench/README.md) | Tests that talk to the real instruments, off unless `LEC_BENCH=1` |
+| [`tools/scpi-extract/`](tools/scpi-extract/README.md) | Node pipeline that turns a vendor PDF guide into a catalog (not part of the build) |
+| [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) | How the pieces fit: system diagrams, the pipeline, per-component internals |
+| [`docs/SPEC.md`](docs/SPEC.md) | What the app is specified to do — the document the tests are written against |
+| [`docs/UI-SPEC.md`](docs/UI-SPEC.md) | What is on screen and where, in both the desktop and the web build |
+| [`datasheets/`](datasheets/README.md) | Where the app looks for the vendor guides, alongside the pages and forum threads archived while hunting for them — the two indexes are committed, the guides and pages are not |
 
 Settings are stored per-user at `%AppData%\LabEquipmentController\settings.json`.
 
@@ -452,9 +303,10 @@ hardware only for those 3.
 
 ## Contributing
 
-Three instruments sit on this bench, so 518 of the 23,174 catalogued commands carry a bench
-tick and the other 22,656 have only ever been read in a vendor guide. Thirty-two of the
-thirty-five catalogs have never touched hardware at all. **If you own one of those
+Three instruments sit on this bench, so 518 of the 23,978 catalogued commands carry a bench
+tick, 2,710 more are corroborated by an independent open-source driver, and the remaining
+20,750 have only ever been read in a vendor guide. Thirty-three of the thirty-six catalogs
+have never touched hardware at all. **If you own one of those
 instruments, you can help to add or verify the commands and functions.**
 
 > **[docs/VERIFYING-COMMANDS.md](docs/VERIFYING-COMMANDS.md)** — how to confirm commands
@@ -472,7 +324,7 @@ The short version, and the part that is not negotiable:
   the panel visibly changes. Read the error queue after every command; instruments ignore
   unknown commands silently.
 - **Do not fix a vendor's typo.** Transcribe it as printed and flag it with a
-  `guideMisprint` note. Forty-one entries carry one today.
+  `guideMisprint` note. Forty-nine entries carry one today.
 - **Mind what you send.** These commands drive real equipment — disconnect the DUT, and
   leave calibration and password subsystems alone.
 - **Put your name on it.** Add your instrument to the Verified instruments table above, with
@@ -492,15 +344,15 @@ worth a PR on its own; include the model, the firmware version and the error it 
   its right-click menu.
 - Open tabs are **not** restored on the next run. The instruments are on DHCP and their
   addresses move, so reconnecting on launch would be guesswork.
-- **Discover Commands** relies on `SYSTem:HELP:HEADers?`, which neither verified instrument
-  implements — it falls back to the curated catalog for that instrument's family.
+- **Discover Commands** relies on `SYSTem:HELP:HEADers?`, which none of the three verified
+  instruments implements — it falls back to the curated catalog for that instrument's family.
 - **Only the Rigol oscilloscope, Siglent generator and multimeter catalogs have been used
-  against real hardware**, and only in part: 518 of 23,174 entries carry a bench tick. The
-  other thirty-two families are transcribed from vendor guides and cross-checked against
+  against real hardware**, and only in part: 518 of 23,978 entries carry a bench tick. The
+  other thirty-three families are transcribed from vendor guides and cross-checked against
   open-source drivers, but no such instrument has been on this bench. Treat them as
   documented, not proven. [Tests/Bench](Tests/Bench) holds the suite that verifies the three
-  that are here — 624 catalog queries plus the capture, readout and transport paths — and
-  records the other eighteen as having no instrument rather than as work outstanding.
+  that are here — 623 catalog queries plus the capture, readout and transport paths — and
+  records the other thirty-three as having no instrument rather than as work outstanding.
 - **Waveform capture works for Rigol, Keysight, Tektronix, R&S and Siglent scopes**, each
   in its own dialect: Tektronix reads `CURVe?` against the `WFMOutpre` fields, R&S reads
   `CHANnel<m>:DATA?` in ASCII and gets volts back directly, Siglent's `:WAVeform:PREamble?`
@@ -520,14 +372,16 @@ worth a PR on its own; include the model, the firmware version and the error it 
 - **First-generation Siglent scopes** (SDS1000CML/DL, early SDS2000X) take an older
   LeCroy-derived dialect — `C1:VDIV`, `TDIV`, `TRMD` — that the catalog does not cover.
   They connect and work from the command line, but get no quick commands.
-- **A Chroma 63800 and the older R&S analyzers (FSU, FSP, FSQ) get no quick commands.**
-  Each used to be handed a different vendor's catalog that partly worked, which is worse
+- **A Chroma 63800 and R&S's FSE and FSPN get no quick commands.** An instrument in that
+  position used to be handed a different vendor's catalog that partly worked, which is worse
   than none: the buttons appeared, some even succeeded, and the failures looked like the
   instrument's fault. Every line with a guide reachable from here now has a catalog
   transcribed from that guide. The B&K 9130B was one of these until its programming manual
   turned up — it now has its own catalog, with the guide's misprints flagged rather than
   corrected (see [datasheets/ARCHIVED-PAGES.md](datasheets/ARCHIVED-PAGES.md)) — and the
-  R&S FSW was the last, transcribed from the User Manual that R&S's own CDN serves.
+  R&S FSIQ was the last, transcribed from the Operating Manual a mirror still serves. The
+  FSE's manual was found too, but the copy is Volume 1 and the command reference is in
+  Volume 2, so it stays Generic: half a guide is not a guide.
 - **A Keithley 2450 or DMM6500 may be in TSP mode**, where it answers none of its SCPI
   catalog. Send `*LANG SCPI` and power-cycle it; `*LANG?` reports the current setting.
 

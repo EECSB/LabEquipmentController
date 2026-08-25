@@ -25,4 +25,23 @@
     <PackageReference Include="Microsoft.AspNetCore.SignalR.Client" Version="10.0.11" />
   </ItemGroup>
 
+  <!--
+    One exception to "no instrument logic" above, and it is arithmetic rather than logic: which
+    slice of a captured trace is on screen. Zoom and pan happen under the pointer, so they have to
+    be worked out in the browser — a round trip per wheel notch is not an interaction — and Core
+    owns WaveformView along with the tests that hold it. Referenced rather than copied: two
+    implementations of one rule are one rule and one guess, and the desktop and the web are meant
+    to zoom identically.
+
+    It is not a small reference. Core carries the 36 command catalogs as embedded resources, which
+    is 5.7 MB of its 6.2, and embedded resources are not something trimming can remove; PdfPig
+    comes with it too. Compressed and cached that is a first load a second or two longer, and the
+    alternative — compiling the one file into this assembly with a linked Compile item — makes the
+    type exist in two assemblies at once, which the test project (which sees both) cannot resolve.
+  -->
+  <ItemGroup>
+    <ProjectReference Include="..\..\Core\LabEquipmentController.Core.csproj" />
+  </ItemGroup>
+
+
 </Project>

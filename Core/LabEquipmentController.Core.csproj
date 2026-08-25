@@ -23,39 +23,61 @@
 
       dotnet pack Core\LabEquipmentController.Core.csproj -c Release
 
-    Publishing is a separate, deliberate act needing an API key this repository does not
-    contain; the exact push command is in the README's NuGet section.
+    Publishing is a separate, deliberate act: GitHub Actions trades an OIDC token for a
+    one-hour key, so no key is stored here at all. README.md beside this file has the
+    policy it needs; PACKAGE.md is the page nuget.org renders for the package itself.
   -->
   <PropertyGroup>
     <PackageId>LabEquipmentController</PackageId>
     <!--
-      Prerelease on purpose. Anything with a hyphenated suffix is a prerelease to NuGet: it
-      stays out of search and out of an ordinary "dotnet add package" unless the prerelease
-      flag is passed, and it sorts before the eventual 1.0.0 — which stays unclaimed until
-      the API has been used by somebody other than this repository. A version, once pushed,
-      can never be reused or deleted, so 1.0.0 is worth spending only once.
+      1.0.0, and spent deliberately. A version on nuget.org can never be reused or deleted,
+      so this number is worth spending once: it says the public API is settled, that what is
+      named here keeps being named here, and that anything which has to change after this
+      takes a major version rather than a quiet rename.
+
+      The betas before it did the job they were for — no hyphenated suffix now, so this is
+      what an ordinary "dotnet add package LabEquipmentController" resolves to, and it shows
+      up in search. Everything after this is 1.0.x for fixes and 1.x for additions.
+
+      This number does NOT track the application's. The desktop app and the CLI are on
+      1.1.0 while this is on 1.0.0, and that is the arrangement rather than an oversight:
+      an app release is a set of features a person can see, whereas this number is a promise
+      to code that compiles against it, and the two move for different reasons. publish-
+      nuget.yml is manual-only for exactly this — so that tagging the app v1.1.0 cannot
+      publish a library 1.1.0 that nobody decided on.
     -->
-    <Version>1.0.0-beta.2</Version>
+    <Version>1.0.0</Version>
     <Authors>EECSB</Authors>
     <Company>The EECS Blog</Company>
     <Product>Lab Equipment Controller</Product>
     <Title>Lab Equipment Controller — SCPI instrument control</Title>
-    <Description>Control lab instruments over Ethernet with SCPI, from .NET. Raw-socket and VXI-11 (LXI) transports, VISA resource strings, network discovery, instrument identification, script and sequence runners, waveform and screenshot decoding — and 35 curated command catalogs holding 23,174 commands transcribed from the manufacturers' own programming guides: Rohde &amp; Schwarz, Rigol, Siglent, Keysight, Chroma, B&amp;K Precision, GW Instek, Keithley, Tektronix and Fluke oscilloscopes, multimeters, power supplies, electronic loads, signal generators and spectrum analyzers. No UI dependency; runs on Windows, Linux and macOS.</Description>
+    <Description>Control lab instruments with SCPI, from .NET. Raw-socket, VXI-11 (LXI) and RS-232 serial transports, VISA resource strings, network and serial-port discovery, instrument identification, script and sequence runners, waveform and screenshot decoding — and 36 curated command catalogs holding 23,978 commands transcribed from the manufacturers' own programming guides: Rohde &amp; Schwarz, Rigol, Siglent, Keysight, Chroma, B&amp;K Precision, GW Instek, Keithley, Tektronix and Fluke oscilloscopes, multimeters, power supplies, electronic loads, signal generators and spectrum analyzers. No UI dependency; runs on Windows, Linux and macOS.</Description>
     <!--
       Tags are how this is found at all: "scpi" returns twelve packages in total, and a
       package with no downloads sorts last among them, so the vendor and instrument words
       are what put it in front of the person who owns that instrument. Every one of these
       is something the package actually does — the ten manufacturers each have shipped
-      catalogs. Deliberately absent: ivi, hislip, usbtmc, gpib, serial and modbus. They
-      would all draw traffic and none of them is true here, which is the same rule the
-      catalogs themselves are held to.
+      catalogs. "serial" and "rs232" were in this list of absences until there was a serial
+      transport to justify them. Still deliberately absent: ivi, hislip, usbtmc, gpib and
+      modbus. They would all draw traffic and none of them is true here, which is the same
+      rule the catalogs themselves are held to.
     -->
-    <PackageTags>scpi;visa;vxi-11;lxi;instrument;instrument-control;test-equipment;test-and-measurement;test-automation;lab-automation;measurement;electronics;oscilloscope;multimeter;dmm;power-supply;electronic-load;signal-generator;function-generator;spectrum-analyzer;smu;rigol;keysight;siglent;tektronix;rohde-schwarz;keithley;fluke;chroma;gw-instek;bk-precision;ethernet;cross-platform</PackageTags>
+    <PackageTags>scpi;visa;vxi-11;lxi;serial;rs232;instrument;instrument-control;test-equipment;test-and-measurement;test-automation;lab-automation;measurement;electronics;oscilloscope;multimeter;dmm;power-supply;electronic-load;signal-generator;function-generator;spectrum-analyzer;smu;rigol;keysight;siglent;tektronix;rohde-schwarz;keithley;fluke;chroma;gw-instek;bk-precision;ethernet;cross-platform</PackageTags>
     <PackageProjectUrl>https://github.com/EECSB/LabEquipmentController</PackageProjectUrl>
     <RepositoryUrl>https://github.com/EECSB/LabEquipmentController</RepositoryUrl>
     <RepositoryType>git</RepositoryType>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <PackageReadmeFile>PACKAGE.md</PackageReadmeFile>
+    <!--
+      nuget.org takes PNG or JPEG and refuses .ico, so app.ico cannot be pointed at
+      directly. It does not need converting either: it is a modern PNG-encoded icon whose
+      128x128 entry — the size nuget.org asks for — is already a complete PNG inside the
+      container, so icon.png beside this file is a byte-for-byte copy of it, 7,329 bytes.
+      To regenerate after app.ico changes, extract the 128x128 entry rather than
+      re-rendering; anything else would resample an image that is already the right size.
+      (PackageIconUrl is the deprecated predecessor of this and is deliberately not used.)
+    -->
+    <PackageIcon>icon.png</PackageIcon>
     <PackageRequireLicenseAcceptance>false</PackageRequireLicenseAcceptance>
     <Copyright>Copyright (c) 2026 EECSB</Copyright>
 
@@ -77,6 +99,7 @@
   <ItemGroup>
     <None Include="PACKAGE.md" Pack="true" PackagePath="\" />
     <None Include="..\LICENSE" Pack="true" PackagePath="\" Visible="false" />
+    <None Include="icon.png" Pack="true" PackagePath="\" Visible="false" />
   </ItemGroup>
 
   <ItemGroup>
@@ -84,8 +107,32 @@
     <EmbeddedResource Include="CommandData\*.json" LogicalName="commands.%(Filename)%(Extension)" />
   </ItemGroup>
 
+  <!--
+    The licence stamped into the assembly beside the repository, so an About box can read
+    both off it rather than each one carrying its own copy of the address. RepositoryUrl is
+    already stamped in by the SDK — that is what PublishRepositoryUrl above does — and
+    naming it here as well would be a second copy of the same attribute. AppInfo reads them.
+  -->
+  <ItemGroup>
+    <AssemblyMetadata Include="PackageLicenseExpression" Value="$(PackageLicenseExpression)" />
+  </ItemGroup>
+
   <ItemGroup>
     <PackageReference Include="PdfPig" Version="0.1.15" />
+    <!--
+      The serial transport, and the second dependency this library has ever had. Microsoft's
+      own and genuinely cross-platform (COM ports on Windows, /dev/tty* elsewhere), so it
+      costs the "plain net10.0, nothing Windows-only" rule nothing — which is the test every
+      candidate here has to pass and the one WinUSB and libusb fail. SPEC §17.
+    -->
+    <PackageReference Include="System.IO.Ports" Version="10.0.11" />
+  </ItemGroup>
+
+  <!-- ScpiFraming is internal: message framing is shared by the socket and serial clients
+       but is nobody's public API. The tests exercise it directly against a memory stream,
+       which is the only way to prove the serial path without a serial port. -->
+  <ItemGroup>
+    <InternalsVisibleTo Include="LabEquipmentController.Tests" />
   </ItemGroup>
 
 </Project>

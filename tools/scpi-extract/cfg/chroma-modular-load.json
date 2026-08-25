@@ -9,6 +9,14 @@
     "url": "https://www.chromausa.com/document-library/manuals-63600-series/",
     "fileName": "Chroma_63600_ElectronicLoad_OperationProgrammingManual.pdf"
   },
+  "parse": [
+    {
+      "input": "parsed/chroma-63600.json",
+      "manual": "manuals/chroma-63600.txt",
+      "style": "plain",
+      "known": "measured"
+    }
+  ],
   "groups": [
     {
       "file": "parsed/chroma-63600.json",

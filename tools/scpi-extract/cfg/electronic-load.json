@@ -1,6 +1,14 @@
 {
   "instrument": "DC electronic load (Siglent SDL1000X series)",
   "source": "Transcribed from the Siglent SDL1000X Programmable DC Electronic Load Programming Guide (E02B). Cross-checked against OriginalCircuit RigolDL3000Instrument for the shared SCPI subset.",
+  "parse": [
+    {
+      "input": "parsed/siglent-sdl1000x.json",
+      "manual": "manuals/siglent-sdl1000x.txt",
+      "style": "siglent",
+      "known": "measured"
+    }
+  ],
   "groups": [
     {
       "file": "parsed/siglent-sdl1000x.json"

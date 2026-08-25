@@ -1,170 +1,93 @@
 @page "/console"
 @inject BenchClient Bench
 @inject IJSRuntime JS
+@inject NavigationManager Nav
 
-<h1>Console</h1>
-<p class="lede">
-    Type SCPI and read the reply. A command containing <span class="mono">?</span> is a query, and
-    every numeric answer is also recorded in the table below.
-</p>
+@* One console in a window of its own — the web's answer to the desktop's InstrumentWindow.
 
-<SessionPicker Sessions="_sessions" Selected="_sessionId" SelectedChanged="Select" />
+   Consoles otherwise live in tabs on the bench page, so this route exists for the detached
+   ones: opened by name, so a second Detach comes back to this window instead of opening a
+   third, and titled after the instrument so the browser's tab strip says which is which.
+   Reached without detached=1 it hands straight back to the bench page, which is where an
+   attached console belongs and where its log already is. *@
 
 @if (_session is null)
 {
-    <div class="panel"><p class="muted">Connect an instrument on the Instruments page first.</p></div>
+    <div class="group">
+        <span class="cap">Console</span>
+        <p class="muted" style="margin:0">
+            @(_loaded
+                ? "That instrument is not connected any more — it may have been closed from the bench page."
+                : "Looking for that instrument…")
+        </p>
+        <p style="margin:.6rem 0 0"><a href="">Back to the bench</a></p>
+    </div>
 }
 else
 {
-    <div class="panel">
-        <div class="row">
-            <span class="mono">@_session.Identity</span>
-            <span class="pill">@_session.ProfileName</span>
-            <span class="spacer"></span>
-            <button @onclick="Clear">Clear log</button>
-        </div>
+    <ConsoleView @ref="_console" Session="_session" Detached="true"
+                 OnReattach="Reattach" OnOpenTool="OpenTool" />
 
-        @if (_session.QuickCommands.Count > 0)
-        {
-            <h2>Quick commands</h2>
-            <div class="row tight">
-                @foreach (var q in _session.QuickCommands)
-                {
-                    <button class="quick" title="@q.Command" @onclick="() => Send(q.Command)" disabled="@_busy">@q.Label</button>
-                }
-            </div>
-            <p class="muted" style="margin:.5rem 0 0">
-                These come from this family's catalog, not from a fixed list — every one is
-                transcribed from the manufacturer's own programming guide.
-            </p>
-        }
-    </div>
-
-    <div class="split">
-        <div class="panel">
-            <h2>Log</h2>
-            <div class="console" @ref="_logElement">
-                @foreach (var line in _log)
-                {
-                    <div class="@line.Css">@line.Text</div>
-                }
-            </div>
-            <div class="row" style="margin-top:.6rem">
-                <input class="grow mono" type="text" @bind="_command" @bind:event="oninput"
-                       @onkeydown="OnKey" placeholder="Type a SCPI command and press Enter" />
-                <button class="primary" @onclick="() => Send(_command)" disabled="@(_busy || string.IsNullOrWhiteSpace(_command))">Send</button>
-            </div>
-        </div>
-
-        <div class="panel">
-            <h2>Results</h2>
-            @if (_results.Count == 0)
-            {
-                <p class="muted">Numeric replies land here, with the time they arrived.</p>
-            }
-            else
-            {
-                <div class="row tight" style="margin-bottom:.5rem">
-                    <button @onclick="SaveCsv">Save CSV</button>
-                    <button @onclick="() => _results.Clear()">Clear</button>
-                </div>
-                <Plot Rows="_results" />
-                <div class="scroll">
-                    <table>
-                        <thead><tr><th>Time</th><th>Command</th><th>Value</th></tr></thead>
-                        <tbody>
-                            @foreach (var r in Enumerable.Reverse(_results))
-                            {
-                                <tr>
-                                    <td class="mono">@r.At.ToString("HH:mm:ss.fff")</td>
-                                    <td class="mono">@r.Command</td>
-                                    <td class="mono">@r.Value</td>
-                                </tr>
-                            }
-                        </tbody>
-                    </table>
-                </div>
-            }
-        </div>
-    </div>
+    @* Beside the console rather than inside it, as on the bench page. Nothing hides a console
+       in a window of its own, but the console is one component in both places and the windows
+       are the page’s in both. *@
+    <ConsoleTools @ref="_tools" Session="_session" OnInsert="Insert" />
 }
 
 @code {
     [Parameter, SupplyParameterFromQuery(Name = "session")]
     public string? SessionFromQuery { get; set; }
 
-    private IReadOnlyList<SessionDto> _sessions = [];
+    [Parameter, SupplyParameterFromQuery(Name = "detached")]
+    public string? DetachedFromQuery { get; set; }
+
     private SessionDto? _session;
-    private string? _sessionId;
-    private string _command = "";
-    private bool _busy;
-    private ElementReference _logElement;
-
-    private readonly List<LogLine> _log = [];
-    private readonly List<Reading> _results = [];
-
-    private sealed record LogLine(string Text, string Css);
-    private sealed record Reading(DateTime At, string Command, string Value);
+    private ConsoleView? _console;
+    private ConsoleTools? _tools;
+    private bool _loaded;
+    private bool _claimed;
 
     protected override async Task OnInitializedAsync()
     {
-        _sessions = await Bench.SessionsAsync();
-        _sessionId = SessionFromQuery ?? _sessions.FirstOrDefault()?.Id;
-        _session = _sessions.FirstOrDefault(s => s.Id == _sessionId);
-    }
-
-    private void Select(string? id)
-    {
-        _sessionId = id;
-        _session = _sessions.FirstOrDefault(s => s.Id == id);
-        _log.Clear();
-        _results.Clear();
-    }
-
-    private async Task OnKey(KeyboardEventArgs e)
-    {
-        if (e.Key == "Enter") await Send(_command);
-    }
-
-    private async Task Send(string text)
-    {
-        if (_session is null || string.IsNullOrWhiteSpace(text)) return;
-        _busy = true;
-        _log.Add(new LogLine("> " + text, "echo"));
-        try
+        // An attached console is a tab on the bench page. Sending it there keeps one home for
+        // it rather than two half-equal ones, and carries the selection along in the address.
+        if (DetachedFromQuery != "1")
         {
-            var reply = await Bench.SendAsync(_session.Id, text);
-            if (reply.Error is not null)
-            {
-                _log.Add(new LogLine("ERROR: " + reply.Error, "err"));
-            }
-            else if (reply.IsQuery)
-            {
-                _log.Add(new LogLine(reply.Reply ?? "", ""));
-                // Only numbers are worth plotting; an *IDN? string in a value column is noise.
-                if (double.TryParse(reply.Reply, System.Globalization.NumberStyles.Float,
-                                    System.Globalization.CultureInfo.InvariantCulture, out _))
-                    _results.Add(new Reading(DateTime.Now, text, reply.Reply ?? ""));
-            }
-            if (ReferenceEquals(text, _command) || text == _command) _command = "";
+            Nav.NavigateTo(SessionFromQuery is null ? "" : $"?session={SessionFromQuery}", replace: true);
+            return;
         }
-        finally
-        {
-            _busy = false;
-            await JS.InvokeVoidAsync("lec.scrollToEnd", _logElement);
-        }
+
+        var sessions = await Bench.SessionsAsync();
+        _session = sessions.FirstOrDefault(s => s.Id == SessionFromQuery);
+        _loaded = true;
     }
 
-    private void Clear() => _log.Clear();
-
-    private async Task SaveCsv()
+    /// <summary>
+    /// Announce this console to the bench page, which dims its tab while the window is open,
+    /// and title the browser tab after the instrument. Undone automatically when this window
+    /// closes, however it closes.
+    /// </summary>
+    /// <remarks>
+    /// Not on the first render: the first render happens before the session has been fetched,
+    /// so there is nothing to announce yet. On the first render that has one — after which
+    /// there is nothing more to say.
+    /// </remarks>
+    protected override async Task OnAfterRenderAsync(bool first)
     {
-        var sb = new System.Text.StringBuilder("Time,Command,Value\r\n");
-        foreach (var r in _results)
-            sb.Append(r.At.ToString("O")).Append(',').Append(Csv(r.Command)).Append(',').Append(r.Value).Append("\r\n");
-        string base64 = Convert.ToBase64String(System.Text.Encoding.UTF8.GetBytes(sb.ToString()));
-        await JS.InvokeVoidAsync("lec.download", "readings.csv", "text/csv", base64);
-
-        static string Csv(string s) => s.IndexOfAny([',', '"', '\r', '\n']) >= 0 ? '"' + s.Replace("\"", "\"\"") + '"' : s;
+        if (_claimed || _session is null) return;
+        _claimed = true;
+        await JS.InvokeVoidAsync("lec.windows.claim", _session.Id,
+                                 $"{_session.ProfileName} — Lab Equipment Controller");
     }
+
+    private async Task Reattach() => await JS.InvokeVoidAsync("lec.windows.release");
+
+    /// <summary>A tool button in the console. The windows are the page’s - see ConsoleTools.</summary>
+    private async Task OpenTool(ConsoleTool tool)
+    {
+        if (_tools is not null) await _tools.OpenAsync(tool);
+    }
+
+    /// <summary>A command chosen in the Command Reference, on its way to the command box.</summary>
+    private void Insert(string command) => _console?.Insert(command);
 }

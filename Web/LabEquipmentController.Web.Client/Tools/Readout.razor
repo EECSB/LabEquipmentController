@@ -1,0 +1,257 @@
+@implements IAsyncDisposable
+@inject BenchClient Bench
+@inject IJSRuntime JS
+
+@* The desktop app's readout window: poll one measurement on a timer and plot it against
+   time, with the current value large enough to read from across the bench.
+
+   A meter answers one reading per query, so the only way to see a trend — a drifting supply,
+   a warming thermistor, a settling reference — is to ask repeatedly. A REPEAT script can do
+   the asking, but its answers scroll past as text; this plots them.
+
+   The asking is done by the server, not by this page sending a command every second. The
+   server holds the socket, and a page that is scrolled, backgrounded or on a slow link would
+   otherwise be the thing deciding the sample interval. What arrives here is the reading and
+   the run's figures, counted by the same Core ReadingSeries the desktop window uses. *@
+
+@* One card, filling the window, with the plot taking what the fixed rows leave — which is
+   MultimeterReadoutForm docked: a toolbar on top, the value and its figures under it, the
+   trend filling, and the actions along the bottom. No caption over it: the title bar names
+   the window and names the instrument too. *@
+<div class="group tall">
+    <div class="row meterrow">
+        <label for="fn">Measure:</label>
+        <select id="fn" @bind="_query" disabled="@_running"
+                title="Which measurement to take. Each one sets the meter's function and returns a reading, so it can be called on a timer.">
+            @foreach (var r in Session.Readouts)
+            {
+                <option value="@r.Query">@r.Label</option>
+            }
+        </select>
+
+        <label for="scale">shown in</label>
+        <select id="scale" @bind="_exponent"
+                title="The unit prefix the readout is shown in. Auto picks one from the size of the reading; Raw prints the number as the instrument sent it.">
+            @foreach (var s in Scales)
+            {
+                <option value="@s.Exponent">@s.Label</option>
+            }
+        </select>
+
+        <label for="every">every</label>
+        <input id="every" type="number" min="100" max="60000" step="100" @bind="_interval"
+               style="width:6rem" disabled="@_running"
+               title="How long to wait between readings. A meter takes a while to settle on a new range, so this is the floor rather than the rate." />
+        <span class="muted">ms</span>
+
+        @* Start sits with what it acts on, not out at the far edge: everything to the left of
+           here says what to measure and how often, and this is the thing that starts it. The
+           desktop leaves a wider gap after "ms" than between the pickers, for the same
+           reason — butted up against the box, the button reads as part of the field. *@
+        <span class="gap"></span>
+        @if (_running)
+        {
+            <button class="danger" @onclick="Stop" title="Stop polling. The readings taken so far are kept."><Icon Name="stop" /> Stop</button>
+        }
+        else
+        {
+            <button class="primary" @onclick="Start" disabled="@(Session.Readouts.Count == 0)"
+                    title="Begin polling this measurement. The instrument is asked once per interval until you stop."><Icon Name="start" /> Start</button>
+        }
+    </div>
+
+    @* Big, because the point of a meter readout is being able to read it from where the
+       probes are rather than from the chair. *@
+    <p class="readout">@Shown</p>
+    <p class="@(_error is null ? "muted" : "error")" style="margin:0 0 .6rem">@(_error ?? Stats)</p>
+
+    <Plot Columns="@ReadoutColumns" Rows="@PlotRows">
+        <Foot>
+            <button @onclick="Clear" disabled="@(_series.Count == 0)"
+                    title="Discard the readings and the curve, and start the run again from nothing."><Icon Name="clear" /> Clear</button>
+            <button @onclick="SaveCsv" disabled="@(_series.Count == 0)"
+                    title="Save the readings as a CSV file of seconds and values."><Icon Name="save" /> Save CSV&hellip;</button>
+        </Foot>
+    </Plot>
+</div>
+
+@code {
+    /// <summary>The instrument being read. Its profile decides what can be measured.</summary>
+    [Parameter, EditorRequired] public SessionDto Session { get; set; } = default!;
+
+    /// <summary>
+    /// The unit prefixes the desktop's box offers, in its order. Two of them are not prefixes
+    /// at all: Auto picks one from the size of the reading, and Raw prints the number as the
+    /// instrument sent it — which is the one to use when you suspect the scaling rather than
+    /// the instrument.
+    /// </summary>
+    private static readonly (string Label, string Prefix, int Exponent)[] Scales =
+    [
+        ("Auto",      "",  int.MinValue),
+        ("pico (p)",  "p", -12),
+        ("nano (n)",  "n", -9),
+        ("micro (µ)", "µ", -6),
+        ("milli (m)", "m", -3),
+        ("unit",      "",  0),
+        ("kilo (k)",  "k", 3),
+        ("mega (M)",  "M", 6),
+        ("giga (G)",  "G", 9),
+        ("Raw",       "",  int.MaxValue),
+    ];
+
+    private readonly List<ReadingDto> _series = [];
+
+
+    private string _query = "";
+    private int _exponent = int.MinValue;
+    private int _interval = 1000;
+    private bool _running;
+    private string? _error;
+
+    private ReadingDto? _latest;
+    private CancellationTokenSource? _poll;
+
+    /// <summary>The two columns the readout records, as the desktop names them.</summary>
+    private static readonly string[] ReadoutColumns = ["Seconds", "Value"];
+
+    /// <summary>The readings as a table, for the plot: seconds across, the value up.</summary>
+    private IReadOnlyList<RecordedRow> PlotRows => _series
+        .Select(r => new RecordedRow(new[]
+        {
+            r.Seconds.ToString("0.###", System.Globalization.CultureInfo.InvariantCulture),
+            r.Value.ToString("R", System.Globalization.CultureInfo.InvariantCulture),
+        }))
+        .ToList();
+
+    protected override void OnInitialized()
+        => _query = Session.Readouts.FirstOrDefault()?.Query ?? "";
+
+    // ------------------------------------------------------------------ the run
+
+    private async Task Start()
+    {
+        if (_query.Length == 0 || _running) return;
+
+        _running = true;
+        _error = null;
+        _poll = new CancellationTokenSource();
+
+        try
+        {
+            await foreach (var r in Bench.ReadoutStreamAsync(Session.Id, _query, _interval, _poll.Token))
+            {
+                _latest = r;
+                _error = r.Error;
+
+                // A reading that failed to parse still carries the run's figures, so the
+                // series only grows on the ones that are numbers.
+                if (r.Error is null)
+                {
+                    _series.Add(r);
+
+                }
+
+                StateHasChanged();
+            }
+        }
+        catch (OperationCanceledException) { /* Stop, or the pane closing */ }
+        catch (Exception ex) { _error = ex.Message; }
+        finally
+        {
+            _running = false;
+            StateHasChanged();
+        }
+    }
+
+    private void Stop()
+    {
+        _poll?.Cancel();
+        _running = false;
+    }
+
+    private void Clear()
+    {
+        _series.Clear();
+        _latest = null;
+        _error = null;
+    }
+
+    // ------------------------------------------------------------------ display
+
+    /// <summary>
+    /// The power of ten to divide by. Auto takes it from the newest reading, rounded down to
+    /// a multiple of three so the readout steps in engineering units rather than sliding.
+    /// </summary>
+    private int Exponent
+    {
+        get
+        {
+            if (_exponent == int.MaxValue || _exponent == int.MinValue)
+            {
+                if (_exponent == int.MaxValue) return 0;                 // Raw
+                double v = Math.Abs(_latest?.Value ?? 0);
+                if (v is 0 or double.NaN || double.IsInfinity(v)) return 0;
+                int e = (int)Math.Floor(Math.Log10(v));
+                return Math.Clamp((int)(Math.Floor(e / 3.0) * 3), -12, 9);
+            }
+            return _exponent;
+        }
+    }
+
+    private string Prefix =>
+        _exponent == int.MaxValue ? "" : Array.Find(Scales, s => s.Exponent == Exponent).Prefix ?? "";
+
+    private string Unit =>
+        Session.Readouts.FirstOrDefault(r => r.Query == _query)?.Unit ?? "";
+
+    /// <summary>The number as the readout shows it — scaled, and unscaled when Raw is chosen.</summary>
+    private string Shown => _series.Count == 0
+        ? "—"
+        : Format(_series[^1].Value) + " " + Prefix + Unit;
+
+    private string Stats
+    {
+        get
+        {
+            if (_latest is null || _series.Count == 0) return "No readings yet.";
+            var r = _series[^1];
+            string capped = r.TotalTaken > r.Count ? $"  (showing the last {r.Count} of {r.TotalTaken})" : "";
+            return $"{r.Count} readings    min {Format(r.Min)}    max {Format(r.Max)}    "
+                 + $"mean {Format(r.Mean)}    {Prefix}{Unit}{capped}";
+        }
+    }
+
+    /// <summary>
+    /// Six significant figures, as the desktop's readout formats them — not a fixed number of
+    /// decimals, which gives a mean six digits longer than the min and max beside it.
+    /// </summary>
+    private string Format(double value)
+        => (_exponent == int.MaxValue ? value : value / Math.Pow(10, Exponent))
+            .ToString("g6", System.Globalization.CultureInfo.InvariantCulture);
+
+    // ------------------------------------------------------------------ saving
+
+    private async Task SaveCsv()
+    {
+        var csv = new System.Text.StringBuilder("Seconds,Value\n");
+        foreach (var r in _series)
+        {
+            csv.Append(r.Seconds.ToString("0.###", System.Globalization.CultureInfo.InvariantCulture))
+               .Append(',')
+               .Append(r.Value.ToString("R", System.Globalization.CultureInfo.InvariantCulture))
+               .Append('\n');
+        }
+        // lec.download takes base64, as every other save in the app hands it.
+        string base64 = Convert.ToBase64String(System.Text.Encoding.UTF8.GetBytes(csv.ToString()));
+        await JS.InvokeVoidAsync("lec.download", "readout.csv", "text/csv", base64);
+    }
+
+    /// <summary>Closing the pane stops the polling. An instrument left being asked by nobody
+    /// is an instrument nobody can use.</summary>
+    public ValueTask DisposeAsync()
+    {
+        _poll?.Cancel();
+        _poll?.Dispose();
+        return ValueTask.CompletedTask;
+    }
+}

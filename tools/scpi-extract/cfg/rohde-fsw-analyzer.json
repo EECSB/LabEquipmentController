@@ -8,6 +8,20 @@
     "url": "https://www.rohde-schwarz.com/us/manual/fsw-user-manual-manuals_78701-29088.html",
     "fileName": "RohdeSchwarz_FSW_SpectrumAnalyzer_UserManual.pdf"
   },
+  "parse": [
+    {
+      "input": "parsed/rohde-fsw.json",
+      "manual": "manuals/rohde-fsw.txt",
+      "style": "rs",
+      "known": "measured"
+    },
+    {
+      "input": "parsed/rohde-fsw-list.json",
+      "manual": "manuals/rohde-fsw-list.txt",
+      "style": "toc",
+      "known": "documented"
+    }
+  ],
   "groups": [
     {
       "file": "parsed/rohde-fsw.json"

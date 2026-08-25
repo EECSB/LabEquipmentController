@@ -1,29 +1,277 @@
 @inherits LayoutComponentBase
+@implements IDisposable
+@inject BenchClient Bench
+@inject NavigationManager Nav
+@inject ServerWatch Watch
+@inject IJSRuntime JS
 
-<div class="shell">
-    <nav class="side">
-        <div class="brand">
-            <span class="mark">∿</span>
-            <span>Lab Equipment Controller</span>
-        </div>
+@* The desktop app is one window with a title bar, a menu strip, a work area and a status
+   bar. This is the same four bands, so someone who has used the app on the bench PC finds
+   the same furniture in the same places. The sidebar this replaces was a web-dashboard
+   convention that appears nowhere in the desktop build.
 
-        <NavLink class="nav" href="" Match="NavLinkMatch.All">Instruments</NavLink>
-        <NavLink class="nav" href="console">Console</NavLink>
-        <NavLink class="nav" href="scripts">Scripts</NavLink>
-        <NavLink class="nav" href="sequences">Multi-instrument</NavLink>
-        <NavLink class="nav" href="capture">Capture</NavLink>
-        <NavLink class="nav" href="catalog">Command library</NavLink>
-        <NavLink class="nav" href="ai">AI</NavLink>
+   A detached console gets the same window minus the menu strip, which is what the desktop's
+   InstrumentWindow is: one console, its own frame, no menus of its own. *@
 
-        @* The desktop app carries this warning on its examples; a web UI that anyone on the
-           bench network can open needs it more, not less. *@
-        <div class="warn">
-            These pages drive <strong>real equipment</strong>. Some commands source voltage,
-            sink current or enable outputs — check what is wired up before running a sweep.
-        </div>
-    </nav>
+@* And in the browser's tab strip as well, which is the same question asked by whoever has six
+   of these open: every tab was titled "Lab Equipment Controller" and told apart by guessing.
 
-    <main class="content">
-        @Body
+   Not on a detached console: that window titles itself after the instrument it holds
+   (`lec.windows.claim`), which is more than this knows, and a PageTitle here would overwrite it
+   on every render. *@
+@if (!_detached)
+{
+    <PageTitle>@(_title == "SCPI over Ethernet"
+        ? "Lab Equipment Controller"
+        : $"{_title} — Lab Equipment Controller")</PageTitle>
+}
+
+<div class="app @(_detached ? "detached" : "")">
+    <header class="titlebar">
+        <img class="mark" src="app-icon.png" alt="" />
+        @* And what this window is, after the app's name — which is what a window title is for.
+           Every one of these pages is a window in the desktop build, with its own form and its
+           own title, and on the web they are browser tabs: several of them open at once, all
+           four bands identical, and nothing anywhere saying which is which. *@
+        <span class="name">Lab Equipment Controller</span>
+        <span class="sub">— @_title</span>
+        <span class="spacer"></span>
+        @* Top right, where a window's own controls live and where the desktop app keeps the
+           menus these came off — the far end of the strip, either way. One gear, and nothing
+           else: the theme switch and the About button were both up here as separate controls,
+           and beside them the connected count, which the status bar has been carrying all
+           along. A number stated twice in one window is one that can be read as two. *@
+        <SettingsMenu />
+    </header>
+
+    @* No menu strip. There is nowhere for it to send you: the bench is the window, and
+       everything that was on it is either a setting under the gear, a reference under Help, or
+       a tool that belongs to one instrument and opens over its console. A strip whose only
+       entry is the page you are already on is a strip that exists to be a strip.
+
+       The desktop keeps its two menus because a WinForms app opens real windows out of them.
+       This opens dialogs over the one window instead — which is the same thing, minus the
+       need for a way back. *@
+
+    @* An error boundary round the page, because a component that throws takes the whole app down
+       otherwise — every console, every log and every other tab, replaced by a strip at the foot of
+       the window saying something went wrong. The guards on the calls that reach the server are
+       what stops that happening for the reason it usually happened; this is for the rest. *@
+    <main class="workspace">
+        <ErrorBoundary @ref="_boundary">
+            <ChildContent>@Body</ChildContent>
+            <ErrorContent>
+                <div class="group">
+                    <span class="cap">Something went wrong</span>
+                    <p class="muted" style="margin:0 0 .7rem">
+                        This page stopped part way through drawing itself. The instruments are not
+                        affected — they are held by the server, not by this page — so starting the
+                        page again picks them up where they are.
+                    </p>
+                    <div class="row">
+                        <button class="primary" @onclick="Recover"><Icon Name="scan" /> Try again</button>
+                        <button @onclick="() => Nav.NavigateTo(Nav.Uri, forceLoad: true)">Reload the page</button>
+                    </div>
+                </div>
+            </ErrorContent>
+        </ErrorBoundary>
     </main>
+
+    <footer class="statusbar">
+        @if (_detached)
+        {
+            <span class="cell grow">This console is in its own window. Re-attach puts it back on the bench page.</span>
+        }
+        else
+        {
+            <span class="cell">@(_catalogs > 0 ? $"{_catalogs} catalogs, {_commands:N0} commands" : "Catalogs loading…")</span>
+            <span class="cell">@_sessions instrument@(_sessions == 1 ? "" : "s") connected</span>
+            <span class="cell grow">@_where</span>
+        }
+        <span class="cell">Ready</span>
+    </footer>
 </div>
+
+@* Over everything, when the server stops answering.
+   ------------------------------------------------
+   The page and the server are two programs, and this one keeps running when the other stops —
+   which is why the first anyone hears of it is a call failing. That used to be a stack trace in
+   the console and a strip at the foot of the window saying something went wrong, neither of
+   which says the one thing that matters: the server is not there, and it might come back.
+
+   Modal, because there is nothing useful to do behind it. Everything on the bench is a question
+   asked of the server, and a page that let you go on pressing buttons that cannot work would be
+   collecting failures rather than reporting one. *@
+@if (Watch.Unreachable)
+{
+    <div class="veil"></div>
+    <div class="offline" role="alertdialog" aria-modal="true" aria-label="The server is not answering">
+        <h2>The server is not answering</h2>
+        <p>
+            The page is still here, but nothing it asks for is getting through. The instruments
+            themselves are held by the server rather than by this page, so they are as they were —
+            connected, and doing whatever they were doing.
+        </p>
+        <p class="muted">@Watch.Reason</p>
+        <div class="row">
+            <button class="primary" @onclick="Reconnect" disabled="@Watch.Checking">
+                <Icon Name="scan" /> @(Watch.Checking ? "Trying…" : "Retry connection")
+            </button>
+            @* Offered rather than done: a reload is the only way back to a consistent view once the
+               server has restarted — the tabs on screen came from a list it gave before it went —
+               but it also throws away every console log, so it is a decision rather than a step. *@
+            <button @onclick="() => Nav.NavigateTo(Nav.Uri, forceLoad: true)">Reload the page</button>
+        </div>
+    </div>
+}
+
+@code {
+    private int _sessions;
+    private int _catalogs;
+    private int _commands;
+    private bool _detached;
+    private string _where = "";
+
+    /// <summary>What this window is, for the title bar and for the browser's own tab strip.</summary>
+    private string _title = "SCPI over Ethernet";
+
+    private ErrorBoundary? _boundary;
+
+    protected override async Task OnInitializedAsync()
+    {
+        Nav.LocationChanged += OnMoved;
+        Bench.SessionsChanged += OnBenchChanged;
+        Watch.Changed += OnServerChanged;
+        Track();
+
+        // Say the page is here, and go on saying it. The bench is held by the server rather than
+        // by this page, so nothing else tells the server that anybody still has it open - and a
+        // bench nobody has open is a set of instruments held against the next person to try them.
+        // A hub connection is what presence is counted in (BenchHub.OnConnectedAsync), so every
+        // page opens one whether or not it has anything to listen for.
+        //
+        // Not awaited and not fatal: a server that cannot be reached is the offline notice's
+        // business, and a page that cannot connect has nothing to be present for anyway.
+        _ = Task.Run(async () => { try { await Bench.HubAsync(); } catch { } });
+
+        // The catalog totals never change while the page is open, so they are read once and
+        // then simply sit in the status bar the way the Command Library window shows them.
+        try
+        {
+            var catalogs = await Bench.CatalogsAsync();
+            _catalogs = catalogs.Count;
+            _commands = catalogs.Sum(c => c.CommandCount);
+        }
+        catch { /* the status bar is decoration; a failure here must not blank the app */ }
+
+        await Refresh();
+    }
+
+    /// <summary>Where we are, and how many instruments are open, after every move.</summary>
+    private async void OnMoved(object? sender, LocationChangedEventArgs e)
+    {
+        Track();
+        await Refresh();
+        StateHasChanged();
+    }
+
+    /// <summary>
+    /// An instrument was connected or closed. Nothing polls the bench: the client that did
+    /// it says so, which is what keeps the count in the title bar honest now that a whole
+    /// session's work happens on one page.
+    /// </summary>
+    private async void OnBenchChanged()
+        => await InvokeAsync(async () => { await Refresh(); StateHasChanged(); });
+
+    private async Task Refresh()
+    {
+        try { _sessions = (await Bench.SessionsAsync()).Count; }
+        catch { _sessions = 0; }
+    }
+
+    /// <summary>
+    /// A tool in a browser tab of its own says so, once, and undertakes to say when it goes.
+    /// </summary>
+    /// <remarks>
+    /// Here rather than in the three pages themselves, because the answer is the address and this
+    /// is what reads the address. A detached console makes its own claim — it has an instrument to
+    /// name and a session to hand back, which is more than a route.
+    /// </remarks>
+    protected override async Task OnAfterRenderAsync(bool first)
+    {
+        if (!first || _detached) return;
+
+        string route = Nav.ToBaseRelativePath(Nav.Uri).Split('?')[0].Trim('/');
+        if (route is "catalog" or "sequences" or "script-language")
+            await JS.InvokeVoidAsync("lec.windows.claimTool", route);
+    }
+
+    private void Track()
+    {
+        string relative = Nav.ToBaseRelativePath(Nav.Uri);
+        string path = relative.Split('?')[0].Trim('/');
+
+        // A detached console is a window of its own, so it drops the menu strip and the
+        // page-level furniture. The flag travels in the address rather than in memory
+        // because that window is opened cold, by name, and may be reloaded on its own.
+        _detached = relative.Contains("detached=1", StringComparison.Ordinal);
+
+        _where = path switch
+        {
+            "" => "Bench — scan, connect and consoles",
+            "console" => "Instrument console",
+            "sequences" => "Multi-instrument sequences",
+            "catalog" => "Command library",
+            "script-language" => "Script language reference",
+            _ => "Nothing at that address",
+        };
+
+        // What this window is, in the title bar and in the browser's own tab strip. The names
+        // are the windows' own — the ones on their title bars in the desktop build and on the
+        // buttons that open them here — rather than a description, because a title bar names a
+        // thing and the status line below already says what it is for.
+        //
+        // The bench keeps the strapline: it is not one of the windows, it is the app, and
+        // "Lab Equipment Controller — Bench" says the same word twice.
+        _title = _detached ? "detached console" : path switch
+        {
+            "" => "SCPI over Ethernet",
+            "console" => "Instrument Console",
+            "sequences" => "Multi-Instrument Scripts",
+            "catalog" => "Command Library",
+            "script-language" => "Script Language Reference",
+            _ => "Nothing at that address",
+        };
+    }
+
+    /// <summary>The server's reachability changed; redraw so the box appears or goes.</summary>
+    private async void OnServerChanged()
+        => await InvokeAsync(StateHasChanged);
+
+    /// <summary>
+    /// Ask the server again. If it answers, the handler clears the state and the box goes on its
+    /// own — there is no second path to being reachable, so nothing is set here.
+    /// </summary>
+    private async Task Reconnect()
+    {
+        if (await Watch.RetryAsync())
+        {
+            // Back, and what is on screen is from before it went. Refresh what this layout owns;
+            // the page under it asked for its own and can say for itself whether it wants more.
+            await Refresh();
+        }
+    }
+
+    /// <summary>
+    /// Draw the page again after it threw. Worth offering before a reload: a component that fell
+    /// over on one render often comes back, and a reload costs every console its log.
+    /// </summary>
+    private void Recover() => _boundary?.Recover();
+
+    public void Dispose()
+    {
+        Nav.LocationChanged -= OnMoved;
+        Bench.SessionsChanged -= OnBenchChanged;
+        Watch.Changed -= OnServerChanged;
+    }
+}

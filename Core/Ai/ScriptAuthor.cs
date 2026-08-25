@@ -28,6 +28,21 @@ public sealed record AuthoredScript(
     string Script, string Notes, IReadOnlyList<string> Undocumented);
 
 /// <summary>
+/// One exchange already had: what was asked, and what came back.
+///
+/// The writer is a conversation rather than a one-shot because that is how a script actually
+/// gets written — "now do the same at 5 V", "that failed, drop the trigger line" — and a
+/// model that cannot see what it wrote a minute ago answers those by starting again.
+/// </summary>
+/// <param name="Undocumented">
+/// What the catalog check said about that draft. Carried back deliberately: a model told
+/// once that <c>:SOURce1:FREQuency</c> is in no catalog here will otherwise write it again
+/// on the next turn, having no memory of the correction.
+/// </param>
+public sealed record ScriptTurn(
+    string Request, string Script, string Notes = "", IReadOnlyList<string>? Undocumented = null);
+
+/// <summary>
 /// Asks a model to write a script from a plain-English description.
 ///
 /// The same problem as <see cref="CommandExtractor"/>, and the same answer: a model will
@@ -35,7 +50,7 @@ public sealed record AuthoredScript(
 /// checked back against them. What it produces is a draft in an editor that the user reads
 /// and runs deliberately — never something that executes on its own.
 ///
-/// Three things go into the prompt beyond the user's request:
+/// Four things go into the prompt beyond the user's request:
 ///
 /// <list type="bullet">
 /// <item>the commands each addressed instrument actually accepts, from the shipped
@@ -43,8 +58,20 @@ public sealed record AuthoredScript(
 /// <item>the script language, which is small and entirely local to this app, so a model
 ///       has no prior knowledge of it whatsoever;</item>
 /// <item>the current script and the last run's output, so "it failed with -113, fix it"
-///       is a question it can actually answer.</item>
+///       is a question it can actually answer;</item>
+/// <item>the conversation so far, so "now do the same at 5 V" is one too.</item>
 /// </list>
+///
+/// The conversation goes across as a transcript inside the one request rather than as the
+/// provider's own multi-turn message array. Three providers spell that array three ways and
+/// one of them — Gemini's Interactions API — is a shape this app verified by hand against a
+/// live endpoint; a transcript is the same information in a form that cannot be wrong on two
+/// of the three. It also keeps the catalogs out of every historical turn, which is what a
+/// naive message array would repeat.
+///
+/// Nothing trims it. The history grows until the user clears it, and the window that shows
+/// the conversation also shows what it costs to send, because deciding that is the point of
+/// having a Clear at all.
 /// </summary>
 public sealed class ScriptAuthor
 {
@@ -119,6 +146,10 @@ public sealed class ScriptAuthor
     /// The tail of the last run — errors included. This is what makes "it failed, fix it"
     /// answerable, and it is the reason the console output is worth handing over at all.
     /// </param>
+    /// <param name="history">
+    /// The exchanges already had, oldest first. Empty or null is a fresh conversation, which
+    /// is what the window's Clear leaves behind.
+    /// </param>
     public async Task<AuthoredScript> WriteAsync(
         string request,
         IReadOnlyList<ScriptContextInstrument> instruments,
@@ -127,6 +158,7 @@ public sealed class ScriptAuthor
         string apiKey,
         string? currentScript = null,
         string? recentOutput = null,
+        IReadOnlyList<ScriptTurn>? history = null,
         CancellationToken ct = default)
     {
         if (string.IsNullOrWhiteSpace(request))
@@ -136,7 +168,7 @@ public sealed class ScriptAuthor
                            + (isSequence ? SequenceLanguage : SingleInstrumentLanguage);
 
         string payload = BuildPayload(
-            request, instruments, currentScript, recentOutput, MaxCommandsPerInstrument);
+            request, instruments, currentScript, recentOutput, MaxCommandsPerInstrument, history);
 
         string reply = await _client.CompleteAsync(
             connection, apiKey, instruction, AiPayload.FromText(payload), Schema(), ct)
@@ -151,9 +183,12 @@ public sealed class ScriptAuthor
         IReadOnlyList<ScriptContextInstrument> instruments,
         string? currentScript,
         string? recentOutput,
-        int maxCommands = 240)
+        int maxCommands = 240,
+        IReadOnlyList<ScriptTurn>? history = null)
     {
         var sb = new StringBuilder();
+
+        AppendConversation(sb, history);
 
         sb.AppendLine("## What is wanted");
         sb.AppendLine(request.Trim());
@@ -176,7 +211,8 @@ public sealed class ScriptAuthor
                 continue;
             }
 
-            IReadOnlyList<CommandRef> chosen = Relevant(i.Reference.Commands, request, maxCommands);
+            IReadOnlyList<CommandRef> chosen =
+                Relevant(i.Reference.Commands, Focus(request, history), maxCommands);
             sb.AppendLine($"Commands it accepts ({chosen.Count} of {i.Reference.Commands.Count} "
                         + "shown, chosen for this request):");
             foreach (CommandRef c in chosen)
@@ -204,6 +240,75 @@ public sealed class ScriptAuthor
         }
 
         return sb.ToString();
+    }
+
+    /// <summary>
+    /// The exchanges already had, as a transcript the model reads before the new request.
+    ///
+    /// Before rather than after, so the newest request is the last thing in the payload: a
+    /// model handed a wall of history and then a question answers the question, and one
+    /// handed the question and then the history answers whatever it read last.
+    /// </summary>
+    private static void AppendConversation(StringBuilder sb, IReadOnlyList<ScriptTurn>? history)
+    {
+        if (history is not { Count: > 0 }) return;
+
+        sb.AppendLine("## The conversation so far");
+        sb.AppendLine("Earlier turns of this same session, oldest first. The request below is "
+                    + "the newest one — treat it as a continuation of these unless it plainly "
+                    + "starts something else.");
+        sb.AppendLine();
+
+        int n = 0;
+        foreach (ScriptTurn turn in history)
+        {
+            sb.AppendLine($"### Turn {++n} — asked");
+            sb.AppendLine(turn.Request.Trim());
+            sb.AppendLine();
+
+            if (turn.Script.Trim().Length > 0)
+            {
+                sb.AppendLine($"### Turn {n} — you wrote");
+                sb.AppendLine("```");
+                sb.AppendLine(turn.Script.Trim());
+                sb.AppendLine("```");
+            }
+
+            if (turn.Notes is { Length: > 0 } && turn.Notes.Trim().Length > 0)
+                sb.AppendLine("Your note: " + turn.Notes.Trim());
+
+            // The correction, in the transcript where the mistake is. Left out, the same
+            // invented header comes back on the next turn — the model has no other memory of
+            // having been told.
+            if (turn.Undocumented is { Count: > 0 } bad)
+            {
+                sb.AppendLine("These lines were in no catalog on this bench, so do not use "
+                            + "them again unless the request asks for them specifically:");
+                foreach (string line in bad) sb.AppendLine("  " + line);
+            }
+
+            sb.AppendLine();
+        }
+    }
+
+    /// <summary>
+    /// What the catalog trim is ranked against: this request, and the last few before it.
+    ///
+    /// "Now do it at 5 volts" carries not one word an instrument catalog has heard of, and
+    /// ranked on its own it picks 240 commands at random out of two thousand — throwing away
+    /// the frequency commands the conversation has been about for four turns. The last few
+    /// rather than all of them: a request twenty turns ago is not what this one is about.
+    /// </summary>
+    private static string Focus(string request, IReadOnlyList<ScriptTurn>? history)
+    {
+        if (history is not { Count: > 0 }) return request;
+
+        const int recent = 3;
+        IEnumerable<string> asked = history
+            .Skip(Math.Max(0, history.Count - recent))
+            .Select(t => t.Request);
+
+        return string.Join(' ', asked) + ' ' + request;
     }
 
     /// <summary>

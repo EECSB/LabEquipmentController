@@ -1,0 +1,521 @@
+@implements IDisposable
+@inject BenchClient Bench
+@inject IJSRuntime JS
+
+@* One instrument's console, laid out like the desktop console window: the identity line,
+   the catalog's quick commands, a row of tools, and then the log and the results side by
+   side with their own button bars underneath.
+
+   It is a component rather than a page because the desktop keeps every console alive at
+   once — you switch tabs, you do not reload. Kept in the render tree and hidden with the
+   `hidden` attribute, a console that is not on top holds on to its log, its readings and
+   its half-typed command, which is the whole reason the desktop has tabs at all.
+
+   The one thing that differs between a tab and a window of its own is which way the detach
+   button points, so that is the only thing the component is told. *@
+
+<div class="pane" hidden="@(!Visible)">
+    <div class="group">
+        @* One line naming the instrument, not two. The caption said the profile name and the
+           address, and the line under it said the same two again with the transport and the
+           *IDN? reply — so the console opened by telling you where you were twice. This is
+           the line that says more, and it says it where the caption was. *@
+        <div class="idline" title="The instrument this console is connected to: address, transport, recognised type, and its *IDN? reply.">
+            <span class="addr">@Session.Address</span>
+            <span>&mdash;</span>
+            <span>@Session.Transport</span>
+            <span>&mdash;</span>
+            <span>@Session.ProfileName</span>
+            <span>&middot;</span>
+            <span class="mono">@Session.Identity</span>
+            <span class="spacer"></span>
+            @* Only the way back. Opening this console in a tab of its own is a thing you do to a
+               tab, so it lives on the tab, beside the ✕ — where a browser puts it, and where it
+               can be reached without first bringing the console to the front. A labelled button
+               here cost a row's width to say what a glyph up there says. *@
+            @if (Detached)
+            {
+                <button class="primary" @onclick="OnReattach"
+                        title="Put this console back on the bench page and close this window">
+                    <Icon Name="attach" /> Re-attach
+                </button>
+            }
+        </div>
+
+        @if (Session.QuickCommands.Count > 0)
+        {
+            <div class="toolbar ruled">
+                @foreach (var q in Session.QuickCommands)
+                {
+                    @* The three transport-control commands carry a glyph, as they do on the
+                       desktop, and the rest carry none — BuildQuickCommands gives startClock,
+                       stopClock and stepClock to Run, Stop and Single and nothing to anything
+                       else. Single's step arrow is the same artwork the Send button carries,
+                       which is why it asks for it by that name. *@
+                    <button class="quick" @onclick="() => Send(q.Command)" disabled="@_driven"
+                            title="@(_driven ? $"{q.Command}\n\n{DrivenReason}" : q.Command)">
+                        @if (QuickIcon(q.Label) is string glyph) { <Icon Name="@glyph" /> }
+                        @q.Label
+                    </button>
+                }
+            </div>
+        }
+
+        @* The desktop console's second row opens windows — owned by the main window, over the
+           console, with the console still there underneath, and several of them at once. These
+           are the same. They were browser tabs and that was wrong twice over: it took you out
+           of the console to reach a tool that is about the console, and it left a tab behind
+           for every press.
+
+           The windows are not built here. A console that is not the tab on top is hidden, and a
+           window inside a hidden subtree cannot be seen or dismissed — so they belong to the
+           page and this only says which one was asked for. See ConsoleTools. *@
+        <div class="toolbar">
+            <button @onclick="@(() => Tools(ConsoleTool.Scripts))"
+                    title="Open a script editor to run a sequence of SCPI commands against this instrument."><Icon Name="script" /> Scripts</button>
+            @* Off while something is driving the link, as the desktop turns it off: it sends
+               commands to find out what the instrument answers to, which is exactly the kind of
+               thing that must not land between two steps of a running script. Scripts and the
+               AI window beside it stay open — neither sends anything on its own. *@
+            <button @onclick="Discover" disabled="@(_driven || _discovering)"
+                    title="@(_driven
+                              ? DrivenReason
+                              : "Ask the instrument to list the commands it supports. If it cannot, the catalog transcribed from its programming guide opens instead.")"><Icon Name="search" /> Discover Commands</button>
+            @* Off for an instrument whose profile documents no way to do it, exactly as the
+               desktop's UpdateEnabledState turns them off: a meter has no screen worth
+               fetching and no trace to hand over. Dead rather than absent, for the same reason
+               Live Readout is — the button says the tool exists and this is not an instrument
+               it works on, where a missing button says nothing at all. *@
+            <button @onclick="@(() => Tools(ConsoleTool.Screen))" disabled="@(!Session.SupportsScreenshot || _driven)"
+                    title="@(!Session.SupportsScreenshot
+                              ? $"No screen-capture command is documented for {Session.ProfileName}, so this is off rather than sending something that might not be understood."
+                              : _driven
+                                ? DrivenReason
+                                : "Download the instrument's screen as an image you can save.")"><Icon Name="camera" /> Capture Screen</button>
+            <button @onclick="@(() => Tools(ConsoleTool.Waveform))" disabled="@(!Session.SupportsWaveform || _driven)"
+                    title="@(!Session.SupportsWaveform
+                              ? $"No waveform-transfer dialect is documented for {Session.ProfileName}, so this is off rather than sending something that might not be understood."
+                              : _driven
+                                ? DrivenReason
+                                : "Download the channel 1 trace and plot it, with CSV export.")"><Icon Name="wave" /> Capture Waveform</button>
+            @* Greyed out rather than taken away for an instrument whose profile has no readout
+               functions, which is what the desktop does with it: a button that is missing
+               tells you nothing, and a button that is there and dead tells you the tool exists
+               and this instrument is not one it works on.
+
+               Bars, not a wave. AppIcons picks bars for this on purpose — a trend line beside
+               the Capture Waveform button next to it would be two squiggles reading as one.
+
+               And not turned off by a run, unlike everything to its left: while the readout is
+               the thing driving the link, this window is how you stop it. The desktop makes the
+               same exception, in the same words. *@
+            <button @onclick="@(() => Tools(ConsoleTool.Meter))" disabled="@(Session.Readouts.Count == 0)"
+                    title="@(Session.Readouts.Count > 0
+                              ? "Poll one measurement on a timer and plot it against time — for watching a value drift or settle."
+                              : $"No readout functions are documented for {Session.ProfileName}, so there is no single measurement to poll.")"><Icon Name="bars" /> Live Readout&hellip;</button>
+            <button @onclick="@(() => Tools(ConsoleTool.Ai))"
+                    title="Draft a script from a description, or read commands out of a datasheet the built-in catalogs do not cover."><Icon Name="ai" /> AI Datasheet Extraction</button>
+        </div>
+    </div>
+
+    <div class="split wide-left">
+        <div class="group">
+            @* What is waiting on the connection, above the log, as the desktop's QueueStrip
+               sits above its own. A connection carries one conversation at a time, so a second
+               command pressed while one is in flight waits — and without this the console
+               looks as though it ignored the press.
+
+               The box is drawn whether or not anything is in it: an outline that appears with
+               the first command and vanishes with the last reads as a thing arriving rather
+               than as a place where things arrive. *@
+            <div class="queue" title="Commands in flight or waiting their turn on this connection, oldest first. One conversation at a time is what the instrument allows, so the rest queue here.">
+                @if (_queue.Count == 0)
+                {
+                    @* Named while it is empty, because an empty outline is not self-explanatory.
+                       The strip is drawn whether or not anything is in it — see above — and a box
+                       with nothing in it and no word on it is a box you have to see fill up once
+                       before you know what it was. *@
+                    <span class="idle">Command queue</span>
+                }
+                @for (int i = 0; i < _queue.Count; i++)
+                {
+                    @if (i > 0)
+                    {
+                        <span class="to">&#9654;</span>
+                    }
+                    <span class="chip">@_queue[i]</span>
+                }
+            </div>
+
+            <div class="console" @ref="_logElement"
+                 title="Log of commands sent to this instrument and replies received.">
+                @if (_log.Count == 0)
+                {
+                    <div class="empty">Type a SCPI command below, or press a quick command above.</div>
+                }
+                @foreach (var line in _log)
+                {
+                    <div class="@line.Css">@line.Text</div>
+                }
+            </div>
+
+            <div class="row foot cmd">
+                @* The box goes with the buttons: a command that cannot be sent is a command that
+                   should not be invited. Clear Log and Save Log stay — they act on the log, and
+                   the log is a record rather than a thing on the wire. *@
+                <input class="grow mono" type="text" @bind="_command" @bind:event="oninput"
+                       @onkeydown="OnKey" placeholder="Type a SCPI command and press Enter" disabled="@_driven"
+                       title="@(_driven
+                                 ? DrivenReason
+                                 : "Type a SCPI command and press Enter to send it. Use the Up and Down arrows to recall earlier commands.")" />
+                <button class="primary" @onclick="() => Send(_command)"
+                        title="@(_driven ? DrivenReason : "Send the command in the box to this instrument.")"
+                        disabled="@(_driven || string.IsNullOrWhiteSpace(_command))"><Icon Name="send" /> Send</button>
+                <button @onclick="Clear" title="Clear the console log above." disabled="@(_log.Count == 0)"><Icon Name="clear" /> Clear Log</button>
+                <button @onclick="SaveLog" title="Save the console log to a text file." disabled="@(_log.Count == 0)"><Icon Name="save" /> Save Log</button>
+            </div>
+        </div>
+
+        @* What this console recorded, in the pane the desktop calls ResultsPanel — the same
+           component the script editors put beside their output, because it is the same control
+           there. *@
+        <ResultsPane Columns="@ConsoleColumns" Rows="@PlotRows" NewestFirst="true"
+                     OnSaveCsv="SaveCsv" OnClear="() => _results.Clear()" />
+    </div>
+</div>
+
+@code {
+    [Parameter, EditorRequired] public SessionDto Session { get; set; } = null!;
+
+    /// <summary>False while another tab is on top. The component stays in the tree.</summary>
+    [Parameter] public bool Visible { get; set; } = true;
+
+    /// <summary>
+    /// A tool button was pressed. The page keeps the windows — see ConsoleTools — because this
+    /// console is hidden whenever another tab is on top, and a window in a hidden subtree is one
+    /// nobody can see or shut.
+    /// </summary>
+    [Parameter] public EventCallback<ConsoleTool> OnOpenTool { get; set; }
+
+    /// <summary>True in the console's own window, where the button offers the way back.</summary>
+    [Parameter] public bool Detached { get; set; }
+
+    /// <summary>Asked to come back. Raised only when <see cref="Detached"/>.</summary>
+    [Parameter] public EventCallback OnReattach { get; set; }
+
+
+    /// <summary>
+    /// The glyph a quick-command button carries, or none. The desktop's BuildQuickCommands
+    /// gives one to the three transport-control commands and to nothing else, matched on the
+    /// label exactly as it does — the labels come from the same profile in Core, so the same
+    /// three match here. "send" is the step-arrow artwork, which is what Single is given there.
+    /// </summary>
+    /// <summary>
+    /// Insert, from the Command Reference. The command lands in the box and the window shuts,
+    /// which is what the desktop's does — it is not sent, and you still decide that.
+    /// </summary>
+    public void Insert(string command)
+    {
+        _command = command;
+        StateHasChanged();
+    }
+
+    /// <summary>
+    /// Say that Connect was pressed on an address this console is already open on.
+    ///
+    /// The desktop says the same thing in the same place and for the same reason: an address
+    /// that is already connected brings its console to the front instead of dialling again, and
+    /// if that console was already the one on top, the button looks like it did nothing.
+    ///
+    /// One session per instrument is not tidiness. The Rigol DS2202 wedges its firmware if a
+    /// second TCP session is opened against it - no ping, dead front panel, power-cycle to
+    /// recover - which is why neither build dials an address it already holds.
+    /// </summary>
+    public async Task SayAlreadyConnectedAsync()
+    {
+        _log.Add(new LogLine($"--- already connected to {Host}; this is its console ---", "echo"));
+        await InvokeAsync(StateHasChanged);
+        await JS.InvokeVoidAsync("lec.scrollToEnd", _logElement);
+    }
+
+    private static string? QuickIcon(string label) => label switch
+    {
+        "Run" => "start",
+        "Stop" => "stop",
+        "Single" => "send",
+        _ => null,
+    };
+
+    /// <summary>The tools the console can open over itself. None means the dialog is shut.</summary>
+    /// <summary>The hub handlers, so a console that goes away stops answering for it.</summary>
+    private IDisposable? _queueSub;
+    private IDisposable? _drivenSub;
+
+
+    private string _command = "";
+    private bool _shown;
+    private ElementReference _logElement;
+
+    private readonly List<LogLine> _log = [];
+    private readonly List<Reading> _results = [];
+
+    /// <summary>
+    /// The three columns a console records, named as InstrumentConsole names them. They are
+    /// not decoration: the plot finds the command column by name to guess the unit, and the
+    /// CSV writes them as its header row.
+    /// </summary>
+    private static readonly string[] ConsoleColumns = ["Time", "Command", "Value"];
+
+    /// <summary>
+    /// The address without its scheme, which is how the desktop names it on the connection
+    /// line. The transport is said in the next breath, so leaving vxi:// in front of it says
+    /// the same thing twice.
+    /// </summary>
+    private string Host =>
+        Session.Address.IndexOf("://", StringComparison.Ordinal) is var i && i >= 0
+            ? Session.Address[(i + 3)..]
+            : Session.Address;
+
+    /// <summary>The readings as a table, which is what the plot draws from.</summary>
+    private IReadOnlyList<RecordedRow> PlotRows => _results
+        .Select(r => new RecordedRow(new[] { r.At.ToString("HH:mm:ss.fff"), r.Command, r.Value }))
+        .ToList();
+
+    /// <summary>What is in flight or waiting on the connection, oldest first.</summary>
+    private IReadOnlyList<string> _queue = [];
+
+    /// <summary>True while a script or a live readout is driving this instrument.</summary>
+    private bool _driven;
+
+    /// <summary>
+    /// Why the console is locked, on every control the lock reaches.
+    ///
+    /// Said rather than left to be worked out: a row of controls that go grey with no
+    /// explanation reads as a fault, and the one thing the person pressing them needs to know
+    /// is that this ends by itself.
+    /// </summary>
+    private const string DrivenReason =
+        "A script or a live readout is driving this instrument. A command sent from here would "
+      + "land between two of its steps, so the console waits until the run finishes.";
+
+    private sealed record LogLine(string Text, string Css);
+    private sealed record Reading(DateTime At, string Command, string Value);
+
+    /// <summary>
+    /// Listen for what is waiting on this instrument's connection. The queue changes when the
+    /// instrument finishes answering rather than when a browser asks, so it is pushed rather
+    /// than polled — and it starts from whatever the session already had, so a console opened
+    /// onto a busy instrument does not begin by claiming nothing is happening.
+    /// </summary>
+    protected override async Task OnInitializedAsync()
+    {
+        // What the desktop console opens with. MainForm prints these three the moment a session
+        // is made, and they stay at the top of the log for as long as the console is open: what
+        // it is attached to, over what, what it answered, and which catalog that picked.
+        //
+        // Written here rather than pushed in by whatever pressed Connect, because a console
+        // rebuilt in a browser tab of its own has to open with them too and nothing pressed
+        // anything over there. All three are facts about the session rather than a report of an
+        // event, and stay true for as long as it lives.
+        _log.Add(new LogLine($"--- connected to {Host} via {Session.TransportDetail} ---", ""));
+        if (!string.IsNullOrWhiteSpace(Session.Identity))
+            _log.Add(new LogLine("*IDN? -> " + Session.Identity, "info"));
+        _log.Add(new LogLine($"--- quick commands loaded for: {Session.ProfileName} ---", "echo"));
+
+        _queue = Session.Queued;
+        _driven = Session.Driven;
+
+        var hub = await Bench.HubAsync();
+        _queueSub = hub.On<string, IReadOnlyList<string>>("Queued", (id, queued) =>
+        {
+            if (id != Session.Id) return;
+            _queue = queued;
+            InvokeAsync(StateHasChanged);
+        });
+
+        // Whether a script or a readout has this instrument, from the same wire and for the
+        // same reason: it is the server that knows, and it knows before this page does. Sent to
+        // everyone, because a console open in a second tab is watching the same instrument and
+        // has the same reason not to be typed into.
+        _drivenSub = hub.On<string, bool>("Driven", (id, driven) =>
+        {
+            if (id != Session.Id) return;
+            _driven = driven;
+            InvokeAsync(StateHasChanged);
+        });
+    }
+
+    /// <summary>
+    /// A hidden element has no scroll height, so the browser puts a log that comes back into
+    /// view at the top of itself — with the newest lines off the bottom, which is the one
+    /// place a console must never be. Scrolled again on the way in.
+    /// </summary>
+    protected override async Task OnAfterRenderAsync(bool first)
+    {
+        if (Visible && (!_shown || first) && _log.Count > 0)
+            await JS.InvokeVoidAsync("lec.scrollToEnd", _logElement);
+
+        _shown = Visible;
+    }
+
+    /// <summary>Ask the page for a tool window on this instrument.</summary>
+    private Task Tools(ConsoleTool tool) => OnOpenTool.InvokeAsync(tool);
+
+    /// <summary>Whether a discovery query is out. The button is off while it is.</summary>
+    private bool _discovering;
+
+    /// <summary>
+    /// Discover Commands: ask the instrument first, and open the catalog only if it cannot say.
+    ///
+    /// This is <c>InstrumentConsole.DiscoverCommandsAsync</c>. The desktop sends SCPI-99's
+    /// SYSTem:HELP:HEADers? and prints the header tree it gets back; the curated catalog is the
+    /// fallback for an instrument that does not implement the query, which is most budget
+    /// instruments and is why the fallback is what usually happens. The web went straight to the
+    /// fallback and never asked — so on an instrument that can answer, the one list that is
+    /// certainly right about *this* firmware was the one you could not get.
+    ///
+    /// A failed query is not an error and is not reported as one. The desktop also puts a message
+    /// box in front of the last case; the line it writes to the log says the same thing, and the
+    /// log is where the rest of this conversation already is.
+    /// </summary>
+    private async Task Discover()
+    {
+        _discovering = true;
+        _log.Add(new LogLine($"--- discovering commands ({Discovery.Query}) ---", "echo"));
+        try
+        {
+            var found = await Bench.DiscoverAsync(Session.Id);
+            if (found.Success)
+            {
+                _log.Add(new LogLine($"--- {found.Count} command headers reported by the instrument ---", ""));
+                _log.Add(new LogLine(found.Headers, "echo"));
+            }
+            else if (await Catalogued())
+            {
+                _log.Add(new LogLine("--- instrument doesn't support live discovery; opening the built-in "
+                                   + $"reference for {Session.ProfileName} ---", ""));
+                await Tools(ConsoleTool.Catalog);
+            }
+            else
+            {
+                _log.Add(new LogLine("Couldn't retrieve command info from the instrument, and no built-in "
+                                   + "reference is bundled for it. Check its programming manual instead.", "err"));
+            }
+        }
+        catch (Exception ex)
+        {
+            // The server not answering at all, as in Send: a line in the log rather than an
+            // unhandled component exception, which Blazor answers by tearing down the whole app.
+            _log.Add(new LogLine("Discover failed: " + ex.Message, "err"));
+        }
+        finally
+        {
+            _discovering = false;
+            await JS.InvokeVoidAsync("lec.scrollToEnd", _logElement);
+        }
+    }
+
+    /// <summary>Whether a catalog is bundled for this instrument, asked only when the instrument
+    /// could not answer for itself — which is the one moment it decides anything.</summary>
+    private async Task<bool> Catalogued()
+        => (await Bench.CatalogsAsync()).Any(c => c.Family == Session.Family);
+
+    /// <summary>Stop listening for this instrument when the console goes.</summary>
+    public void Dispose()
+    {
+        _queueSub?.Dispose();
+        _drivenSub?.Dispose();
+    }
+
+    private async Task OnKey(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter") await Send(_command);
+    }
+
+    private async Task Send(string text)
+    {
+        if (string.IsNullOrWhiteSpace(text)) return;
+
+        // Nothing is locked out while this is in flight. The connection carries one
+        // conversation at a time, but that is the connection's business, not the console's:
+        // SerializedInstrumentClient holds the rest in order and the strip above the log
+        // shows them waiting. Greying the buttons until a reply came back made the queue
+        // unreachable — there was no way to put a second command into a queue whose whole
+        // purpose is to hold one. The desktop locks this console only while a script or a
+        // live readout is driving the link, which is a different thing: another window has
+        // taken the connection for a run, not merely for one exchange.
+        _log.Add(new LogLine("> " + text, "echo"));
+        try
+        {
+            var reply = await Bench.SendAsync(Session.Id, text);
+            if (reply.Error is not null)
+            {
+                _log.Add(new LogLine("ERROR: " + reply.Error, "err"));
+            }
+            else if (reply.IsQuery)
+            {
+                _log.Add(new LogLine(reply.Reply ?? "", ""));
+                // Only numbers are worth plotting; an *IDN? string in a value column is noise.
+                if (double.TryParse(reply.Reply, System.Globalization.NumberStyles.Float,
+                                    System.Globalization.CultureInfo.InvariantCulture, out _))
+                    _results.Add(new Reading(DateTime.Now, text, reply.Reply ?? ""));
+            }
+            if (text == _command) _command = "";
+        }
+        catch (Exception ex)
+        {
+            // A command that could not be sent is a line in the log, not the end of the page.
+            //
+            // reply.Error above is the instrument refusing or timing out — the server answered
+            // and said so. This is the server not answering at all: it has been restarted, or
+            // the network went. Left to escape, an exception thrown out of a click handler is
+            // an unhandled component exception, and Blazor's answer to one of those is to tear
+            // down the whole app and show "Something went wrong. Reload the page." Losing a
+            // console, its log and every other tab is a steep price for one failed command.
+            _log.Add(new LogLine("ERROR: could not reach the server — " + ex.Message, "err"));
+        }
+        finally
+        {
+            await JS.InvokeVoidAsync("lec.scrollToEnd", _logElement);
+        }
+    }
+
+    private void Clear() => _log.Clear();
+
+    /// <summary>The log as it reads on screen, echoes included — the desktop's Save Log.</summary>
+    private async Task SaveLog()
+    {
+        var sb = new System.Text.StringBuilder();
+        foreach (var line in _log) sb.Append(line.Text).Append("\r\n");
+        await Download($"{FileStem}.log", "text/plain", sb.ToString());
+    }
+
+    /// <summary>
+    /// The instrument's name, made safe to be a filename — with several consoles open, three
+    /// files called console.log in a downloads folder is three files nobody can tell apart.
+    /// </summary>
+    private string FileStem
+    {
+        get
+        {
+            var s = new string(Session.ProfileName.Select(c => char.IsLetterOrDigit(c) ? c : '-').ToArray()).Trim('-');
+            return s.Length == 0 ? "console" : s;
+        }
+    }
+
+    private async Task SaveCsv()
+    {
+        var sb = new System.Text.StringBuilder("Time,Command,Value\r\n");
+        foreach (var r in _results)
+            sb.Append(r.At.ToString("O")).Append(',').Append(Csv(r.Command)).Append(',').Append(Csv(r.Value)).Append("\r\n");
+        await Download($"{FileStem}-readings.csv", "text/csv", sb.ToString());
+
+        static string Csv(string s) => s.IndexOfAny([',', '"', '\r', '\n']) >= 0 ? '"' + s.Replace("\"", "\"\"") + '"' : s;
+    }
+
+    private async Task Download(string name, string mime, string text)
+    {
+        string base64 = Convert.ToBase64String(System.Text.Encoding.UTF8.GetBytes(text));
+        await JS.InvokeVoidAsync("lec.download", name, mime, base64);
+    }
+}

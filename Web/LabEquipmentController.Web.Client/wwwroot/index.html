@@ -6,7 +6,60 @@
     <title>Lab Equipment Controller</title>
     <base href="/" />
     <link rel="stylesheet" href="app.css" />
-    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><text y='13' font-size='13'>∿</text></svg>" />
+    <link rel="icon" href="app-icon.png" />
+
+    <script>
+        // Light or dark, decided and applied before anything is drawn.
+        //
+        // Up here rather than with the rest of the page's script at the foot of the body,
+        // because by then the browser has painted — and a bench UI that flashes white on
+        // every load in a dim lab is worse than one that was never themed at all. Blazor
+        // takes a moment to start, so waiting for .NET would be a long white flash.
+        //
+        // Three states, not two: a preference for light, a preference for dark, and no
+        // preference — which follows the system, and keeps following it, because that is
+        // what asking for "system" means.
+        window.lec = {
+            theme: (() => {
+                const KEY = 'lec.theme';
+                const media = matchMedia('(prefers-color-scheme: dark)');
+                let watcher = null;
+
+                const stored = () => {
+                    // Private browsing and a blocked third-party context can both refuse
+                    // localStorage outright. A theme is not worth an exception.
+                    try { return localStorage.getItem(KEY) || 'system'; } catch { return 'system'; }
+                };
+
+                const apply = () => {
+                    const choice = stored();
+                    document.documentElement.dataset.theme =
+                        choice === 'dark' || choice === 'light' ? choice : (media.matches ? 'dark' : 'light');
+                    return choice;
+                };
+
+                media.addEventListener('change', apply);
+
+                // A choice is made for the browser, not for one tab of it. That matters most
+                // with a console detached beside the bench page, where both are in view at
+                // once and one of them going dark on its own would look like a fault.
+                window.addEventListener('storage', (e) => {
+                    if (e.key !== KEY) return;
+                    const choice = apply();
+                    if (watcher) watcher.invokeMethodAsync('ThemeChanged', choice);
+                });
+
+                apply();
+
+                return {
+                    get: stored,
+                    set: (choice) => { try { localStorage.setItem(KEY, choice); } catch { } apply(); },
+                    follow: (ref) => { watcher = ref; },
+                    unfollow: () => { watcher = null; }
+                };
+            })()
+        };
+    </script>
 </head>
 <body>
     <div id="app">
@@ -19,10 +72,90 @@
         <span class="dismiss">🗙</span>
     </div>
 
-    <script src="_framework/blazor.webassembly.js"></script>
+    <!-- Started by hand rather than on load, so that one thing is settled before the runtime is
+         up: OPENING THE APP CLOSES THE BENCH. Nothing is connected until the person at the
+         keyboard connects it — by address, or by scanning and picking one of the results.
+
+         The desktop takes every connection with it when MainForm goes. A build that hands
+         whoever opens it next the last window’s sessions is offering a console onto an
+         instrument that may since have been switched off, moved or unplugged — and one that now
+         answers to a different address is worse than one that does not answer at all.
+
+         The one exception is a RELOAD, because a sweep that outlives a refresh is the main thing
+         this build has over the desktop, and F5 must not drop an instrument mid-measurement.
+
+         Telling the two apart is the whole difficulty, and sessionStorage alone cannot do it:
+         browsers RESTORE it when a tab is reopened or a window is restored at startup, so a mark
+         left in it comes back from the dead and a fresh opening claims to be a reload. That is
+         exactly what went wrong. Two things are asked instead, and both have to say yes:
+
+           - the browser’s own account of this navigation says `reload` — not `navigate`, which
+             is an address being opened, and not `back_forward`, which is a restore; and
+           - the document that went was alive seconds ago rather than hours. A timestamp
+             survives being restored, but it cannot lie about WHEN: a window reopened the next
+             morning carries yesterday’s.
+
+         Asked on the bench page and nowhere else. That page is the app; the rest are windows the
+         app opens — a detached console onto a session that already exists, a reference in a tab
+         of its own — and opening one of those is not opening the app. Asked on all of them, the
+         reference you opened to read while working disconnected the instrument you were working
+         on.
+
+         Awaited, because the answer has to be settled before anything asks what is on the bench.
+         Otherwise the page draws the old consoles and takes them away again, which is a flicker
+         rather than a fix. It is one round trip to the server that is about to serve the
+         runtime. -->
+    <script src="_framework/blazor.webassembly.js" autostart="false"></script>
     <script>
-        // Two things the browser can do that a .NET component cannot ask for directly.
-        window.lec = {
+        (async () => {
+            ///How long after the last document went that this one still counts as the same page
+            ///coming back. A reload is immediate; anything that took longer was a person.
+            const GRACE_MS = 10000;
+
+            // The bench page and nothing else. It is the app; the others are windows the app
+            // opens, and opening a reference in a tab of its own must not disconnect the
+            // instruments the reference is being read for.
+            const bench = location.pathname === '/' || location.pathname === '';
+
+            //Written as this document goes, so the next one can tell how long ago that was.
+            addEventListener('pagehide', () => {
+                try { sessionStorage.setItem('lec.left', String(Date.now())); } catch { }
+            });
+
+            if (bench) {
+                let resumed = false;
+                try {
+                    const nav = performance.getEntriesByType('navigation')[0];
+                    const left = Number(sessionStorage.getItem('lec.left') || 0);
+                    resumed = !!nav && nav.type === 'reload' && Date.now() - left < GRACE_MS;
+                } catch {
+                    // Private browsing and a blocked third-party context can refuse storage
+                    // outright. Failing to "opened, not reloaded" is the safe way round: the
+                    // worst it costs is a connection that had to be made again anyway.
+                }
+
+                try {
+                    await fetch('/api/bench/opened?resumed=' + resumed, { method: 'POST' });
+                } catch {
+                    // The server lets the bench go on its own timer as well. This only makes it
+                    // prompt, and an app that would not start because of it is a worse bargain.
+                }
+            }
+
+            Blazor.start();
+        })();
+    </script>
+
+    <!-- The script editors' Monaco interop. Its own file rather than the block below: it carries a
+         grammar and a completion provider, and it loads the editor lazily out of lib/monaco the
+         first time an editor is actually opened, so a bench page that never opens one pays
+         nothing for it. -->
+    <script src="js/monaco.js"></script>
+    <script>
+        // Things the browser can do that a .NET component cannot ask for directly. Added to
+        // what the head already put there rather than replacing it — the theme is decided up
+        // there, before the first paint, and must survive this.
+        window.lec = Object.assign(window.lec || {}, {
             download: (name, mime, base64) => {
                 const a = document.createElement('a');
                 a.href = `data:${mime};base64,${base64}`;
@@ -31,9 +164,156 @@
                 a.click();
                 a.remove();
             },
+            // A command onto the clipboard, for the reference window's Copy.
+            copyText: async (text) => {
+                try { await navigator.clipboard.writeText(text); return null; }
+                catch (e) { return String(e && e.message || e); }
+            },
+
+            // The instrument's screen onto the clipboard, which is what the desktop's Copy
+            // does with it. Always through a canvas: a Rigol sends BMP whatever was asked for,
+            // and the clipboard takes PNG and nothing else.
+            copyImage: (mime, base64) => new Promise((resolve) => {
+                const img = new Image();
+                img.onload = () => {
+                    const canvas = document.createElement('canvas');
+                    canvas.width = img.naturalWidth;
+                    canvas.height = img.naturalHeight;
+                    canvas.getContext('2d').drawImage(img, 0, 0);
+                    canvas.toBlob(async (blob) => {
+                        try {
+                            await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })]);
+                            resolve(null);
+                        } catch (e) {
+                            resolve(String(e && e.message || e));
+                        }
+                    }, 'image/png');
+                };
+                img.onerror = () => resolve('The image could not be read.');
+                img.src = `data:${mime};base64,${base64}`;
+            }),
+
+            // Press something. Used for the file input behind Open… — the browser will only
+            // open its picker from a real click, and the button that says Open… is ours.
+            press: (el) => el?.click(),
+
+            // Put a snippet where the caret is, as the desktop's editor does, and leave the
+            // caret after it. Appending to the end instead would be a different feature:
+            // snippets are written into a line being typed, not onto the bottom of the file.
+            insertAtCaret: (el, text) => {
+                const start = el.selectionStart ?? el.value.length;
+                const end = el.selectionEnd ?? start;
+                el.value = el.value.slice(0, start) + text + el.value.slice(end);
+                el.selectionStart = el.selectionEnd = start + text.length;
+                el.focus();
+                return el.value;
+            },
+
+            // The plot as a PNG, which is what the desktop's camera button writes. The SVG is
+            // rasterised here rather than redrawn on the server: it is already on screen, and
+            // asking the server to draw it again is two implementations of one picture.
+            //
+            // The clone carries the resolved colour and an explicit size, because a detached
+            // SVG has neither: currentColor resolves against the element's own `color`, and
+            // width/height come from the layout it has just been taken out of. The canvas is
+            // painted with the page's background first — a plot on transparent is a plot on
+            // black in half the viewers that will open it.
+            // Where the pointer is across an element — 0 at its left edge, 1 at its right —
+            // and how wide that element is. What a wheel zoom and a drag are both measured
+            // against, and the one thing about them C# cannot work out for itself: the element
+            // is sized by the stylesheet and only the browser knows what that came to.
+            //
+            // Asked once per wheel notch and once per drag rather than per mouse-move: the
+            // width does not change while a drag is in progress, and a JS hop per move is a
+            // hop per frame.
+            across: (el, clientX) => {
+                if (!el) return { at: 0, width: 0 };
+                const box = el.getBoundingClientRect();
+                return {
+                    at: box.width > 0 ? (clientX - box.left) / box.width : 0,
+                    width: box.width
+                };
+            },
+
+            savePng: (el, name) => {
+                const box = el.getBoundingClientRect();
+                const clone = el.cloneNode(true);
+                clone.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
+                clone.setAttribute('width', box.width);
+                clone.setAttribute('height', box.height);
+                clone.style.color = getComputedStyle(el).color;
+
+                const svg = new XMLSerializer().serializeToString(clone);
+                const img = new Image();
+                img.onload = () => {
+                    const canvas = document.createElement('canvas');
+                    canvas.width = Math.round(box.width * 2);      // twice over, so it stands
+                    canvas.height = Math.round(box.height * 2);    // being looked at
+                    const g = canvas.getContext('2d');
+                    g.fillStyle = getComputedStyle(document.querySelector('.app') || document.body).backgroundColor;
+                    g.fillRect(0, 0, canvas.width, canvas.height);
+                    g.drawImage(img, 0, 0, canvas.width, canvas.height);
+
+                    const a = document.createElement('a');
+                    a.href = canvas.toDataURL('image/png');
+                    a.download = name;
+                    document.body.appendChild(a);
+                    a.click();
+                    a.remove();
+                };
+                img.src = 'data:image/svg+xml;base64,'
+                        + btoa(String.fromCharCode(...new TextEncoder().encode(svg)));
+            },
             // Reading an uploaded file as base64 so it can be posted as JSON. The datasheets
             // are PDFs of tens of megabytes, so this is done in the browser rather than
             // building a multipart pipeline for one endpoint.
+            // A file dropped on a card, landing in that card's file input.
+            //
+            // Through the input rather than around it: everything downstream - the accept list,
+            // reading the bytes, the name shown beside the button - already works off input.files,
+            // and a second path to the same file would be a second thing to keep in step. A
+            // DataTransfer is the only way to write that list, and the change event is what tells
+            // the browser (and anything listening) that the box now has something in it.
+            dropFile: (zone, input) => {
+                if (!zone || !input || zone.dataset.lecDrop) return;
+                zone.dataset.lecDrop = '1';
+
+                const stop = (e) => { e.preventDefault(); e.stopPropagation(); };
+                for (const name of ['dragenter', 'dragover']) {
+                    zone.addEventListener(name, (e) => {
+                        stop(e);
+                        e.dataTransfer.dropEffect = 'copy';
+                        zone.classList.add('dropping');
+                    });
+                }
+
+                // dragleave fires on the way into a child as well as on the way out of the card,
+                // so a drag crossing the file input would flicker the outline off and on.
+                zone.addEventListener('dragleave', (e) => {
+                    stop(e);
+                    if (e.relatedTarget && zone.contains(e.relatedTarget)) return;
+                    zone.classList.remove('dropping');
+                });
+
+                zone.addEventListener('drop', (e) => {
+                    stop(e);
+                    zone.classList.remove('dropping');
+
+                    const file = e.dataTransfer.files && e.dataTransfer.files[0];
+                    if (!file) return;
+
+                    const carrier = new DataTransfer();
+                    carrier.items.add(file);
+                    input.files = carrier.files;
+                    input.dispatchEvent(new Event('change', { bubbles: true }));
+                });
+            },
+
+            // Just the name of what is in a file input — for the box that shows it, which does not
+            // want the file itself. readFile would read a forty-megabyte guide into a base64 string
+            // to answer the same question.
+            fileName: (input) => (input && input.files && input.files[0]) ? input.files[0].name : null,
+
             readFile: (input) => new Promise((resolve, reject) => {
                 const file = input.files[0];
                 if (!file) { resolve(null); return; }
@@ -42,8 +322,481 @@
                 reader.onerror = () => reject(reader.error);
                 reader.readAsDataURL(file);
             }),
-            scrollToEnd: (el) => { if (el) el.scrollTop = el.scrollHeight; }
-        };
+            // Tell a component how big one of its own elements is, now and whenever that
+            // changes. For anything that has to be drawn at a size rather than described at
+            // one: the plot paints in pixels, so it has to be told how many it has before it
+            // can put a tick at the right end of an axis. Zero sizes are not reported - an
+            // element in a hidden tab measures zero, and a plot told it is zero wide throws
+            // away the axis it had.
+            observe: (el, ref, method) => {
+                if (!el || !ref) return;
+                let w = 0, h = 0;
+                const watch = new ResizeObserver(() => {
+                    const box = el.getBoundingClientRect();
+                    const nw = Math.round(box.width), nh = Math.round(box.height);
+                    if (nw < 1 || nh < 1 || (nw === w && nh === h)) return;
+                    w = nw; h = nh;
+                    ref.invokeMethodAsync(method, nw, nh);
+                });
+                watch.observe(el);
+                el.__lecWatch = watch;
+            },
+            unobserve: (el) => { if (el && el.__lecWatch) { el.__lecWatch.disconnect(); el.__lecWatch = null; } },
+
+            scrollToEnd: (el) => { if (el) el.scrollTop = el.scrollHeight; },
+
+            // The AI window's request box: one line, growing with what is in it, and Enter to
+            // send.
+            //
+            // Both halves have to be here rather than in the component. A textarea inserts its
+            // own newline on Enter and only preventDefault stops it, which Blazor can only ask
+            // for at render time — not "this keystroke but not that one". And a textarea has
+            // no height that follows its content: the height is set from scrollHeight, after
+            // clearing it, because scrollHeight of an already-tall box never comes back down.
+            //
+            // The ceiling is the stylesheet's max-height, so a pasted hundred-line script
+            // scrolls inside the box instead of eating the transcript above it.
+            fitBox: (el) => {
+                if (!el) return;
+                el.style.height = 'auto';
+                // scrollHeight is the content; the height is border-box. Set to the one
+                // without the other and the box is a border short of its own text, which is a
+                // scrollbar on a box holding one line.
+                el.style.height = (el.scrollHeight + el.offsetHeight - el.clientHeight) + 'px';
+            },
+
+            chatbox: (el, ref) => {
+                if (!el || el.dataset.lecChat === '1') return;
+                el.dataset.lecChat = '1';
+
+                const fit = () => window.lec.fitBox(el);
+                el.addEventListener('input', fit);
+
+                el.addEventListener('keydown', (e) => {
+                    // isComposing: an IME's Enter accepts the candidate, it does not send.
+                    if (e.key !== 'Enter' || e.shiftKey || e.altKey || e.ctrlKey
+                        || e.metaKey || e.isComposing) return;
+                    e.preventDefault();
+                    ref.invokeMethodAsync('SendRequest');
+                });
+
+                fit();
+            },
+
+            // Focus, which markup cannot ask for either. Used when a menu opens: the key
+            // handler is on the menu, so Esc only works while focus is inside it.
+            focus: (el) => { if (el) el.focus(); },
+
+            // A modal dialog. <dialog> already knows how to be modal, trap focus, draw a
+            // backdrop and close on Esc — all of which a hand-built overlay gets wrong — but
+            // showModal() is a method, and a method is the one thing markup cannot express.
+            dialog: {
+                // Which window is on top. Several tool windows are open at once and the one just
+                // touched belongs in front, which is what a title bar is for - so this counts up
+                // from the z-index the stylesheet gives them and hands out the next one on every
+                // press. Non-modal dialogs are not in the top layer, so plain z-index decides.
+                z: 30,
+                // The optional second argument is told when the dialog is dismissed, so a
+                // component does not go on believing its dialog is open — and holding on to
+                // whatever was inside it — after the user has shut it.
+                //
+                // Every way out is handled here rather than left to the element's own close
+                // event. A <dialog> is meant to close itself on Esc and announce it, and most
+                // browsers do both, but not all of them do either: the preview browser this
+                // was built against does neither, which makes a dialog with no visible ✕ a
+                // trap. Two listeners cost nothing and work the same everywhere.
+                open: (el, ref) => {
+                    if (!el || el.open) return;
+
+                    // The tool windows are not modal, because on the desktop they are not
+                    // windows that stop you: ScriptForm, the readout, the reference and both
+                    // captures are all opened with Show(), and the console goes on working
+                    // underneath. So no backdrop, nothing dimmed, and no click-outside to
+                    // dismiss — with the app live behind it, the first click on the thing you
+                    // opened the window to look at would shut the window.
+                    //
+                    // The About box and the AI connection stay modal, as they are there:
+                    // ShowDialog, both of them, and there is nothing behind them to do.
+                    const modal = !el.classList.contains('tool');
+
+                    const raise = () => { el.style.zIndex = ++window.lec.dialog.z; };
+
+                    if (!el.dataset.wired) {
+                        el.dataset.wired = '1';   // once per element, not once per opening
+
+                        // Anything pressed inside brings the window forward. In the capture phase,
+                        // so a control that stops the event still raises the window it is in.
+                        if (!modal) el.addEventListener('mousedown', raise, true);
+                        const shut = () => {
+                            if (el.open) el.close();
+                            const back = el.__lecRef;
+                            if (back) back.invokeMethodAsync('DialogClosed');
+                        };
+                        // Click outside to dismiss. The backdrop is not an element, so a
+                        // press on it lands on the dialog itself; anything inside hits a
+                        // child.
+                        //
+                        // Both ends of the press have to be out there, which is why this is
+                        // not a click handler. A click event is dispatched at the common
+                        // ancestor of where the button went down and where it came up, so
+                        // selecting the text in a field and releasing past the edge of the
+                        // box produces a click whose target is the dialog itself — identical,
+                        // to a click listener, to a deliberate press on the backdrop. It shut
+                        // the box and threw away what had been typed into it. Watching the
+                        // two ends separately tells them apart: mouseup is dispatched where
+                        // the button actually came up, not at an ancestor.
+                        if (modal) {
+                            let downOutside = false;
+                            el.addEventListener('mousedown', (e) => { downOutside = e.target === el; });
+                            el.addEventListener('mouseup', (e) => {
+                                const outside = downOutside && e.target === el;
+                                downOutside = false;
+                                if (outside) shut();
+                            });
+                        }
+                        // Esc for both. A modal <dialog> is meant to handle it itself and most
+                        // browsers do; a non-modal one never does, and the preview browser this
+                        // was built against does neither.
+                        el.addEventListener('keydown', (e) => { if (e.key === 'Escape') shut(); });
+
+                        // A tool window can be dragged by its title bar. It opens in the middle
+                        // and the middle is where the work is, so it routinely lands on top of
+                        // the very thing it was opened to look at — a catalog over the script
+                        // that needs the command, a capture over the console that took it. Every
+                        // window in the desktop app can be moved out of the way; these could not.
+                        //
+                        // The modal boxes stay where they are put. There is nothing behind one
+                        // to uncover — the page is greyed out and out of reach until it closes —
+                        // so moving it would be moving it off the middle for no reason, and the
+                        // desktop's About and AI boxes are ShowDialog, which is fixed too.
+                        //
+                        // No library and no polyfill: a <dialog> is already a positioned box,
+                        // so moving one is setting left and top. The only care needed is the
+                        // clamp — dragged fully past an edge it takes its own title bar with
+                        // it and there is nothing left to drag back.
+                        const grip = modal ? null : el.querySelector('.tool-head');
+                        if (grip) {
+                            grip.classList.add('grip');
+                            grip.addEventListener('mousedown', (e) => {
+                                // The head holds real controls: the ✕, and sometimes a link.
+                                if (e.target.closest('button, a, input, select, textarea')) return;
+
+                                const box = el.getBoundingClientRect();
+                                const dx = e.clientX - box.left, dy = e.clientY - box.top;
+                                el.dataset.lecPlaced = '1';   // hands off, from here on
+                                el.style.position = 'fixed';
+                                // Where it already is, written down before the centring is taken away. The box is
+                                // centred by inset: 0 with auto margins, so margin: 0 on its own drops it into the
+                                // top-left corner and it stays there until the first mousemove puts it back under
+                                // the cursor - a flick to the corner and back on every window, on the first drag
+                                // only. Setting left and top to the box it is standing in means nothing moves.
+                                el.style.left = box.left + 'px';
+                                el.style.top = box.top + 'px';
+                                el.style.margin = '0';
+
+                                const keep = 40;   // enough bar left on screen to grab again
+                                const move = (m) => {
+                                    el.style.left = Math.min(Math.max(m.clientX - dx, keep - el.offsetWidth),
+                                                             innerWidth - keep) + 'px';
+                                    el.style.top = Math.min(Math.max(m.clientY - dy, 0),
+                                                            innerHeight - keep) + 'px';
+                                };
+                                const drop = () => {
+                                    document.removeEventListener('mousemove', move);
+                                    document.removeEventListener('mouseup', drop);
+                                };
+                                document.addEventListener('mousemove', move);
+                                document.addEventListener('mouseup', drop);
+                                e.preventDefault();   // or the drag selects the heading text
+                            });
+                        }
+
+                        // A window fills in after it opens: a catalog of 24,000 commands and a
+                        // language reference of a dozen sections both arrive from the server a
+                        // moment after the window does. Pinned where it was centred while it was
+                        // still empty, it then grows downwards from that pin and hangs off the
+                        // bottom of the screen - a third of the reference was below the fold with
+                        // no way to reach it but to drag the window up.
+                        //
+                        // So when the height changes, pull it back inside. Upwards only, and only
+                        // as far as it has to come — and not at all once the window has been put
+                        // somewhere by hand. A window being dragged while its content was still
+                        // arriving was hauled back up out from under the pointer, which is a worse
+                        // thing than the one this is here to prevent.
+                        // Once, and then it lets go. A window that has been on screen for a while
+                        // has been read, moved and worked in; something growing inside it later —
+                        // a filter emptying a list, a draft arriving — is not a reason to move the
+                        // window out from under the pointer.
+                        if (!modal) {
+                            const opened = Date.now();
+                            let tall = 0;
+                            const fit = new ResizeObserver(() => {
+                                if (el.dataset.lecPlaced) { fit.disconnect(); return; }
+
+                                // Only while it is still arriving. A window that has been up for a
+                                // few seconds has been read, moved and worked in, and something
+                                // growing inside it then - a filter emptying a list - is not a
+                                // reason to move the window out from under the pointer.
+                                if (Date.now() - opened > 5000) { fit.disconnect(); return; }
+
+                                const box = el.getBoundingClientRect();
+                                if (box.height === tall) return;
+                                tall = box.height;
+                                const over = box.bottom - (innerHeight - 8);
+                                if (over > 0) el.style.top = Math.max(8, box.top - over) + 'px';
+                            });
+                            fit.observe(el);
+                        }
+
+                        // And sized by the corner. This was resize: both, which works and cannot
+                        // be seen: the browser draws four hairlines in the bottom-right corner, in
+                        // the border colour, directly under the end of the body's scrollbar. Ours
+                        // is a drawn patch (see .sizer), and the arithmetic is the same arithmetic
+                        // as the drag - a pointer offset added to the box it started from.
+                        const sizer = modal ? null : el.querySelector('.sizer');
+                        if (sizer) {
+                            sizer.addEventListener('mousedown', (e) => {
+                                const box = el.getBoundingClientRect();
+                                const x0 = e.clientX, y0 = e.clientY;
+                                el.dataset.lecPlaced = '1';
+                                const floor = 220;
+                                const size = (m) => {
+                                    el.style.width = Math.max(420, box.width + m.clientX - x0) + 'px';
+                                    el.style.height = Math.max(floor, box.height + m.clientY - y0) + 'px';
+                                };
+                                const drop = () => {
+                                    document.removeEventListener('mousemove', size);
+                                    document.removeEventListener('mouseup', drop);
+                                };
+                                document.addEventListener('mousemove', size);
+                                document.addEventListener('mouseup', drop);
+                                e.preventDefault();
+                            });
+                        }
+                    }
+                    el.__lecRef = ref || null;
+                    // Opened where a dialog belongs, wherever the last one was left.
+                    el.style.position = el.style.left = el.style.top = el.style.margin = '';
+                    if (modal) el.showModal(); else el.show();
+
+                    if (!modal) {
+                        raise();
+
+                        // Pinned where it opened, before anything moves it. Centred by inset: 0 with
+                        // auto margins it has no left or top of its own, so the resize grip would
+                        // grow it about its centre - drag the bottom-right corner and the top-left
+                        // one walks away from the pointer. With both written down it is an ordinary
+                        // positioned box and the grip does what a grip does.
+                        //
+                        // And each window after the first steps down and right the way a window
+                        // manager cascades: they all open in the middle, so a second one landing
+                        // exactly on the first reads as the same window having changed rather than
+                        // a new one having arrived. Far enough that the title bar underneath is
+                        // still there to be seen and grabbed.
+                        const others = [...document.querySelectorAll('dialog.tool[open]')]
+                            .filter((d) => d !== el).length;
+                        const step = 28 * others;
+                        const box = el.getBoundingClientRect();
+                        el.style.position = 'fixed';
+                        el.style.margin = '0';
+                        el.style.left = Math.max(8, Math.min(box.left + step, innerWidth - 160)) + 'px';
+                        el.style.top = Math.max(8, Math.min(box.top + step, innerHeight - 80)) + 'px';
+                    }
+                },
+                // Bring one to the front without reopening it. Pressing a tool button whose window
+                // is already open means "show me that", not "start it again" - reopening would
+                // throw away whatever was being written in it.
+                raise: (el) => { if (el && el.open) el.style.zIndex = ++window.lec.dialog.z; },
+
+                close: (el) => { if (el && el.open) el.close(); }
+            }
+        });
+
+        // A detached console lives in its own browser tab or window. The desktop app can
+        // reparent the control itself; a web page cannot, so the console is rebuilt over
+        // there against the same server-side session — the log starts empty, the instrument
+        // and its connection are untouched.
+        //
+        // Which consoles are detached is never remembered, only asked: the main page
+        // broadcasts a ping and every detached tab answers with the session it holds. A
+        // remembered list goes stale the moment a tab is closed while the main page is shut,
+        // and a stale entry hides a console behind a window that is not there.
+        //
+        // (Browser tab *groups* are an extension API — chrome.tabGroups — and no page can
+        // create one. What a page can do is open each console under its own name, which
+        // keeps a second Detach from spawning a duplicate, puts the tab next to its opener,
+        // and titles it after the instrument. That is the tidiness that is actually ours.)
+        window.lec.windows = (() => {
+            const channel = 'BroadcastChannel' in window ? new BroadcastChannel('lec-consoles') : null;
+            const opened = new Map();   // name -> handle, so Detach focuses rather than duplicates
+            let main = null;            // the main page's .NET object, when this tab is the main one
+            let mine = null;            // the session this tab was detached for, when it is one
+            let mineTool = null;        // the tool this tab is, when it is one of those instead
+
+            const say = (msg) => { if (channel) channel.postMessage(msg); };
+
+            const goHome = () => {
+                // Hand the console back, then close.
+                const id = mine;
+                say({ type: 'attached', id });
+                mine = null;
+                document.title = 'Lab Equipment Controller';
+                // Give up the name too. If closing does not work and this window ends up back
+                // on the bench page, a later Detach must open a console rather than find this
+                // window under the old name and simply raise it.
+                window.name = '';
+                window.close();
+
+                // close() is only permitted for a window that script opened. This one always
+                // was — unless somebody bookmarked the address, or restored the tab, or the
+                // browser turned the pop-up into a plain navigation. Still being here after a
+                // moment means one of those, and stranding a console in a tab with no way out
+                // is not an acceptable answer to "put it back".
+                setTimeout(() => {
+                    if (!window.closed) location.href = new URL('?session=' + id, document.baseURI).href;
+                }, 150);
+            };
+
+            // Who answered the last roll-call. A window announces itself when it opens and
+            // again when it closes, but a closing announcement is the one message that cannot
+            // be relied on — a tab that is killed, crashes or is restored from the back/forward
+            // cache never gets to send it, and the bench page would be left holding a console
+            // open in a window that is not there, with no way to get it back.
+            //
+            // So the closing announcement is a courtesy, not the record. The record is a
+            // roll-call: ask, and rebuild the list from who answers.
+            const answers = new Set();
+            const tools = new Set();    // and the same roll-call for the windows that are routes
+            let collecting = null;
+
+            const resync = () => {
+                answers.clear();
+                tools.clear();
+                say({ type: 'ping' });
+                clearTimeout(collecting);
+                // Long enough for a tab that is awake to answer. One still booting will not,
+                // and will announce itself when it does — which corrects this in the other
+                // direction a moment later.
+                collecting = setTimeout(() => {
+                    if (!main) return;
+                    main.invokeMethodAsync('Present', [...answers]);
+                    main.invokeMethodAsync('ToolsPresent', [...tools]);
+                }, 400);
+            };
+
+            const onVisible = () => { if (document.visibilityState === 'visible') resync(); };
+
+            // And a roll-call on a timer while anything is out there, because coming back to this
+            // tab is not the only way a tab of a window stops existing. Side by side in two OS
+            // windows, closing one raises no focus event in the other at all — and the window
+            // would sit out until something else happened to ask.
+            //
+            // Only while something is out: a ping nobody is expected to answer, every two seconds,
+            // for the whole life of a page that never opened one, is a cost with no case behind it.
+            let watching = null;
+            const expect = (outstanding) => {
+                clearInterval(watching);
+                watching = outstanding > 0 ? setInterval(resync, 2000) : null;
+            };
+
+            if (channel) channel.onmessage = (e) => {
+                const m = e.data || {};
+                if (mine) {
+                    if (m.type === 'ping') say({ type: 'detached', id: mine });
+                    else if (m.type === 'recall' && m.id === mine) goHome();
+                    return;
+                }
+                if (mineTool) {
+                    if (m.type === 'ping') say({ type: 'tool', which: mineTool });
+                    return;
+                }
+                if (!main) return;
+                if (m.type === 'detached') { answers.add(m.id); main.invokeMethodAsync('Detached', m.id); }
+                else if (m.type === 'attached') { answers.delete(m.id); main.invokeMethodAsync('Attached', m.id); }
+                else if (m.type === 'tool') { tools.add(m.which); main.invokeMethodAsync('ToolSeen', m.which); }
+            };
+
+            return {
+                // The main page: register, then hold a roll-call — now, and every time the
+                // user comes back to this tab, which is exactly when a stale answer would
+                // start doing damage.
+                listen: (ref) => {
+                    main = ref;
+                    resync();
+                    // Both, and named rather than inline: a tab switch fires one or the other
+                    // depending on the browser, and an anonymous handler cannot be taken off
+                    // again — which would pile up another pair every time this page is opened.
+                    window.addEventListener('focus', resync);
+                    document.addEventListener('visibilitychange', onVisible);
+                },
+                forget: () => {
+                    main = null;
+                    clearInterval(watching);
+                    watching = null;
+                    window.removeEventListener('focus', resync);
+                    document.removeEventListener('visibilitychange', onVisible);
+                },
+
+                // How many windows the bench believes are out in tabs. Nought stops the timer.
+                expect,
+
+                // Raise a console's window without disturbing it. Detaching is an ordinary
+                // link and needs none of this; only "show me the one that is already open"
+                // does, because the obvious way to write that — a link to the same address —
+                // reloads the console and throws away its log.
+                raise: (url, name) => {
+                    // Already open, and we still hold it: bring it forward, touch nothing.
+                    const held = opened.get(name);
+                    if (held && !held.closed) { held.focus(); return true; }
+
+                    // The handle may have been lost — this page could have been reloaded since
+                    // the console was detached. An empty URL asks for the window by name
+                    // *without* navigating it.
+                    const w = window.open('', name);
+                    if (!w) return false;   // blocked: the caller says so rather than doing nothing
+
+                    // A window that did not exist arrives blank. That one gets sent somewhere.
+                    try { if (w.location.href === 'about:blank') w.location.replace(url); }
+                    catch { w.location.replace(url); }
+
+                    opened.set(name, w);
+                    w.focus();
+                    return true;
+                },
+
+                // A detached tab announcing itself, and undertaking to announce its own death.
+                claim: (id, title) => {
+                    mine = id;
+                    document.title = title;
+                    say({ type: 'detached', id });
+                    window.addEventListener('pagehide', () => say({ type: 'attached', id }));
+                },
+
+                release: () => goHome(),
+
+                // A reference, or the multi-instrument editor, in a browser tab of its own.
+                //
+                // Opening one in a tab moves the window there — the dialog on the bench closes as
+                // the tab opens — so closing the tab has to put it back, or the window is simply
+                // gone and the way to get it back is to remember which menu it was under.
+                //
+                // It answers the roll-call and does nothing else. There is no closing
+                // announcement, for the reason the note above gives and because it was tried: a
+                // postMessage from pagehide does not survive the document being torn down, and
+                // the one time it would survive — a reload — is the one time it would be a lie.
+                // The bench asks who is out there every time it is looked at, which is exactly
+                // when a tab that has just been closed needs to be noticed.
+                claimTool: (which) => {
+                    mineTool = which;
+                    say({ type: 'tool', which });
+                },
+
+                // Ask a console to come home, then check that it did. A window that has
+                // already gone will not answer either message, and the roll-call is what
+                // notices that rather than leaving the tab dimmed for a window with nobody in.
+                recall: (id) => { say({ type: 'recall', id }); setTimeout(resync, 500); }
+            };
+        })();
     </script>
 </body>
 </html>

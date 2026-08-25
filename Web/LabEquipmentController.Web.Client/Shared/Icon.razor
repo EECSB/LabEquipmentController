@@ -1,0 +1,251 @@
+@* The desktop app's button glyphs, the same ones, on the same 64-unit grid.
+
+   The desktop gets its icons two ways, and so does this. Some are bundled artwork — PNGs
+   under Assets/icons, loaded by AppIcons.Get — and those are used here as the very same
+   files, carried in app.css as a mask so they take the button's colour rather than staying
+   black on a dark theme. The rest AppIcons.Drawn draws in code on a 64×64 canvas, and those
+   are transcribed below from that code, coordinate for coordinate: what is a DrawEllipse at
+   (10,10,32,32) there is a circle at (26,26) r16 here.
+
+   They were re-invented on a 16-unit grid before this, which is why a Connect button that is
+   a plug on the desktop was a rotated square on the web.
+
+   Unknown names render nothing rather than throwing: a button with a missing icon is a
+   button with no icon, not a broken page. *@
+
+@switch (Name)
+{
+    @* ---- bundled artwork, tinted (see .ico-* in app.css) ---- *@
+    case "connect":
+    case "scan":
+    case "clear":
+    case "stop":
+    case "send":
+    case "script":
+    case "start":
+    case "savefile":
+    case "new":
+    case "openfile":
+        @* Scan and Clear share the desktop's one circular-arrow glyph, as they do there. *@
+        <span class="ico ico-@(Name == "clear" ? "scan" : Name)" aria-hidden="true"></span>
+        break;
+
+    @* ---- drawn, from AppIcons.Drawn ---- *@
+
+    @* DrawSearch: an ellipse at (10,10,32,32) and a line from (39,39) to (55,55). *@
+    case "search":
+        <svg viewBox="0 0 64 64" fill="none" stroke="currentColor" stroke-width="7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <circle cx="26" cy="26" r="16" /><path d="M39 39 55 55" />
+        </svg>
+        break;
+
+    @* DrawCamera: a filled viewfinder hump, an outlined body, a solid lens. *@
+    case "camera":
+        <svg viewBox="0 0 64 64" fill="none" stroke="currentColor" stroke-width="6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <rect x="22" y="10" width="20" height="9" fill="currentColor" stroke="none" />
+            <rect x="7" y="19" width="50" height="36" />
+            <circle cx="32" cy="37" r="9" fill="currentColor" stroke="none" />
+        </svg>
+        break;
+
+    @* DrawWave: one cycle of a sine through (7,32) (19,13) (32,32) (45,51) (57,32), which the
+       desktop draws as a cardinal spline through those five points.
+
+       Two cubics, one per half period, using the standard sine approximation: controls at
+       4/(3pi) and 1 - 4/(3pi) along the half period, 4/3 of the amplitude out. That puts the
+       crest exactly on (19.5,13) and the trough on (44.5,51), horizontal at both, and the
+       joins tangent-continuous — a sine, in other words.
+
+       It was five cubics before, hand-placed, and the middle one dropped almost vertically
+       through the zero crossing. At 14px that reads as a spike between two humps: noise, not
+       a waveform. Any curve through the right five points is not the right curve. *@
+    case "wave":
+        <svg viewBox="0 0 64 64" fill="none" stroke="currentColor" stroke-width="7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M7 32C17.61 6.67 21.39 6.67 32 32s14.39 25.33 25 0" />
+        </svg>
+        break;
+
+    @* DrawBars: three filled bars of different heights, the live readout's glyph. Bars rather
+       than a trend line on purpose — a squiggle beside the wave button is one squiggle. *@
+    case "bars":
+        <svg viewBox="0 0 64 64" fill="currentColor" aria-hidden="true">
+            <rect x="8" y="34" width="13" height="22" />
+            <rect x="26" y="18" width="13" height="38" />
+            <rect x="44" y="27" width="13" height="29" />
+        </svg>
+        break;
+
+    @* DrawCopy: the front sheet whole, and the corner of the one behind it that clears it. *@
+    case "copy":
+        <svg viewBox="0 0 64 64" fill="none" stroke="currentColor" stroke-width="6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M22 10h32v32" />
+            <rect x="10" y="22" width="32" height="32" />
+        </svg>
+        break;
+
+    @* DrawInsert: an arrow to the right — the command moving into the command box. *@
+    case "insert":
+        <svg viewBox="0 0 64 64" fill="none" stroke="currentColor" stroke-width="7" stroke-linecap="round" aria-hidden="true">
+            <path d="M9 32h27" />
+            <path d="M57 32 35 20v24z" fill="currentColor" stroke="none" />
+        </svg>
+        break;
+
+    @* DrawFolder: for picking a file off disk. A magnifier would say "search in here", which
+       is a different gesture. *@
+    case "folder":
+        <svg viewBox="0 0 64 64" fill="none" stroke="currentColor" stroke-width="6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M8 50V16h18l7 9h23v25z" />
+        </svg>
+        break;
+
+    @* DrawGlobe: for a button that leaves the app for the web. Sphere, equator, and one
+       meridian seen edge-on. *@
+    case "globe":
+        <svg viewBox="0 0 64 64" fill="none" stroke="currentColor" stroke-width="7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <circle cx="32" cy="32" r="24" />
+            <path d="M8 32h48" />
+            <ellipse cx="32" cy="32" rx="8" ry="24" />
+        </svg>
+        break;
+
+    @* DrawSparkle: a four-pointed star at (25,36) r25, and a small one at (49,13) r12. The
+       waists are 28% of the radius, which is where the desktop's Star() puts them. *@
+    case "ai":
+        <svg viewBox="0 0 64 64" fill="currentColor" aria-hidden="true">
+            <path d="M25 11 32 29 50 36 32 43 25 61 18 43 0 36 18 29z" />
+            <path d="M49 1 52.4 9.6 61 13 52.4 16.4 49 25 45.6 16.4 37 13 45.6 9.6z" />
+        </svg>
+        break;
+
+    @* DrawFloppy: body with the clipped top-right corner, and the metal shutter. *@
+    case "save":
+        <svg viewBox="0 0 64 64" fill="none" stroke="currentColor" stroke-width="6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M10 10h34l10 10v34H10z" />
+            <rect x="22" y="14" width="18" height="16" fill="currentColor" stroke="none" />
+        </svg>
+        break;
+
+    @* DrawMove: a rounded frame open at its top-right corner, with the arrow leaving through
+       the gap or arriving through it. The frame carries the meaning — these buttons say where
+       the console is going, not which direction — and the arrow says which way.
+
+       The inbound head is drawn well inside the frame rather than across the gap it enters by.
+       On the corner it merges with it, and the button reads as a box with a wedge on it, which
+       is an editing glyph and near enough the outbound one to be no help. Both heads are 17
+       units across the base so the pair weighs the same. *@
+    case "detach":
+        <svg viewBox="0 0 64 64" fill="none" stroke="currentColor" stroke-width="6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M34 14H14a4 4 0 0 0-4 4v32a4 4 0 0 0 4 4h32a4 4 0 0 0 4-4V30" />
+            <path d="M32 32 45 19" /><path d="M58 6 50 26 38 14z" fill="currentColor" stroke="none" />
+        </svg>
+        break;
+    case "attach":
+        <svg viewBox="0 0 64 64" fill="none" stroke="currentColor" stroke-width="6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M34 14H14a4 4 0 0 0-4 4v32a4 4 0 0 0 4 4h32a4 4 0 0 0 4-4V30" />
+            <path d="M58 6 36 28" /><path d="M22 42 29 23 41 35z" fill="currentColor" stroke="none" />
+        </svg>
+        break;
+
+    @* ---- no desktop counterpart: menu items and web chrome, drawn to the same weight ---- *@
+
+    case "book":
+        <svg viewBox="0 0 64 64" fill="none" stroke="currentColor" stroke-width="6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M8 13h16a8 8 0 0 1 8 5 8 8 0 0 1 8-5h16v38H40a8 8 0 0 0-8 5 8 8 0 0 0-8-5H8z" />
+            <path d="M32 18v38" />
+        </svg>
+        break;
+    case "grid":
+        <svg viewBox="0 0 64 64" fill="none" stroke="currentColor" stroke-width="6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <rect x="8" y="10" width="48" height="44" rx="4" /><path d="M8 25h48M24 25v29" />
+        </svg>
+        break;
+    case "plug":
+        <svg viewBox="0 0 64 64" fill="none" stroke="currentColor" stroke-width="6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M22 6v14M42 6v14" /><path d="M14 20h36v11a18 18 0 0 1-36 0z" /><path d="M32 49v9" />
+        </svg>
+        break;
+    @* Points at the submenu it opens, which is the one thing on a menu row that has to say
+       there is more behind it. *@
+    case "chev":
+        <svg viewBox="0 0 64 64" fill="none" stroke="currentColor" stroke-width="7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M24 12 44 32 24 52" />
+        </svg>
+        break;
+    @* The corner a window is sized by: the two-headed diagonal, which is the shape the pointer
+       turns into over it. The heads are drawn as corners rather than as arrowheads — at 14px a
+       filled head is a blob, and the corner reads as a corner at any size. *@
+    case "sizer":
+        <svg viewBox="0 0 64 64" fill="none" stroke="currentColor" stroke-width="6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M12 28V12h16" /><path d="M52 36v16H36" /><path d="M12 12 52 52" />
+        </svg>
+        break;
+
+    case "close":
+        <svg viewBox="0 0 64 64" fill="none" stroke="currentColor" stroke-width="6" stroke-linecap="round" aria-hidden="true">
+            <path d="m18 18 28 28M46 18 18 46" />
+        </svg>
+        break;
+
+    @* The close glyph turned forty-five degrees, arm for arm: same length, same weight. They
+       appear together on the capture window — a ✕ takes a card away and this adds the next —
+       and two marks that do opposite things should be the same mark facing differently. *@
+    case "plus":
+        <svg viewBox="0 0 64 64" fill="none" stroke="currentColor" stroke-width="6" stroke-linecap="round" aria-hidden="true">
+            <path d="M32 18v28M18 32h28" />
+        </svg>
+        break;
+
+    @* The plus with its upright taken away, so the pair reads as one control with two ends. *@
+    case "minus":
+        <svg viewBox="0 0 64 64" fill="none" stroke="currentColor" stroke-width="6" stroke-linecap="round" aria-hidden="true">
+            <path d="M18 32h28" />
+        </svg>
+        break;
+
+    @* Back to the whole record: two walls, and an arrow spreading out to meet them. Not the
+       circular arrow the Scan and Clear buttons wear — that one means "do it again", and this
+       means "show all of it". *@
+    case "fit":
+        <svg viewBox="0 0 64 64" fill="none" stroke="currentColor" stroke-width="6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M14 16v32M50 16v32" />
+            <path d="M24 32h16" />
+            <path d="M28 26l-6 6 6 6M36 26l6 6-6 6" />
+        </svg>
+        break;
+    case "info":
+        <svg viewBox="0 0 64 64" fill="none" stroke="currentColor" stroke-width="6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <circle cx="32" cy="32" r="23" /><path d="M32 29v14M32 20v.5" />
+        </svg>
+        break;
+    @* A six-toothed cog: the teeth at the outer radius, a hub at the middle, drawn to the
+       same weight as the rest. Six rather than the usual eight because this is read at 14px
+       in the title bar, where eight teeth close up into a plain circle. *@
+    case "gear":
+        <svg viewBox="0 0 64 64" fill="none" stroke="currentColor" stroke-width="6" stroke-linejoin="round" aria-hidden="true">
+            <path d="M26.4 13.8L26.1 4.1A28.5 28.5 0 0 1 37.9 4.1L37.6 13.8A19 19 0 0 1 45 18.1L53.2 12.9A28.5 28.5 0 0 1 59.1 23.2L50.5 27.7A19 19 0 0 1 50.5 36.3L59.1 40.8A28.5 28.5 0 0 1 53.2 51.1L45 45.9A19 19 0 0 1 37.6 50.2L37.9 59.9A28.5 28.5 0 0 1 26.1 59.9L26.4 50.2A19 19 0 0 1 19 45.9L10.8 51.1A28.5 28.5 0 0 1 4.9 40.8L13.5 36.3A19 19 0 0 1 13.5 27.7L4.9 23.2A28.5 28.5 0 0 1 10.8 12.9L19 18.1A19 19 0 0 1 26.4 13.8Z" />
+            <circle cx="32" cy="32" r="7.5" />
+        </svg>
+        break;
+    case "sun":
+        <svg viewBox="0 0 64 64" fill="none" stroke="currentColor" stroke-width="6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <circle cx="32" cy="32" r="12" />
+            <path d="M32 5v7M32 52v7M5 32h7M52 32h7M13 13l5 5M46 46l5 5M51 13l-5 5M18 46l-5 5" />
+        </svg>
+        break;
+    case "moon":
+        <svg viewBox="0 0 64 64" fill="none" stroke="currentColor" stroke-width="6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M54 38A23 23 0 0 1 26 10a23 23 0 1 0 28 28z" />
+        </svg>
+        break;
+    case "auto":
+        <svg viewBox="0 0 64 64" fill="none" stroke="currentColor" stroke-width="6" stroke-linejoin="round" aria-hidden="true">
+            <circle cx="32" cy="32" r="22" /><path d="M32 10a22 22 0 0 1 0 44z" fill="currentColor" stroke="none" />
+        </svg>
+        break;
+}
+
+@code {
+    /// <summary>Which glyph to draw. An unrecognised name draws nothing.</summary>
+    [Parameter, EditorRequired] public string Name { get; set; } = "";
+}

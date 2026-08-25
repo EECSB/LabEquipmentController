@@ -5,7 +5,7 @@ Written to be handed to an AI coding agent — point one at this file and at you
 address and it has everything it needs — but every step is a person's job just as well.
 
 **You are the only one who can do this.** The catalogs in this project are transcribed from
-vendor programming guides, and 518 of 23,174 entries have ever been confirmed against a real
+vendor programming guides, and 518 of 23,978 entries have ever been confirmed against a real
 instrument, because this project has three instruments on its bench. Yours is a model nobody
 here has. A command you confirm answers a question no amount of re-reading the guide can.
 
@@ -105,7 +105,7 @@ the only place that record lives.
 |------------|-----------|-------|----------------|
 | Make and model, as `*IDN?` reports it | **VXI-11** or raw socket + port | Anything a future contributor needs to know — firmware quirks, a port that misbehaves, a command the guide gets wrong | your handle |
 
-The table is what turns "518 of 23,174 entries are bench-verified" from a claim into
+The table is what turns "518 of 23,978 entries are bench-verified" from a claim into
 something traceable to a person and a piece of hardware. An entry marked `benchVerified`
 whose instrument is in nobody's name is exactly the kind of unattributed assertion this
 project refuses everywhere else.
@@ -154,7 +154,7 @@ what to try instead:
 }
 ```
 
-Those entries show in the library with a **⚠** and their note in the tooltip. There are 45
+Those entries show in the library with a **⚠** and their note in the tooltip. There are 49
 of them today. Silently correcting a vendor's typo puts SCPI in the catalog that nobody
 documented; shipping both spellings is the same thing in a politer form.
 
@@ -191,11 +191,12 @@ verified them, on what.
 
 In rough order:
 
-1. **Bench ticks on any catalog with none.** Thirty-two of the thirty-five catalogs have
+1. **Bench ticks on any catalog with none.** Thirty-three of the thirty-six catalogs have
    never touched hardware. A model from any of them is valuable.
-2. **The families that get no quick commands** — a Chroma 63800, an older R&S analyzer
-   (FSU, FSP, FSQ) — because no guide reachable from here covers them. See
-   the catalog's own `source` field, which records what its guide covers.
+2. **The families that get no quick commands** — a Chroma 63800 (its only surviving manual
+   is a scan with no text layer), an R&S FSE (only Volume 1 of its manual has been found,
+   and the command reference is in Volume 2) — because no usable guide reachable from here
+   covers them.
 3. **The entries flagged as uncited.** The Siglent scope catalog carries nine IEEE 488.2
    common commands that neither of its guides documents; whether an SDS answers `*CLS` is
    one connection away for someone who owns one, and unknowable here.

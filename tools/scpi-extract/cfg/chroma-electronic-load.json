@@ -9,6 +9,14 @@
     "url": "https://www.chromaate.com/en/product/DC_Electronic_Load_63200A_Series_205",
     "fileName": "Chroma_63200A_ElectronicLoad_ProgrammingManual.pdf"
   },
+  "parse": [
+    {
+      "input": "parsed/chroma-63200a.json",
+      "manual": "manuals/chroma-63200a.txt",
+      "style": "plain",
+      "known": "measured"
+    }
+  ],
   "groups": [
     {
       "file": "parsed/chroma-63200a.json"

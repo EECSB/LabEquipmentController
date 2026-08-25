@@ -1,0 +1,203 @@
+# Publish the web version's container image to Docker Hub.
+#
+# ─── One-time setup on Docker Hub ───────────────────────────────────────────────────────
+#   Account Settings → Personal access tokens → Generate new token
+#       Description : github-actions-labequipmentcontroller
+#       Permissions : Read & Write            (Read-only cannot push; Delete is not needed)
+#   Copy it once — Docker Hub never shows it again.
+#
+#   The repository itself does not need creating first: the first push creates it, public.
+#
+# ─── One-time setup on GitHub ───────────────────────────────────────────────────────────
+#   Settings → Secrets and variables → Actions
+#       Variables tab → New repository variable:
+#           DOCKERHUB_USERNAME = your Docker Hub account name
+#       Secrets tab   → New repository secret:
+#           DOCKERHUB_TOKEN    = the token above
+#
+#   The username is a variable rather than a secret on purpose. It is not sensitive, it is
+#   half the image name, and as a secret it would be masked to *** in every build log —
+#   which is precisely the line you want to read when a push goes somewhere unexpected.
+#
+# ─── Why a stored token and not OIDC ────────────────────────────────────────────────────
+# publish-nuget.yml stores no key at all, because nuget.org accepts a short-lived GitHub
+# OIDC token. Docker Hub grew the same feature in July 2026, but only for Docker
+# *organizations* on Team, Business or Hardened Images, or ones accepted into the Docker
+# Sponsored Open Source programme. A personal account still authenticates with a token, so
+# that is what this does. If this project ever moves to a Docker organisation, the login
+# step below is the only thing that changes.
+name: Publish the container
+
+# Releases are deliberate here, as with the NuGet package — but for a weaker reason, and it
+# is worth being clear which. A version on nuget.org can never be reused or deleted, so
+# publishing by accident is permanent. A container tag can be overwritten or deleted, so
+# the cost of a mistake is a re-run rather than a burnt version number. Tag-driven is
+# chosen for predictability, not because the alternative is dangerous: if you later want
+# `edge` to follow master, adding it here is safe in a way the NuGet equivalent is not.
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Extra tag to publish, e.g. rc1. The commit SHA is always published too.'
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+env:
+  # Only the repository half. The account half comes from the DOCKERHUB_USERNAME variable,
+  # so this file carries no assumption about whose account it publishes to.
+  IMAGE_NAME: labequipmentcontroller-web
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      # Fail here, loudly and in two seconds, rather than at the login step with Docker's
+      # own "unauthorized: incorrect username or password" — which is what an *unset*
+      # variable looks like from the far side.
+      - name: Check the Docker Hub credentials are configured
+        env:
+          DOCKERHUB_USERNAME: ${{ vars.DOCKERHUB_USERNAME }}
+          DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+        run: |
+          if [ -z "$DOCKERHUB_USERNAME" ]; then
+            echo "::error::Set the DOCKERHUB_USERNAME repository *variable* to your Docker Hub account name."
+            exit 1
+          fi
+          if [ -z "$DOCKERHUB_TOKEN" ]; then
+            echo "::error::Set the DOCKERHUB_TOKEN repository *secret* to a Read & Write access token."
+            exit 1
+          fi
+          echo "Publishing to $DOCKERHUB_USERNAME/${{ env.IMAGE_NAME }}"
+
+      # One mkdir in the runtime stage is the only instruction that actually executes on the
+      # target architecture, so this emulates almost nothing — but without it the arm64 leg
+      # fails on that one line.
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+
+      # Work out the tags before the smoke test, so a malformed git tag fails the run before
+      # it spends six minutes relinking WebAssembly.
+      - name: Work out the tags
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ vars.DOCKERHUB_USERNAME }}/${{ env.IMAGE_NAME }}
+          # v1.2.3 publishes 1.2.3, 1.2 and 1 — so a compose file can pin as tightly or as
+          # loosely as it wants — plus latest, which metadata-action moves only for a
+          # semver tag and never for a prerelease one.
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=semver,pattern={{major}}
+            type=sha,format=short
+            type=raw,value=${{ inputs.tag }},enable=${{ github.event_name == 'workflow_dispatch' && inputs.tag != '' }}
+          flavor: latest=auto
+          labels: |
+            org.opencontainers.image.title=Lab Equipment Controller (web)
+            org.opencontainers.image.description=Discover and control SCPI lab instruments from a browser
+            org.opencontainers.image.licenses=MIT
+
+      # Built for this runner only and kept locally: a multi-platform build cannot be
+      # --load-ed into the daemon, and an image that has not been started is not an image
+      # anyone should be pushing.
+      - name: Build for this runner
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Web/Dockerfile
+          load: true
+          tags: ${{ env.IMAGE_NAME }}:smoke
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      # The same three checks ci.yml runs. The API and the browser half are served by one
+      # process; a container that answers one and 404s the other is what this catches.
+      - name: Check it starts and serves both halves
+        run: |
+          docker run -d --name lec-smoke -p 8080:8080 ${{ env.IMAGE_NAME }}:smoke
+          for i in $(seq 1 30); do
+            if curl -fsS http://localhost:8080/api/catalogs > /dev/null 2>&1; then break; fi
+            sleep 2
+          done
+          curl -fsS http://localhost:8080/api/catalogs | head -c 200
+          curl -fsS http://localhost:8080/ | grep -q "Lab Equipment Controller"
+          curl -fsS http://localhost:8080/_framework/blazor.webassembly.js > /dev/null
+          docker rm -f lec-smoke
+
+      # As late as possible, so a failed build never touches the registry credentials.
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ vars.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      # The second build reuses the first one's cache, so the arm64 image costs the runtime
+      # layer rather than another WebAssembly relink.
+      - name: Build both architectures and push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Web/Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      # Docker Hub shows a repository's own description, not the GitHub README, and an empty
+      # one is how a published image reads as abandoned. Web/DOCKERHUB.md is written for that
+      # page specifically — it leads with the Linux-only constraint, because someone pulling
+      # this onto Docker Desktop will otherwise meet an empty bench and no explanation.
+      #
+      # There is a well-known action for this. It is not used, for the same reason
+      # publish-nuget.yml stores no key: this is the one long-lived credential this project
+      # has, and handing it to a third party's code — however reputable, on a mutable tag —
+      # is the risk that decision was avoiding. Two curls are cheaper than the exception.
+      #
+      # Never fatal. Docker Hub's description API is not covered by their versioning promise
+      # and has moved before; a 401 or a 404 here should not turn a successful publish red.
+      # If this step goes yellow, paste Web/DOCKERHUB.md into the page by hand — it is a
+      # twice-a-year file — and check the endpoint before fixing anything.
+      - name: Update the Docker Hub description
+        continue-on-error: true
+        env:
+          DOCKERHUB_USERNAME: ${{ vars.DOCKERHUB_USERNAME }}
+          DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+
+          # jq builds both bodies, so a backslash or a quote in the markdown cannot break
+          # out of the JSON. Nothing here echoes a token.
+          jq -n --arg u "$DOCKERHUB_USERNAME" --arg p "$DOCKERHUB_TOKEN" \
+             '{username: $u, password: $p}' > login.json
+
+          jwt=$(curl -fsS -X POST \
+                  -H 'Content-Type: application/json' \
+                  -d @login.json \
+                  https://hub.docker.com/v2/users/login/ | jq -r .token)
+          rm -f login.json
+
+          if [ -z "$jwt" ] || [ "$jwt" = "null" ]; then
+            echo "::warning::Could not exchange the access token for a session; description not updated."
+            exit 1
+          fi
+
+          jq -Rs --arg short 'Discover and control SCPI lab instruments from a browser' \
+             '{full_description: ., description: $short}' Web/DOCKERHUB.md > body.json
+
+          curl -fsS -X PATCH \
+            -H 'Content-Type: application/json' \
+            -H "Authorization: JWT $jwt" \
+            -d @body.json \
+            "https://hub.docker.com/v2/repositories/$DOCKERHUB_USERNAME/${{ env.IMAGE_NAME }}/" \
+            > /dev/null
+
+          echo "Description updated from Web/DOCKERHUB.md"

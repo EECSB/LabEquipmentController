@@ -1,0 +1,187 @@
+@implements IAsyncDisposable
+@inject BenchClient Bench
+@inject IJSRuntime JS
+
+@* The desktop's Script Editor, opened over the console it runs against.
+
+   Not a page and not routable. A script runs on one instrument, so the question "which one"
+   has to be answered before it means anything — and the honest place to answer it is the
+   console you opened it from, which has already answered it. As a page of its own it opened
+   on whichever instrument happened to be first in the list and made you notice afterwards. *@
+
+<ScriptEditor IsSequence="false" @bind-Script="_script" Examples="_examples"
+              Running="_running" CanRun="@(_sessionId is not null)"
+              OnRun="Run" OnStop="Stop"
+              Status="@_status" StatusChanged="s => _status = s"
+              RecentOutput="@OutputText" SessionId="@_sessionId" />
+
+@* The desktop's lower split: the log on the left and the recorded rows on the right,
+   which is how ScriptForm and SequenceForm both arrange them — a script moved between
+   the two windows records the same way and should look like it does. It was the output
+   alone, with the table and the curve stacked underneath it and only while there were
+   rows, so a run you were watching pushed itself off the bottom of the window. *@
+<div class="split">
+    <div class="group">
+        <span class="cap">Output</span>
+        <div class="console">
+            @foreach (var line in _output)
+            {
+                <div class="@Css(line.Kind)">@line.Text</div>
+            }
+        </div>
+
+        <div class="row foot">
+            <span class="spacer"></span>
+            <button @onclick="ClearLog" disabled="@(_output.Count == 0)"
+                    title="Clear the output pane above."><Icon Name="clear" /> Clear Log</button>
+            <button @onclick="SaveLog" disabled="@(_output.Count == 0)"
+                    title="Save the output pane to a text file — what ran, what came back, and what failed."><Icon Name="save" /> Save Log</button>
+        </div>
+    </div>
+
+    <ResultsPane Columns="@_columns" Rows="@_rows" OnSaveCsv="SaveCsv" OnClear="ClearResults" />
+</div>
+
+@* Docked under the pair, where ScriptForm docks its own: it is the window's status, not
+   the editor's, and it reports on running as much as on saving. *@
+<div class="row runstatus">
+    <span class="muted">@_status</span>
+</div>
+
+@code {
+    private IReadOnlyList<SessionDto> _sessions = [];
+    private IReadOnlyList<ExampleDto> _examples = [];
+    private string? _sessionId;
+    private string _script = "*IDN?\n";
+    private bool _running;
+    private string? _runId;
+    /// <summary>What the line along the foot says. Empty until something has happened —
+    /// there is nothing to report about a window that has just opened.</summary>
+    private string _status = "";
+    private HubConnection? _hub;
+
+    private readonly List<ScriptOutputLine> _output = [];
+    private readonly List<RecordedRow> _rows = [];
+    private IReadOnlyList<string> _columns = [];
+
+    /// <summary>The instrument to run against. The console that opened this supplies it.</summary>
+    [Parameter, EditorRequired] public string? Session { get; set; }
+
+    /// <summary>The output as one block, for the AI window's "Include the last run's output".</summary>
+    private string OutputText => string.Join('\n', _output.Select(o => o.Text));
+
+    protected override async Task OnInitializedAsync()
+    {
+        _sessions = await Bench.SessionsAsync();
+        _sessionId = Session ?? _sessions.FirstOrDefault()?.Id;
+        await LoadExamples();
+    }
+
+    private async Task LoadExamples()
+    {
+        var s = _sessions.FirstOrDefault(x => x.Id == _sessionId);
+        _examples = s is null ? [] : await Bench.ScriptExamplesAsync(s.Family);
+    }
+
+    private async Task Run()
+    {
+        if (_sessionId is null) return;
+        _output.Clear();
+        _rows.Clear();
+        _status = "Running…";
+
+        await Listen();
+        var summary = await Bench.RunScriptAsync(_sessionId, _script);
+        if (summary.Failed)
+        {
+            _output.Add(new ScriptOutputLine(summary.Error ?? "Could not start.", "Error"));
+            _status = "Run failed.";
+            return;
+        }
+        _runId = summary.RunId;
+        _columns = summary.Columns;
+        _running = true;
+        await _hub!.InvokeAsync("Watch", _runId);
+    }
+
+    private async Task Stop()
+    {
+        if (_runId is not null) await Bench.StopAsync(_runId);
+    }
+
+    private void ClearLog() => _output.Clear();
+
+    private async Task SaveLog()
+    {
+        string text = string.Join("\r\n", _output.Select(o => o.Text));
+        await Download("script-output.txt", "text/plain", text);
+        _status = "Output saved to script-output.txt";
+    }
+
+    /// <summary>
+    /// Empty the table and the plot. The log is deliberately left alone — it is the record of
+    /// how these were produced.
+    ///
+    /// The headings stay, as ResultsPanel.Clear keeps them: they are what the table is, not what
+    /// is in it. A run that wants different ones sets them.
+    /// </summary>
+    private void ClearResults()
+    {
+        _rows.Clear();
+    }
+
+    private async Task SaveCsv()
+    {
+        var csv = new System.Text.StringBuilder();
+        csv.Append(string.Join(',', _columns)).Append("\r\n");
+        foreach (var r in _rows) csv.Append(string.Join(',', r.Values)).Append("\r\n");
+        await Download("script-results.csv", "text/csv", csv.ToString());
+    }
+
+    private async Task Download(string name, string mime, string text)
+        => await JS.InvokeVoidAsync("lec.download", name, mime,
+            Convert.ToBase64String(System.Text.Encoding.UTF8.GetBytes(text)));
+
+    /// <summary>Attach the hub handlers once; runs come and go, the connection stays.</summary>
+    private async Task Listen()
+    {
+        if (_hub is not null) return;
+        _hub = await Bench.HubAsync();
+
+        _hub.On<string, ScriptOutputLine>("RunOutput", (id, line) =>
+        {
+            if (id != _runId) return;
+            _output.Add(line);
+            InvokeAsync(StateHasChanged);
+        });
+        _hub.On<string, RecordedRow>("RunRow", (id, row) =>
+        {
+            if (id != _runId) return;
+            _rows.Add(row);
+            InvokeAsync(StateHasChanged);
+        });
+        _hub.On<string, bool, string?>("RunFinished", (id, failed, error) =>
+        {
+            if (id != _runId) return;
+            _running = false;
+            if (error is not null) _output.Add(new ScriptOutputLine(error, "Error"));
+            _output.Add(new ScriptOutputLine(failed ? "--- stopped ---" : "--- done ---", "Info"));
+            _status = failed ? "Stopped." : "Run complete.";
+            InvokeAsync(StateHasChanged);
+        });
+    }
+
+    private static string Css(string kind) => kind switch
+    {
+        "Error" => "err",
+        "Command" => "echo",
+        "Info" => "info",
+        _ => "",
+    };
+
+    public async ValueTask DisposeAsync()
+    {
+        if (_hub is not null && _runId is not null)
+            try { await _hub.InvokeAsync("Unwatch", _runId); } catch { /* going away anyway */ }
+    }
+}

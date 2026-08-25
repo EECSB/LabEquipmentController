@@ -202,7 +202,7 @@
     { "category": "Reference clock", "syntax": ":ROSCillator:SOURce:CURRent?", "description": "Query the system clock source currently selected.", "example": ":ROSC:SOUR:CURR?", "isQuery": true },
 
     { "category": "Source", "syntax": "[:SOURce[<n>]]:APPLy?", "description": "Query the waveform type as well as the frequency, amplitude, offset and phase of the specified channel.", "isQuery": true },
-    { "category": "Source", "syntax": "[:SOURce[<n>]]:APPLy:ARBitrary", "description": "Ximum}]]]." },
+    { "category": "Source", "syntax": "[:SOURce[<n>]]:APPLy:ARBitrary", "description": "Set the waveform of the specified channel to arbitrary waveform with the specified sample rate, amplitude, offset and start phase (in sample rate output mode)." },
     { "category": "Source", "syntax": "[:SOURce[<n>]]:APPLy:HARMonic", "description": "Enable the harmonic function of the specified channel and set the fundamental waveform (sine) parameters: frequency, amplitude, offset and phase." },
     { "category": "Source", "syntax": "[:SOURce[<n>]]:APPLy:NOISe", "description": "Set the waveform of the specified channel to noise with the specified amplitude and offset.", "example": ":SOUR1:APPL:NOIS 1,2" },
     { "category": "Source", "syntax": "[:SOURce[<n>]]:APPLy:PULSe", "description": "Set the waveform of the specified channel to pulse with the specified frequency, amplitude, offset and phase.", "example": ":SOUR1:APPL:PULS 100,3,2,1" },

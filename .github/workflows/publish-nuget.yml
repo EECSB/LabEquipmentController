@@ -37,7 +37,7 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: 'Version to publish, e.g. 1.0.0-beta.3. Leave empty to use the version in the csproj.'
+        description: 'Version to publish, e.g. 1.0.1. Leave empty to use the version in the csproj.'
         required: false
         type: string
 

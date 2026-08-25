@@ -7,7 +7,14 @@
     <NotFound>
         <LayoutView Layout="@typeof(MainLayout)">
             <h1>Not here</h1>
-            <p>That address does not match a page. Use the navigation on the left.</p>
+            @* /scripts and /capture were addresses once. They are tools belonging to one
+               instrument now and open over its console, so anyone arriving on an old link or
+               a bookmark is told where they went rather than left on a blank page. *@
+            <p class="lede">
+                That address does not match a page. Scripts and capture are no longer pages of
+                their own: they belong to one instrument, and open from its console on the
+                <a href="">bench page</a>.
+            </p>
         </LayoutView>
     </NotFound>
 </Router>

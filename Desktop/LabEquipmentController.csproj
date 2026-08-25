@@ -1,0 +1,56 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <Nullable>enable</Nullable>
+    <UseWindowsForms>true</UseWindowsForms>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <ApplicationIcon>app.ico</ApplicationIcon>
+
+    <!-- Shown in the About box, which reads them from the assembly rather than repeating
+         them in code. Also what Explorer's file-properties page shows for the .exe. -->
+    <Product>Lab Equipment Controller</Product>
+    <AssemblyTitle>Lab Equipment Controller</AssemblyTitle>
+    <Description>Discover and control lab instruments over Ethernet or RS-232 using SCPI.</Description>
+    <Version>1.1.0</Version>
+
+    <!--
+      This app is never packed, but NuGet still gives every project a package identity, and
+      by default that is the project name. Core publishes as "LabEquipmentController", which
+      collided with this project's default and broke restore for the whole solution with
+      "Ambiguous project name". Naming this one explicitly settles it; the executable is
+      still LabEquipmentController.exe, which follows the project file's name.
+    -->
+    <PackageId>LabEquipmentController.App</PackageId>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Edge's PDF viewer, hosted in the command library so a guide can be read without
+         leaving the app. Deliberately WebView2 rather than a bundled PDF renderer: the
+         runtime is part of Windows 10/11, so this adds a managed shim rather than ~10 MB
+         of native PDFium per architecture, and the guides it has to open are large — the
+         FSL manual is 15 MB and 1,701 pages. Where the runtime is missing the library
+         falls back to handing the file to the shell, which is what it did before. -->
+    <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.4129.50" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- ApplicationIcon above gives the .exe its icon in Explorer; embedding the
+         same file lets MainForm use it for the title bar / taskbar at runtime. -->
+    <EmbeddedResource Include="app.ico" LogicalName="app.ico" />
+    <!-- Button glyphs, embedded as "icons.<name>.png" and loaded by AppIcons. -->
+    <EmbeddedResource Include="Assets\icons\*.png" LogicalName="icons.%(Filename)%(Extension)" />
+  </ItemGroup>
+
+  <!--
+    The default compile glob is safe again: Desktop/ holds only this app's own sources.
+    While the project sat at the repository root the glob had to be turned off — it
+    swallowed every sibling project's .cs, twice — but that reason left with the move.
+  -->
+  <ItemGroup>
+    <ProjectReference Include="..\Core\LabEquipmentController.Core.csproj" />
+  </ItemGroup>
+
+</Project>

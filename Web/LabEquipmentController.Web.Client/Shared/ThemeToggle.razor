@@ -1,0 +1,77 @@
+@implements IDisposable
+@inject IJSRuntime JS
+
+@* Light, dark, or whatever the machine is set to.
+
+   Three buttons rather than one that cycles: with a cycling button you cannot tell what the
+   next press will do, or which of the three you are in — and "follow the system" is
+   genuinely a third state, not the absence of a choice. Three small squares say which one is
+   on and take one press to reach any other.
+
+   The choice belongs to the browser, not to .NET: it is applied in the document head before
+   the first paint, so nothing here decides anything at load. This only shows what was
+   decided and hands a new answer back. *@
+
+<div class="seg" role="group" aria-label="Colour theme">
+    <button class="@On("system")" title="Follow the system's setting" aria-label="Follow the system's setting"
+            aria-pressed="@Pressed("system")" @onclick="@(() => Choose("system"))">
+        <Icon Name="auto" />
+    </button>
+    <button class="@On("light")" title="Light" aria-label="Light"
+            aria-pressed="@Pressed("light")" @onclick="@(() => Choose("light"))">
+        <Icon Name="sun" />
+    </button>
+    <button class="@On("dark")" title="Dark" aria-label="Dark"
+            aria-pressed="@Pressed("dark")" @onclick="@(() => Choose("dark"))">
+        <Icon Name="moon" />
+    </button>
+</div>
+
+@code {
+    private string _choice = "system";
+    private DotNetObjectReference<ThemeToggle>? _self;
+
+    private string On(string choice) => _choice == choice ? "on" : "";
+
+    /// <summary>
+    /// "true" or "false", spelled out. A bool here would be rendered the way HTML renders a
+    /// boolean attribute — present and empty, or absent — and aria-pressed="" is not a state
+    /// a screen reader can read: the attribute wants the word.
+    /// </summary>
+    private string Pressed(string choice) => _choice == choice ? "true" : "false";
+
+    protected override async Task OnAfterRenderAsync(bool first)
+    {
+        if (!first) return;
+        _choice = await JS.InvokeAsync<string>("lec.theme.get");
+        _self = DotNetObjectReference.Create(this);
+        await JS.InvokeVoidAsync("lec.theme.follow", _self);
+        StateHasChanged();
+    }
+
+    /// <summary>Another tab changed it. The colours have already followed; this is the
+    /// highlight catching up, so a detached console does not sit there claiming to be light
+    /// while being dark.</summary>
+    [JSInvokable]
+    public Task ThemeChanged(string choice)
+    {
+        if (choice == _choice) return Task.CompletedTask;
+        _choice = choice;
+        return InvokeAsync(StateHasChanged);
+    }
+
+    private async Task Choose(string choice)
+    {
+        _choice = choice;
+        await JS.InvokeVoidAsync("lec.theme.set", choice);
+    }
+
+    public void Dispose()
+    {
+        // Fire and forget: this runs while the page is being torn down, and awaiting a call
+        // into a browser that may already be gone is how a disposal starts throwing.
+        try { _ = JS.InvokeVoidAsync("lec.theme.unfollow"); }
+        catch (JSDisconnectedException) { /* the browser has gone; so has the listener */ }
+        _self?.Dispose();
+    }
+}

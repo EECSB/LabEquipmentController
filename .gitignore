@@ -63,9 +63,30 @@ tools/scpi-extract/built-*.json
 # Test run artefacts
 Tests/TestResults/
 
+# The SDK writes a launch profile for the WebAssembly client the first time it is built,
+# carrying a port it picked at random on that machine. The client is never launched on its
+# own — the server hosts it — so the file is noise that differs per checkout. The server's
+# own launch profile is committed and must stay that way: without it the app starts in
+# Production, where the Blazor static assets are not wired up and every one of them 404s.
+Web/LabEquipmentController.Web.Client/Properties/launchSettings.json
+
 # Misc
 *.log
 *.tmp
 [Tt]humbs.db
 .DS_Store
+# Local editor and agent scaffolding: a launch config for the web app, not part of the build.
+.claude/
+
 bench-reports/
+
+# tools/sample-catalog-accuracy.js writes here; the sample is reproducible from its seed
+sample.json
+
+# Playwright end-to-end tests for the web client. The specs are committed; what npm and the
+# browser leave behind is not — including the server's isolated data directory, which exists
+# so a run cannot read or write the settings a real session saved.
+Web/tests/node_modules/
+Web/tests/test-results/
+Web/tests/playwright-report/
+Web/tests/.data/

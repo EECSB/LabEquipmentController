@@ -44,6 +44,15 @@ public static class Bench
     /// <summary>Siglent SDM3065X.</summary>
     public static string Multimeter => Find(InstrumentFamily.Multimeter, "LEC_MULTIMETER");
 
+    /// <summary>
+    /// A serial instrument, if there is one — <c>serial://COM3?baud=115200</c>. Written down
+    /// rather than discovered, because discovery does not transfer to a serial port: there is
+    /// nothing to sweep, and the line settings have to be right before anything answers at
+    /// all. Empty when nobody has said, and every serial bench test skips.
+    /// </summary>
+    public static string SerialAddress =>
+        Environment.GetEnvironmentVariable("LEC_SERIAL")?.Trim() ?? "";
+
     /// <summary>One scan per test run, shared by every test that needs an address.</summary>
     private static readonly Lazy<IReadOnlyList<ScpiDevice>> Discovered = new(() =>
     {
@@ -154,6 +163,27 @@ public sealed class BenchTheoryAttribute : TheoryAttribute
     public BenchTheoryAttribute()
     {
         if (!Bench.Enabled) Skip = "Bench tests are off. Set LEC_BENCH=1 to run them.";
+    }
+}
+
+/// <summary>
+/// A fact that runs only when <c>LEC_SERIAL</c> names a serial address — for instance
+/// <c>set LEC_SERIAL=serial://COM3?baud=115200</c>.
+///
+/// Separate from the bench switch, and not discovered like the three LAN instruments,
+/// because a serial port cannot be swept for: baud rate, framing and flow control have to
+/// match before one character gets through, and what is on the other end of an unknown port
+/// may be a printer. Whoever has such an instrument knows which port and which speed, and
+/// this is where they say so (SPEC §17).
+/// </summary>
+public sealed class SerialBenchFactAttribute : FactAttribute
+{
+    public SerialBenchFactAttribute()
+    {
+        if (!Bench.Enabled)
+            Skip = "Bench tests are off. Set LEC_BENCH=1 to run them.";
+        else if (string.IsNullOrWhiteSpace(Bench.SerialAddress))
+            Skip = "No serial instrument. Set LEC_SERIAL=serial://COM3 (with ?baud=… if it is not 9600).";
     }
 }
 

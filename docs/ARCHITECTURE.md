@@ -12,7 +12,7 @@ enforce that mechanically.
 
 The system is five programs that share one data model:
 
-- **The app** — a Windows Forms application (`net10.0-windows`, the repository root).
+- **The app** — a Windows Forms application (`net10.0-windows`, `Desktop/`).
   It scans the LAN for instruments, opens consoles on them, runs scripts against one
   instrument or several, captures waveforms and screenshots, and browses the command
   catalogs.
@@ -29,7 +29,7 @@ The system is five programs that share one data model:
   Transports, discovery, instrument identity, the script and sequence runners, capture
   decoding, AI clients, settings. Everything the tests exercise lives here.
 - **The catalog toolchain** — `tools/scpi-extract/`, a dependency-free Node pipeline
-  that turns vendor PDF programming guides into the 35 curated catalogs the others
+  that turns vendor PDF programming guides into the 36 curated catalogs the others
   consume. It is not part of the build; its output is committed.
 
 Core is the reason two front ends cost so little: it holds every decision that is not
@@ -44,8 +44,8 @@ match, because the only in-box converter is Windows-only and a native imaging pa
 would cost the tool its portability. And it plots to **SVG**, hand-written, because SVG
 is text: no library, identical output on every platform, and it opens in a browser.
 
-The shared data model is the **catalog**: one JSON file per instrument family, 23,174
-commands across 35 files, embedded into Core as resources and treated as the single
+The shared data model is the **catalog**: one JSON file per instrument family, 23,978
+commands across 36 files, embedded into Core as resources and treated as the single
 source of truth for what the app may send.
 
 ## High-Level System Architecture
@@ -62,6 +62,7 @@ flowchart LR
         SF["Script editors<br/>one- and multi-instrument"]
         CL["Command Library and<br/>per-family reference"]
         CAP["Capture windows<br/>waveform, screen, readout"]
+        EXT["AI windows<br/>datasheet extraction, script writing"]
     end
 
     subgraph CORE["Core (net10.0 class library)"]
@@ -71,11 +72,17 @@ flowchart LR
         SER["SerializedInstrumentClient"]
         SCPI["ScpiClient<br/>raw TCP"]
         VXI["Vxi11Client<br/>ONC RPC"]
+        RS["SerialInstrumentClient<br/>RS-232"]
+        FRM["ScpiFraming<br/>lines and 488.2 blocks"]
         AI["AiClient<br/>3 provider shapes"]
+        DOC["DocumentText<br/>PDF · DOCX · TXT to text"]
     end
 
     INST[["Instruments on the LAN"]]
+    RSINST[["Instrument on a serial port"]]
     PROV[["AI providers<br/>optional, off by default"]]
+    PIG(["PdfPig<br/>datasheet text"])
+    PORTS(["System.IO.Ports<br/>the serial port itself"])
 
     MF --> PROF
     IC --> SER
@@ -89,6 +96,13 @@ flowchart LR
     PROF --> REF
     SER --> SCPI --> INST
     SER --> VXI --> INST
+    SER --> RS --> RSINST
+    SCPI --> FRM
+    RS --> FRM
+    RS -.->|"opens the port"| PORTS
+    EXT --> DOC
+    EXT --> AI
+    DOC -.->|"PDF only"| PIG
     AI --> PROV
 ```
 
@@ -96,57 +110,92 @@ The dependency direction is strict: both front ends reference Core; Core referen
 neither. The toolchain sits outside all three and meets them only at
 `Core/CommandData/`.
 
+**Core carries two external packages**, both on dotted edges, and both edges are the whole
+of what they reach:
+
+- **`PdfPig`** — `DocumentText.ReadPdf` and `PageCount`, so a datasheet the user picked can
+  be sent to a provider that will not take a file upload. DOCX and TXT are read with the
+  BCL alone (`System.IO.Compression`, `System.Xml.Linq`). It is not a PDF *viewer* — the
+  library shows a guide through WebView2, in the desktop app only, which is why that one is
+  not in Core at all.
+- **`System.IO.Ports`** — opening the serial port, and nothing else; the message framing
+  above it is the same `ScpiFraming` the socket uses. Microsoft's own and genuinely
+  cross-platform, which is the test every candidate has to pass to be in here and the one
+  WinUSB and libusb fail (SPEC §17).
+
+Everything else in the picture is dependency-free, which is what lets the same assembly run
+on Linux under the CLI and inside the container. What they cost is real and worth naming:
+every consumer of the NuGet package takes both, and the Blazor client ships both to a
+browser that calls neither — extraction happens on the server, and a browser has no serial
+port. That is 1.83 MB gzipped for PdfPig and 10.5 KB for `System.IO.Ports`, which is why
+one of those was worth a conversation and the other was not.
+
 ## Project Structure
 
 ```
 LabEquipmentController/
-├── *.cs                        The WinForms app: one file per window (see UI Architecture)
-├── Program.cs                  Entry point → MainForm
+├── Desktop/                    The WinForms app — one .cs per window (see UI Architecture)
+│   ├── Program.cs              Entry point → MainForm
+│   ├── Bench/                  MainForm, and the console in its tab or its own window
+│   ├── Scripting/              Both editors, the colouriser, snippets, the language reference
+│   ├── Ai/                     The three AI windows, the connection book, the DPAPI key store
+│   ├── Catalogs/               The command library, and one family's reference
+│   ├── Capture/                Waveform, screen, and the timed meter readout
+│   ├── Results/                The recorded table and its plot
+│   ├── Ui/                     ButtonStyle, AppIcons, SplitLayout, About — the shared chrome
+│   ├── Assets/icons/           Button glyphs, embedded into the executable
+│   └── installer/              Inno Setup script + its install/launch/uninstall smoke test
 ├── Cli/                        The `lec` command — any OS, no UI
 │   ├── Program.cs              Verb dispatch, Ctrl+C, exit codes
-│   ├── CommandLine.cs          Argument grammar and the usage text
-│   ├── Endpoint.cs             An address string → transport + client
-│   ├── Commands.cs             The verbs: scan · id · send · run · seq · watch · …
+│   ├── Endpoint.cs             A parsed address → a client to talk to it with
 │   ├── Capture.cs              Image format sniffing, CSV reading, interval parsing
-│   ├── Plot.cs                 Hand-written SVG charts — no imaging dependency
-│   ├── RowStream.cs            --stream: rows out as they happen, flushed
-│   └── Output.cs               Table, CSV and JSON shapes
-├── Core/
-│   ├── ScpiClient.cs           Raw-socket SCPI: '?' → query+read, else write
-│   ├── Vxi11Client.cs          VXI-11 over ONC RPC (portmapper → core channel)
-│   ├── SerializedInstrumentClient.cs   One exchange at a time per connection
-│   ├── VisaResource.cs         TCPIP resource strings → transport choice
-│   ├── NetworkScanner.cs       Subnet sweep; HostRange.cs; ScanResultExport.cs
-│   ├── InstrumentProfile.cs    *IDN? → 1 of 36 families → quick commands
-│   ├── CommandReference.cs     Loads the embedded catalogs
-│   ├── CommandDiscovery.cs     Probes what an unknown instrument answers
-│   ├── ScriptRunner.cs         The §9 script language, one instrument
-│   ├── SequenceRunner.cs       The §9a language: DEVICE/WITH across instruments
-│   ├── WaveformDialect.cs      Per-vendor trace commands and scaling arithmetic
-│   ├── WaveformReader.cs       Capture → samples, catalog-checked commands only
-│   ├── Ieee4882Block.cs        IEEE 488.2 binary block parsing
+│   ├── Verbs/                  The verbs themselves, and the argument grammar behind them
+│   └── Output/                 Table, CSV and JSON shapes; SVG plots; --stream's row pump
+├── Core/                       Same areas as Tests/, so a file and its tests sit under the
+│   │                           same word. Namespaces stay flat — see below
+│   ├── AppInfo.cs              Version, licence and repository, read off the assembly
+│   ├── Transport/              All three clients and the framing they share, the
+│   │                           serializer, addresses, deadlines, sessions
+│   ├── Discovery/              Subnet sweep, host ranges, CSV export, *IDN? → family
+│   ├── Catalogs/               Loading the embedded catalogs, SCPI syntax, guide lookup
+│   ├── Capture/                IEEE 488.2 blocks, the five waveform dialects, the zoom view
+│   ├── Scripting/              Both runners, the language, its examples and guide
+│   ├── Results/                Recorded series, plot arithmetic, unit guessing
+│   ├── Settings/               UserSettings and where it is stored
 │   ├── Ai/                     Provider clients, extraction, script author
-│   └── CommandData/            The 35 curated catalogs (embedded resources)
-├── Tests/                      xUnit suite (1,188 tests) against a fake instrument
+│   └── CommandData/            The 36 curated catalogs (embedded resources)
+├── Tests/                      xUnit suite (1,775 tests) against a fake instrument, one
+│   │                           folder per area: Ai, Catalogs, Capture, Transport,
+│   │                           Discovery, Scripting, Results, Settings, Cli, Web
 │   └── Bench/                  Tests that drive the real bench, off unless LEC_BENCH=1
 ├── tools/scpi-extract/         Manual → catalog pipeline (Node, no dependencies)
 │   ├── parse-manual.js         Fourteen vendor-layout parsers behind one dispatch
 │   ├── build-catalog.js        Config-driven build + validation gates
 │   ├── emit.js                 Writes the final catalog JSON
-│   ├── tests.js                36 checks pinning parser behaviours that regressed once
-│   └── cfg/                    One committed recipe per rebuildable catalog (24 today)
+│   ├── tests.js                37 checks pinning parser behaviours that regressed once
+│   └── cfg/                    One committed recipe per rebuildable catalog (25 today)
 ├── Web/                        The browser version
 │   ├── LabEquipmentController.Web/         Server: API, SignalR hub, owns every socket
 │   ├── LabEquipmentController.Web.Client/  Blazor WebAssembly UI, no instrument logic
 │   └── Dockerfile              Multi-stage; docker-compose.yml sits at the repo root
-├── installer/                  Inno Setup script + its install/launch/uninstall smoke test
-├── docs/                       SPEC.md, this file, VERIFYING-COMMANDS.md
+├── docs/                       SPEC.md, UI-SPEC.md, this file, VERIFYING-COMMANDS.md
 └── datasheets/                 Local vendor guides; indexes committed, PDFs never
 ```
 
+**Folders group; namespaces do not.** Every type in Core stays in `LabEquipmentController`
+however deep its folder, and the same in the app — a deliberate split, for two reasons that
+outrank tidiness. Core ships as a NuGet package, so `LabEquipmentController.ScpiClient` is
+public API and a folder-shaped namespace would break every consumer to no one's benefit.
+And `--filter FullyQualifiedName~…`, which is how the bench suite is gated and how anyone
+runs part of the tests, keys on the namespace: moving files would silently change what
+those filters select. An IDE may suggest matching the two; decline it.
+
 ## The Catalog Pipeline
 
-Catalogs are built offline and committed; the app never parses a PDF.
+Catalogs are built offline and committed; **no catalog is ever parsed out of a PDF by the
+app**. The one place it does read a PDF is the opposite direction — a datasheet the user
+picked, read for a model to look at, whose output is quarantined from these catalogs by
+design (§11b).
 
 ```mermaid
 flowchart LR
@@ -178,11 +227,11 @@ flowchart LR
 
 A catalog is only called *reproducible* when building it **without** any merge against
 the shipped file, then diffing, yields the shipped file — every missing and extra entry
-enumerated and judged against the guide. 24 of the 35 catalogs have such a config today;
+enumerated and judged against the guide. 25 of the 36 catalogs have such a config today;
 the toolchain README's rebuild table records, per remaining catalog, exactly how far the
 current parser gets and why. Parser changes are held to a regression bar: every manual
 whose catalog is adopted must re-parse byte-identically, and any delta on the others is
-enumerated before it lands. `tests.js` pins 36 parser behaviours that regressed — or
+enumerated before it lands. `tests.js` pins 37 parser behaviours that regressed — or
 nearly did — while the catalogs were being built.
 
 ## The web version
@@ -228,25 +277,49 @@ it, and the UI says so.
 
 Discovery is why the compose file uses host networking: a subnet sweep from inside Docker's
 default bridge scans the container's own private network, finds nothing, and reports an
-empty bench with no hint as to why. That mode is Linux-only, and the README says what to do
-on Docker Desktop instead.
+empty bench with no hint as to why. That mode is Linux-only, and
+[Web/README.md](../Web/README.md) says what to do on Docker Desktop instead.
 
 ## Runtime Internals
 
 ### Transports
 
-Two wire protocols hide behind one interface, `IInstrumentClient`:
+Three wire protocols hide behind one interface, `IInstrumentClient`:
 
 - **`ScpiClient`** — a raw TCP socket (typically port 5025). A command containing `?` is
-  a query: write, then read one line back. Anything else is fire-and-forget. Line-based
-  reads only; binary blocks are the capture path's job.
+  a query: write, then read one line back. Anything else is fire-and-forget.
 - **`Vxi11Client`** — VXI-11 for instruments that don't speak raw sockets. The session
   asks the RPC portmapper (TCP 111) for the core program's port — dynamic, never
   hard-coded — then `create_link` → `device_write`/`device_read` → `destroy_link`.
+- **`SerialInstrumentClient`** — SCPI over RS-232, `COM3` or `/dev/ttyUSB0`, at the line
+  settings the address named. A short file, and that is the point: SCPI over serial is
+  line-based in exactly the way SCPI over a socket is. What it does not share is what a
+  serial port genuinely does differently — settings that must match before a character
+  gets through, a terminator that is not always LF, no connection whose closing hands the
+  front panel back (so `SYSTem:LOCal` is sent instead), and a gap-between-bytes timeout on
+  binary reads rather than a total one, because a screenshot at 9600 baud takes minutes and
+  is not late. SPEC §13.
+- **`ScpiFraming`** is the part the socket and the serial port have in common: writing a
+  command, reading a line, reading an IEEE 488.2 block. Internal, and shared rather than
+  copied, because it is where the careful decisions live — a reply that never reached its
+  terminator throws instead of handing back the fragment (`+8.39` for `+8.39319298E-04` is
+  a plausible voltage and would be plotted as one), and a block is read by its declared
+  length rather than until a pause. It is also what makes the serial path testable without
+  a serial port: a stream is a stream.
 - **`VisaResource`** parses VISA-style strings (`TCPIP0::host::inst0::INSTR` → VXI-11,
-  `TCPIP0::host::5025::SOCKET` → raw socket) so an address book entry chooses its own
-  transport.
-- **`SerializedInstrumentClient`** wraps either and admits one exchange at a time,
+  `TCPIP0::host::5025::SOCKET` → raw socket, `ASRL3::INSTR` → serial) so an address book
+  entry chooses its own transport. A `GPIB` or `USB` resource string is refused **by name**
+  rather than falling through to be read as a hostname.
+- **`InstrumentAddress`** is the whole of what a person may type — a resource string,
+  `vxi://host`, `tcp://host`, `serial://COM3?baud=115200`, `host:port`, or a bare host —
+  and it is in Core because all three front ends must agree about what a typed address
+  means. They had not: the CLI and the web server each carried the same parser and the
+  desktop carried none, so its Address box refused a spelling UI-SPEC §3.3 says that box
+  takes. `CreateClient` lives here too, for the same reason one parser does: each front end
+  had its own switch from transport to client, and the desktop's dropped the device name,
+  so a typed `vxi://host/gpib0,9` connected to the gateway rather than the instrument
+  behind it.
+- **`SerializedInstrumentClient`** wraps any of them and admits one exchange at a time,
   queueing the rest. VXI-11 is ONC RPC — every call writes a request record and reads
   its reply off the same stream — so two overlapping exchanges would interleave records
   and corrupt both. The UI, the runners and the pollers all share connections through
@@ -261,13 +334,27 @@ forms), probing each address for the transports above and asking `*IDN?`. Result
 model, serial and firmware, export to RFC 4180 CSV (`ScanResultExport`), and feed the
 main window's instrument list.
 
+`SerialScanner` is its counterpart over RS-232, and splits in two what a subnet sweep does
+in one. `List()` enumerates the machine's ports and opens none of them — that is what the
+card shows on arrival, and it is already enough to pick one and connect. `ScanAsync()`
+opens the ports it is given, at the baud rates it is given, in order, stopping at the first
+that answers; it sweeps nothing else, because parity and framing are a combinatorial search
+against hardware that cannot say "wrong number". Two differences from the network sweep
+fall out of a port being a thing rather than an address: every port comes back whether or
+not it answered, and a reply is checked before it is believed — TCP delivers the sender's
+bytes or nothing, a UART at the wrong rate delivers different ones. `SerialDevice` carries
+the three states that follow (not asked, asked and silent, answered with noise) and exports
+under its own CSV header, because a file headed "IP Address" over a column of COM3 would be
+a worse lie than a second header.
+
 ### Identity and profiles
 
-`InstrumentProfile` maps an `*IDN?` reply to one of **36 instrument families** (35
+`InstrumentProfile` maps an `*IDN?` reply to one of **37 instrument families** (36
 catalogued plus `Generic`) and to the family's quick-command buttons — the model-prefix
 classifier is a long, deliberate `switch` with the awkward cases called out (an FSPN
-phase-noise analyzer is *not* an FSP; an FSEB30 stays Generic because no FSE guide has
-been found). Each family's buttons send only commands from that family's catalog;
+phase-noise analyzer is *not* an FSP; an FSEB30 stays Generic because no FSE *catalog*
+has been built — the guide has since been found, see Future Improvements). Each family's
+buttons send only commands from that family's catalog;
 `ScpiSyntax` exists so tests can check that mechanically — quick commands, script
 examples and capture sequences are all matched against the catalogs, template against
 syntax, so SPEC §10 stays true as the catalogs grow.
@@ -314,11 +401,18 @@ fractions of the record, and `WaveformCapture` holds the decoded samples.
 Three features call a language model; none of them touches the curated catalogs:
 
 - **Datasheet extraction** (`CommandExtractor`): reads a local guide (`DocumentText`
-  extracts text from PDF/DOCX/TXT itself, no service upload of the file), asks the model
-  for commands, and stores the result in a separate `ExtractedCatalogStore` — extracted
-  commands are quarantined from the curated references by design, reviewable in the UI.
+  extracts text from PDF/DOCX/TXT itself, no service upload of the file — **PdfPig** for the
+  PDF path, the BCL for the other two), asks the model for commands, and stores the result
+  in a separate `ExtractedCatalogStore` — extracted commands are quarantined from the
+  curated references by design, reviewable in the UI.
 - **Script writing** (`ScriptAuthor`): drafts a script from a request, then checks every
-  drafted command against the instrument's catalog and flags what isn't there.
+  drafted command against the instrument's catalog and flags what isn't there. It is a
+  conversation — earlier turns go into the payload as a transcript, so a follow-up like
+  "now do the same at 5 V" is answerable, and a header the check rejected last turn is
+  carried back so it does not come round again. A transcript rather than the provider's own
+  multi-turn message array: three providers spell that array three ways, and this keeps the
+  catalogs out of every historical turn. Nothing trims it; the window that holds the
+  conversation shows what it costs and offers a Clear.
 - **`AiClient`** speaks three request shapes — Gemini's Interactions API, the Anthropic
   Messages API, and OpenAI-compatible `chat/completions` (OpenAI, OpenRouter, Groq,
   local servers) — selected per connection in `AiConnection`. Request building and reply
@@ -348,6 +442,8 @@ Each command:
 | `example` | Present when the guide gives one |
 | `isQuery` | Present and `true` on query forms |
 | `benchVerified` | Present and `true` on the 518 entries confirmed against real hardware |
+| `crossChecked` | Present and `true` where an independent open-source driver uses the same header |
+| `guideMisprint` | On an entry transcribing a vendor typo as printed: what the guide prints, why it looks wrong, what to try |
 
 ```json
 { "category": "IEEE 488.2 Common", "syntax": "*IDN?",
@@ -367,7 +463,7 @@ disk, so a stale build cannot quietly ship an old catalog.
 |---|---|
 | `MainForm` | Scan controls, the discovered-instruments list, console tabs |
 | `InstrumentWindow` / `InstrumentConsole` | A console per instrument; tabs detach into windows |
-| `CommandLibraryForm` | Browse and search all 35 catalogs at once |
+| `CommandLibraryForm` | Browse and search all 36 catalogs at once |
 | `CommandReferenceForm` | One family's curated reference beside its console |
 | `ScriptForm` (+ `ScriptEditor`, `SnippetMenu`, `ScriptReferenceForm`) | Single-instrument scripts: coloured editor, completion, examples, language reference |
 | `SequenceForm` | Multi-Instrument Scripts: the `.seq` editor, device binding, the results table |
@@ -383,7 +479,10 @@ calling Core.
 
 Two suites, two languages, one philosophy: a guard that isn't mechanical will not hold.
 
-- **`Tests/` (xUnit, 1,188 tests)** runs against `FakeInstrumentClient` — no hardware.
+- **`Tests/` (xUnit, 1,775 tests)** runs against `FakeInstrumentClient` — no hardware.
+  One folder per area — Ai, Catalogs, Capture, Transport, Discovery, Scripting, Results,
+  Settings, Cli, Web — with the shared fake at the root; the namespaces stay flat, so
+  every `--filter FullyQualifiedName~…` habit still selects what it always did.
   The catalog guards are the backbone: every quick command and example exists in its
   family's catalog (`CatalogCoverageTests`), no entry is a truncated line, no invented
   query survives (`GuideMisprintTests` pins the known vendor misprints), embedded
@@ -394,12 +493,13 @@ Two suites, two languages, one philosophy: a guard that isn't mechanical will no
 - **`Tests/Bench/`** drives the real bench — three instruments — and stays off unless
   `LEC_BENCH=1`, so CI and contributors run green without hardware. Bench runs are where
   `benchVerified` ticks come from.
-- **`tools/scpi-extract/tests.js`** (36 checks, `node tests.js`, two seconds) guards the
+- **`tools/scpi-extract/tests.js`** (37 checks, `node tests.js`, two seconds) guards the
   toolchain itself, one case per parser behaviour that once regressed.
 
 ## Distribution
 
-Two shapes from the same code, differing only in whether the runtime travels with them:
+Five shapes from one tree. What separates them is who is expected to already have a .NET
+runtime, and whether the thing being shipped has a user interface at all:
 
 | Shape | Build | Size | For |
 |---|---|---:|---|
@@ -407,6 +507,18 @@ Two shapes from the same code, differing only in whether the runtime travels wit
 | `setup.exe` | framework-dependent single-file, wrapped by Inno Setup | ~4 MB | Everyone else: per-user install, Start Menu entry, uninstaller |
 | `lec` | framework-dependent single-file, per RID | ~11 MB | Any OS. Publish per target: `-r linux-x64`, `osx-arm64`, `win-x64`, … |
 | `LabEquipmentController` on NuGet | `dotnet pack` of the Core project | ~757 KB | Somebody else's program. The library alone — transports, catalogs, runners — with no UI |
+| `…/labequipmentcontroller-web` on Docker Hub | `Web/Dockerfile`, multi-stage | ~68 MB over `aspnet:10.0` | A bench server. The browser build, `amd64` and `arm64` |
+
+Of that ~68 MB the Blazor client is 42 MB and the server 26 MB — the client half is large
+because a WebAssembly publish ships each asset uncompressed *and* Brotli-compressed, and the
+server serves whichever the browser asked for.
+
+The container is the one shape built for two architectures, and it gets them for almost
+nothing. The publish is framework-dependent and RID-agnostic, so the IL in `/app` is
+architecture-neutral, and the single genuinely native dependency — `System.IO.Ports`' serial
+shim — arrives from NuGet as every RID at once, resolved at process start. So the Dockerfile
+pins only its *build* stage to `$BUILDPLATFORM`: one amd64 build, two images, no emulation
+for anything but the runtime stage's `mkdir`. A `-r` on that publish would end this.
 
 The package id deliberately drops the `.Core` suffix its assembly carries, so it does not
 read as a .NET Core component; the assembly keeps the name because the WinForms
@@ -424,32 +536,60 @@ offers to fetch it from Microsoft's permalink when it is absent — the 9.x runt
 earlier release of this app may have installed does not satisfy it, which is the trap that
 check exists to catch. It
 installs per-user (no UAC; the app needs no elevation) with a machine-wide option.
-`installer/Test-Installer.ps1` drives a real install, launches the installed app to prove
+`Desktop/installer/Test-Installer.ps1` drives a real install, launches the installed app to prove
 the payload resolves its runtime, uninstalls, and checks the machine came back clean.
 
 ## Strengths and Limitations
 
 **Strengths.** Provenance is the product: every command traces to a named guide, 24 of
-35 catalogs rebuild from committed recipes, and the never-invent-SCPI rule is enforced
+36 catalogs rebuild from committed recipes, and the never-invent-SCPI rule is enforced
 by tests rather than by care. The transport layer respects the protocols' actual rules
 (dynamic VXI-11 ports, serialized exchanges). The toolchain's parsers are grown against
 real manuals and pinned by tests, so a parser fix cannot silently un-fix another
 vendor's catalog.
 
-**Limitations.** The UI is Windows-only (the Core library is not). Transports are
-LAN-only — no USB-TMC, GPIB or serial. `ScpiClient` is line-based by design; binary
-work belongs to the capture path. Eleven catalogs cannot yet be rebuilt from their
-guides (documented per-catalog in the toolchain README), and 518 of 23,174 entries have
+**Limitations.** The UI is Windows-only (the Core library is not). Transports are LAN and
+RS-232 — no USB-TMC and no GPIB, and not for the same reason each: GPIB cannot be reached
+without the vendor driver this project refuses, while USBTMC would need a system library
+the user must already have (libusb) and, on Windows, a driver bound to the device by hand.
+SPEC §17 has the whole argument; nothing is planned. Serial was on that list too and is
+not any more — it turned out to cost what §17 predicted it would. **Discovery works
+differently there**: a serial port cannot be swept the way an address can, so the two
+halves a subnet sweep runs together are split. Listing the ports opens nothing and happens
+on arrival; opening them is `Scan`, over the ports chosen and the baud rates named, and
+nothing else is ever tried. Eleven catalogs cannot yet be rebuilt from their
+guides (documented per-catalog in the toolchain README), and 518 of 23,978 entries have
 bench confirmation — the rest are transcription, which is exactly what
 [VERIFYING-COMMANDS.md](VERIFYING-COMMANDS.md) invites contributors to change.
 
 ## Future Improvements
 
-The live list is in the toolchain README and SPEC §17; the standing items: audit and
-repair the `rohde-power-supply` catalog (it ships known old-parse junk), hunt the R&S
-FSE/FSIQ manuals so the last two analyzer families leave `Generic`, adoption passes for
-the nearest non-rebuildable catalogs (Rigol DSA800, R&S FSV), and the Chroma 63800
-guide, whose only known mirror is currently dead.
+The live list is in the toolchain README and SPEC §17. Three standing items are now closed:
+the `rohde-power-supply` catalog no longer ships old-parse junk, and no description stops
+mid-sentence in any catalog.
+
+**The FSIQ has left `Generic`.** Its Operating Manual (1119.5063.12) was found, and the
+catalog built from it carries 1,051 commands — a first extraction, with no adoption pass yet
+and its known weaknesses written into the catalog's own `source` field.
+
+**The FSE has not, and the reason is worth recording.** Its Operating Manual was found too,
+but the copy is **Volume 1**, and chapter 6 — the command reference — is in Volume 2. Reading
+Volume 1 produces 1,263 plausible-looking entries whose descriptions are page footers
+("1065.6016.12 4.134 E-15 FSE Search Functions") and softkey prose, and which are missing
+`FREQuency:CENTer` entirely. That catalog was built, inspected and deleted rather than
+shipped. An FSEB30 still comes out `Generic`, correctly: half a guide is not a guide.
+
+**The Chroma 63800 guide has been found and cannot be used.** Its only surviving copy is a
+Wayback capture of a Transcat mirror, and that 44 MB PDF is a scan: `pdftotext` recovers 550
+bytes from it, all of them the cover. It is the right document — "Programmable AC/DC
+Electronic Load 63800 Series Operation & Programming Manual, Version 1.1, April 2009" — but
+without an OCR pass there is nothing for the extractor to read, and OCR of a 2009 scan is
+not a transcription anyone should trust unreviewed.
+
+Also standing: adoption passes for the nearest non-rebuildable catalogs (Rigol DSA800,
+R&S FSV). The catalogs that rebuild but differ are not on the list: "differs" is extraction
+minus curation, the expected state (SPEC §10), and anything genuine a re-read turns up is
+adopted entry by entry rather than re-emitted.
 
 ## End-to-End Example
 

@@ -1,6 +1,14 @@
 {
   "instrument": "Rohde & Schwarz oscilloscope (RTB2000 / RTM3000 / RTA4000)",
-  "source": "Transcribed from the R&S RTB2000 Digital Oscilloscope User Manual (1333.1611.02, version 09), whose Remote Control Commands chapter also covers the RTM3000 and RTA4000. Cross-checked against pymeasure rohdeschwarz and QCoDeS rohde_schwarz drivers.",
+  "source": "Transcribed from the R&S RTB2000 Digital Oscilloscope User Manual (1333.1611.02, version 09), whose Remote Control Commands chapter also covers the RTM3000 and RTA4000. Cross-checked against pymeasure rohdeschwarz and QCoDeS rohde_schwarz drivers. Audited on 14 August 2026 for parameter values promoted to commands, the same defect the R&S supply catalog carried. Twenty entries removed: TIMeout, TRIGger, DATatoclock, IDENtifier, IDData, IDERror, COUNter and EVENt with their query forms, each a value or a status-register part the guide prints inside a list of alternatives rather than as a heading — TIMeout beside OFF under <PatternMode>, COUNter beside SQUarewave and ARBitrary, EVENt beside CONDition; STOPping and its query, a value of ACQuire:STATe beside RUN and BREak; and STOP? and SINGle?, query forms of two commands the guide marks \"Usage: Event\", which have nothing to read back. Six colon-free commands are genuine and stay: AUToscale, RUN, RUNContinous, RUNSingle, SINGle and STOP. STOP had been carrying the I2C stop-condition paragraph as its description and now carries its own. 1469 entries to 1449.",
+  "parse": [
+    {
+      "input": "parsed/rs-rtb2000.json",
+      "manual": "manuals/rs-rtb2000.txt",
+      "style": "rs",
+      "known": "measured"
+    }
+  ],
   "groups": [
     {
       "file": "parsed/rs-rtb2000.json"

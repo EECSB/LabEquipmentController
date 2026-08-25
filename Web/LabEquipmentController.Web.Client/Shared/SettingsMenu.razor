@@ -1,0 +1,159 @@
+@inject IJSRuntime JS
+
+@* One gear at the end of the title bar, where a window keeps its own controls.
+
+   What is behind it is everything that is about the application rather than about an
+   instrument: which AI service the server is set up to use, what colour the app is, and what
+   this build is. None of the three belongs on the menu strip — that strip is the bench, and
+   these are settings — and all three were previously spread across the title bar and the menu
+   strip as separate controls competing with the instrument count for the same corner.
+
+   Not a <dialog>: a menu that dims the page behind it to offer a handful of items is a heavier
+   thing than the items deserve. Most of them open a dialog, which is where the weight belongs. *@
+
+<div class="settings" @onkeydown="OnKey">
+    @* A button that shows and hides a group of controls, which is what aria-expanded is for.
+       Deliberately not role="menu": a menu promises arrow-key navigation and menuitem children,
+       and the theme row is a labelled group of three toggles rather than an item that does
+       something when pressed. Claiming the role and not honouring it is the same mistake as an
+       aria-pressed that says nothing — it reads worse than the plain truth. *@
+    <button class="ghost @(_open ? "on" : "")" @onclick="Toggle"
+            title="Settings" aria-label="Settings"
+            aria-expanded="@(_open ? "true" : "false")">
+        <Icon Name="gear" />
+    </button>
+
+    @if (_open)
+    {
+        @* A click anywhere else shuts it. An invisible sheet over the page is the one way to
+           catch that which does not involve a document-level listener outliving the component
+           that added it.
+
+           Both ends of the press have to land out here, as in the dialogs: press down inside
+           the menu and release past its edge and the menu stays, because that gesture is a
+           drag that overshot rather than a decision to dismiss. *@
+        <div class="scrim" @onmousedown="() => _downOutside = true" @onmouseup="ReleasedOutside"></div>
+
+        <div class="menu" role="group" aria-label="Settings" tabindex="-1" @ref="_menu"
+             @onmousedown="() => _downOutside = false" @onmouseup="() => _downOutside = false">
+            @* Theme first: it is the one thing here that is settled in place, without opening
+               anything, and it is the one people come back to. It sits in the menu rather
+               than in a box of its own because a dialog you have to dismiss to see the
+               colours it just set would be absurd. *@
+            <div class="pick">
+                <span>Theme</span>
+                <ThemeToggle />
+            </div>
+
+            <div class="rule"></div>
+
+            @* Help, holding the two references, as the desktop's Help menu holds them: one is
+               what an instrument accepts and the other is how to say it, and neither is a
+               setting or a place to go. Opens on hover, and on focus so a keyboard reaches it. *@
+            <div class="item branch" tabindex="0" role="group" aria-label="Help">
+                <Icon Name="book" /> Help
+                <span class="spacer"></span>
+                <Icon Name="chev" />
+
+                <div class="menu sub">
+                    <button class="item" @onclick="OpenCatalog"
+                            title="Every SCPI command this project knows, transcribed from the manufacturers' own programming guides.">
+                        <Icon Name="book" /> Command library&hellip;
+                    </button>
+                    <button class="item" @onclick="OpenLanguage"
+                            title="What every word in the script language means, with a worked example of each.">
+                        <Icon Name="script" /> Script language&hellip;
+                    </button>
+                </div>
+            </div>
+
+            <button class="item" @onclick="OpenAi">
+                <Icon Name="ai" /> AI settings&hellip;
+            </button>
+
+            <div class="rule"></div>
+
+            <button class="item" @onclick="OpenAbout">
+                <Icon Name="info" /> About
+            </button>
+        </div>
+    }
+</div>
+
+<AiSettingsDialog @ref="_ai" />
+<AboutDialog @ref="_about" />
+<WindowDialog @ref="_reference" />
+
+@code {
+    private AiSettingsDialog? _ai;
+    private AboutDialog? _about;
+    private WindowDialog? _reference;
+    private ElementReference _menu;
+    private bool _open;
+    private bool _justOpened;
+
+    /// <summary>Whether the button went down on the sheet outside the menu rather than in it.</summary>
+    private bool _downOutside;
+
+    private void Toggle()
+    {
+        _open = !_open;
+        _justOpened = _open;
+    }
+
+    private void Close()
+    {
+        _open = false;
+        _downOutside = false;
+    }
+
+    /// <summary>
+    /// The button came up on the sheet outside the menu. Shut only if it went down there too:
+    /// a release that began inside is the tail of a drag, not a click on the page behind.
+    /// </summary>
+    private void ReleasedOutside()
+    {
+        if (_downOutside) Close();
+        _downOutside = false;
+    }
+
+    /// <summary>Esc shuts the menu, as it shuts everything else here.</summary>
+    private void OnKey(KeyboardEventArgs e)
+    {
+        if (e.Key == "Escape") _open = false;
+    }
+
+    protected override void OnAfterRender(bool first)
+    {
+        // Focus moves into the menu when it opens, which is both what a keyboard user expects
+        // and what keeps Esc working: the handler is on this element, so it only ever sees the
+        // key if focus is inside it.
+        if (!_open || !_justOpened) return;
+        _justOpened = false;
+        _ = JS.InvokeVoidAsync("lec.focus", _menu);
+    }
+
+    private async Task OpenAi()
+    {
+        _open = false;
+        if (_ai is not null) await _ai.ShowAsync();
+    }
+
+    private async Task OpenAbout()
+    {
+        _open = false;
+        if (_about is not null) await _about.ShowAsync();
+    }
+
+    private async Task OpenCatalog()
+    {
+        _open = false;
+        if (_reference is not null) await _reference.ShowCatalogAsync();
+    }
+
+    private async Task OpenLanguage()
+    {
+        _open = false;
+        if (_reference is not null) await _reference.ShowLanguageAsync();
+    }
+}

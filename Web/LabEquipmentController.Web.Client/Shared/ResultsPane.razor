@@ -1,0 +1,92 @@
+@* What a run recorded: the rows as a table, the same rows as a curve, and the two controls that
+   act on them.
+
+   One component because it is one control on the desktop. ResultsPanel is put in the console
+   window and in both script editors, in the same place and with the same two tabs, so a script
+   moved between them records the same way and looks like it does. Three copies of it here drifted
+   into three different things — one with tabs, two with the table and the plot stacked and no way
+   to see either of them large. *@
+
+<div class="group">
+    @* No caption. The tabs name what is under them, and a word above them would be a word saying
+       what the thing below it already says. *@
+    <div class="subtabs">
+        <button class="@(_pane == Pane.Table ? "on" : "")" @onclick="@(() => _pane = Pane.Table)"
+                title="The rows this run recorded.">Results table</button>
+        <button class="@(_pane == Pane.Plot ? "on" : "")" @onclick="@(() => _pane = Pane.Plot)"
+                title="The same rows as a curve, in the order they were recorded.">Plot</button>
+    </div>
+
+    @* Headings and all, before there is anything under them — which is what a ListView with its
+       columns set shows from the moment the window opens, and the better thing to show: the table
+       says what this run is going to record. A line of prose in its place meant the first row did
+       not arrive in the table. The table arrived, with the row already in it, and everything under
+       it moved. *@
+    @if (_pane == Pane.Plot)
+    {
+        <Plot Columns="@Columns" Rows="@Rows" />
+    }
+    else
+    {
+        @* A box of a size, not a list that grows. The console beside it is a fixed frame with a
+           scrollbar, and this is the same thing: a table that was three rows tall and then four
+           would move the controls under it on every reading. *@
+        <div class="scroll fill">
+            <table class="results">
+                <thead>
+                    <tr>@foreach (var c in Columns) { <th>@c</th> }</tr>
+                </thead>
+                <tbody>
+                    @foreach (var r in Ordered)
+                    {
+                        <tr>@foreach (var v in r.Values) { <td class="mono">@v</td> }</tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    }
+
+    @* Only under the table. These act on the rows, and the rows are what the table is; under the
+       plot they stood beside its own camera button, which saves the same readings as a picture,
+       so the corner offered two Saves meaning two things. *@
+    @if (_pane == Pane.Table)
+    {
+        <div class="row foot">
+            <span class="spacer"></span>
+            <button @onclick="OnSaveCsv" disabled="@(Rows.Count == 0)"
+                    title="Save the recorded rows as a CSV file."><Icon Name="save" /> Save CSV</button>
+            <button @onclick="OnClear" disabled="@(Rows.Count == 0)"
+                    title="Discard the recorded rows and the curve. The log is left alone — it is the record of how these were produced."><Icon Name="clear" /> Clear Results</button>
+        </div>
+    }
+</div>
+
+@code {
+    /// <summary>The column headings, in order.</summary>
+    [Parameter, EditorRequired] public IReadOnlyList<string> Columns { get; set; } = [];
+
+    /// <summary>The rows, in the order they were recorded.</summary>
+    [Parameter, EditorRequired] public IReadOnlyList<RecordedRow> Rows { get; set; } = [];
+
+    /// <summary>
+    /// Newest at the top, which is how a console reads: the reading you just took is the one you
+    /// are looking for. A script's rows are a sweep and read in the order it swept.
+    /// </summary>
+    [Parameter] public bool NewestFirst { get; set; }
+
+
+    /// <summary>
+    /// Saving is the owner's, not this pane's: what goes in the file is not always what is in the
+    /// table. A console writes the timestamp in full rather than to the second, which is the
+    /// precision it took the reading at.
+    /// </summary>
+    [Parameter] public EventCallback OnSaveCsv { get; set; }
+
+    [Parameter] public EventCallback OnClear { get; set; }
+
+    private enum Pane { Table, Plot }
+
+    private Pane _pane = Pane.Table;
+
+    private IEnumerable<RecordedRow> Ordered => NewestFirst ? Rows.Reverse() : Rows;
+}

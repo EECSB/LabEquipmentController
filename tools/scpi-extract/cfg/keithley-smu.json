@@ -1,6 +1,14 @@
 {
   "instrument": "Keithley SourceMeter SMU (2450 / 2400 series)",
   "source": "Transcribed from the Keithley Model 2450 SourceMeter Instrument Reference Manual (2450-901-01 Rev. E, Sept 2019). Cross-checked against pymeasure keithley2450/keithley2400 and tm_devices smu2450.",
+  "parse": [
+    {
+      "input": "parsed/keithley-2450.json",
+      "manual": "manuals/keithley-2450.txt",
+      "style": "keithley",
+      "known": "measured"
+    }
+  ],
   "groups": [
     {
       "file": "parsed/keithley-2450.json"

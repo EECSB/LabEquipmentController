@@ -1,0 +1,76 @@
+{
+  "instrument": "Signal analyzer (Rohde & Schwarz FSIQ3 / FSIQ7 / FSIQ26 / FSIQ40)",
+  "source": "Transcribed from the R&S FSIQ Signal Analyzer Operating Manual (1119.5063.12), chapter 6 Remote Control - Description of Commands. Same generation and layout as the FSU and FSQ manuals: column-0 headings carrying plain-word parameter clauses, Example / Characteristics / Mode labels, and prose-stated query exceptions, all of which the parser reads. The IEEE 488.2 entries are curated rather than extracted, exactly as the FSU's and FSQ's are: the common-commands section describes the set in prose the extraction mangles, inventing query forms for *CLS, *RST, *TRG and *WAI. *DMC, *GMC?, *PUD and *EMC are macro and protected-data commands the guide documents but the curated table does not carry, and they are left out rather than described from guesswork. This is a first extraction and has not had an adoption pass. Two things are known about it. Query forms are derived from R&S's stated convention — a query exists for each setting command unless the guide says otherwise — and this generation states those exceptions in a COMMENT column that pdftotext skews out of alignment, printing 'no query' against *STB? and 'query only' against *TRG, so the exceptions cannot be read mechanically and some derived query forms will not exist on the instrument. ABORt was corrected by hand from the ABORT the command-assignment tables spell and its invented query dropped, because the subsystem page states it plainly; the rest of the guide's per-subsystem COMMENT columns have not been read one by one. Five descriptions were page footers or softkey prose and were replaced from the pages they belong to. Six more entries were removed after the first build: RUN, STOP and SINGLE with their query forms, which are front-panel softkey labels the command-assignment tables print beside the commands they invoke, not commands themselves — RUN arrived described by a list of front-panel connectors and STOP with prose glued into its syntax. None of the three appears as a heading in chapter 6; the acquisition commands this instrument actually has are ABORt and the INITiate subsystem. Adoption pass, 14 August 2026. The COMMENT column still cannot be read — pdftotext shears it from the command tree, so a row marked “query only” sits beside [:STATe], which is settable — but the guide also states the exception in prose, per entry, and that can be: “This command is an event which is why it is not assigned an *RST value and has no query.” Every derived query form was matched to its own block and 24 were contradicted by it, all of them actions: the CONFigure PRESet and IMMediate measurements, INITiate[:IMMediate] and CONMeas, HCOPy:ABORt and IMMediate, the MMEMory CLEar and SELect:ITEM commands, the CORRection RECall, DELete and CLEar commands, and FREQuency:SPAN:FULL. They are gone. 612 query forms, 456 matched to a block, 24 contradicted; the 156 that matched no block are documented only in the guide’s tables and remain derived by convention. A further pass on 14 August 2026 removed the query forms these guides deny. The reader had been looking for the sentence — “This command is an event and therefore has no *RST value and no query” — only in the part of an entry before its first label, and this manual generation prints it at the *end*, after Example, Characteristics and Mode. It was never reached, so the convention rule invented a query for every command that explicitly refuses one. 48 removed here.",
+  "manufacturer": "Rohde & Schwarz",
+  "guide": {
+    "title": "R&S FSIQ Signal Analyzer Operating Manual",
+    "edition": "1119.5063.12",
+    "vendor": "Rohde & Schwarz",
+    "url": "https://www.rohde-schwarz.com/us/manual/r-s-fsiq-operating-manual-manuals_78701-29182.html",
+    "fileName": "RohdeSchwarz_FSIQ_SignalAnalyzer_OperatingManual.pdf"
+  },
+  "parse": [
+    {
+      "input": "parsed/rs-fsiq.json",
+      "manual": "manuals/rs-fsiq.txt",
+      "style": "rs",
+      "known": "measured"
+    }
+  ],
+  "groups": [
+    {
+      "file": "parsed/rs-fsiq.json"
+    }
+  ],
+  "commonCommands": [
+    "*CLS",
+    "*ESE",
+    "*ESE?",
+    "*ESR?",
+    "*IDN?",
+    "*OPC",
+    "*OPC?",
+    "*OPT?",
+    "*PSC",
+    "*PSC?",
+    "*RCL",
+    "*RST",
+    "*SAV",
+    "*SRE",
+    "*SRE?",
+    "*STB?",
+    "*TRG",
+    "*TST?",
+    "*WAI"
+  ],
+  "supplements": [
+    {
+      "category": "IEEE 488.2 Common",
+      "syntax": "*CAL?",
+      "description": "Initiates a calibration of the instrument and subsequently queries the calibration status. Responses greater than 0 indicate errors.",
+      "isQuery": true
+    },
+    {
+      "category": "IEEE 488.2 Common",
+      "syntax": "*IST?",
+      "description": "Returns the contents of the IST flag in decimal form. The IST flag is the status bit which is sent during a parallel poll.",
+      "isQuery": true
+    },
+    {
+      "category": "IEEE 488.2 Common",
+      "syntax": "*PCB <Address>",
+      "description": "Indicates the controller address to which remote control is returned after termination of the triggered action. Range 0 to 30."
+    },
+    {
+      "category": "IEEE 488.2 Common",
+      "syntax": "*PRE <Value>",
+      "description": "Sets the parallel poll enable register to the indicated value. Range 0 to 255."
+    },
+    {
+      "category": "IEEE 488.2 Common",
+      "syntax": "*PRE?",
+      "description": "Returns the contents of the parallel poll enable register in decimal form.",
+      "isQuery": true
+    }
+  ]
+}

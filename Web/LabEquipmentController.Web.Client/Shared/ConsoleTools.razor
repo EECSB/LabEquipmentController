@@ -1,0 +1,139 @@
+@* The tool windows one console has open.
+
+   A component of its own, and rendered by the *page* rather than by the console it belongs to,
+   because a console that is not the tab on top is hidden — and a window inside a hidden subtree
+   is a window nobody can see and nobody can dismiss. Kept there, they had to be closed on every
+   tab switch, so looking at another instrument for a moment cost you the script you were
+   writing. Out here they are the desktop's windows: they belong to an instrument, they stay up
+   while you work on another, and the title bar says which one is which — which is why a tool
+   window carries the instrument's name at all.
+
+   The body of each is only built while its window exists, so a window opens on a fresh tool
+   rather than on the state the last one was left in, and closing one takes its component out of
+   the tree with it. A script editor left mounted behind a shut window still holds its connection
+   to the run it was started for. *@
+
+@foreach (var tool in _open.ToArray())
+{
+    <ToolWindow @key="tool" @ref="_windows[tool]"
+                Fill="@(tool is ConsoleTool.Scripts or ConsoleTool.Ai or ConsoleTool.Meter or ConsoleTool.Catalog)"
+                OpenWidth="@(Opens(tool).W)"
+                OpenHeight="@(Opens(tool).H)"
+                Title="@TitleOf(tool)"
+                Subtitle="@($"{Session.ProfileName} — {Session.Address}")"
+                OnClosed="() => Close(tool)">
+        @switch (tool)
+        {
+            case ConsoleTool.Scripts:
+                <Scripts Session="@Session.Id" />
+                break;
+            case ConsoleTool.Catalog:
+                <Catalog Family="@Session.Family" Embedded="true" OnInsert="Insert" />
+                break;
+            case ConsoleTool.Screen:
+                <Capture Session="@Session.Id" Mode="CaptureMode.Screen" />
+                break;
+            case ConsoleTool.Waveform:
+                <Capture Session="@Session.Id" Mode="CaptureMode.Waveform" />
+                break;
+            case ConsoleTool.Meter:
+                <Readout Session="@Session" />
+                break;
+            case ConsoleTool.Ai:
+                <Ai Session="@Session.Id" Tool="AiTool.Datasheet" />
+                break;
+        }
+    </ToolWindow>
+}
+
+@code {
+    /// <summary>The instrument these windows were opened on.</summary>
+    [Parameter, EditorRequired] public SessionDto Session { get; set; } = null!;
+
+    /// <summary>
+    /// Where a command picked out of the reference goes: into that console's command box. The
+    /// console is somewhere else in the tree, so the page carries it across.
+    /// </summary>
+    [Parameter] public EventCallback<string> OnInsert { get; set; }
+
+    /// <summary>
+    /// The size each window's own desktop form opens at, or zero to leave it to the
+    /// stylesheet.
+    ///
+    /// Filling is not one size. A window that fills otherwise takes the script editors',
+    /// because they were the only ones that filled — and neither the readout nor the
+    /// datasheet extractor has any use for the screen. MultimeterReadoutForm asks for
+    /// 980×520 and DatasheetExtractForm for 980×620; ScriptAiForm's 1320×920 is set where
+    /// that window is opened, in ScriptEditor.
+    ///
+    /// The reference is the other way about: CommandReferenceForm opens at 1720×1120 and
+    /// clamps it to the working area, which on most screens is the whole of it. A window
+    /// holding several hundred commands beside the page they were transcribed from is not
+    /// worth opening small, and both halves are docked Fill there, so the height goes to
+    /// them rather than to a strip of card under the shorter one.
+    /// </summary>
+    private static (int W, int H) Opens(ConsoleTool tool) => tool switch
+    {
+        ConsoleTool.Meter => (980, 520),
+        ConsoleTool.Ai => (980, 620),
+        ConsoleTool.Catalog => (1720, 1120),
+        _ => (0, 0),
+    };
+
+    /// <summary>What is open, oldest first.</summary>
+    private readonly List<ConsoleTool> _open = [];
+
+    /// <summary>Each open window, so pressing its button again brings it forward.</summary>
+    private readonly Dictionary<ConsoleTool, ToolWindow> _windows = [];
+
+    private static string TitleOf(ConsoleTool tool) => tool switch
+    {
+        ConsoleTool.Scripts => "Script Editor",
+        ConsoleTool.Catalog => "Command Reference",
+        ConsoleTool.Screen => "Screen Capture",
+        ConsoleTool.Waveform => "Waveform",
+        ConsoleTool.Meter => "Readout",
+        ConsoleTool.Ai => "AI Datasheet Extraction",
+        _ => "",
+    };
+
+    /// <summary>
+    /// Open a tool in a window of its own, or bring the one that is already open forward.
+    ///
+    /// Pressing the button again does not open a second — one script editor per console is what
+    /// there is — and it does not rebuild the one that is open either, which would throw away
+    /// the script being written in it. It raises it, which is what the press plainly means.
+    /// </summary>
+    public async Task OpenAsync(ConsoleTool tool)
+    {
+        if (_open.Contains(tool))
+        {
+            if (_windows.TryGetValue(tool, out var open)) await open.RaiseAsync();
+            return;
+        }
+
+        _open.Add(tool);   // the window shows itself once it has been rendered
+        StateHasChanged();
+    }
+
+    /// <summary>
+    /// The window has gone — by its ✕, or by Esc. Dropping it is what empties it: the body is
+    /// only rendered while the window is in the list.
+    /// </summary>
+    private void Close(ConsoleTool tool)
+    {
+        _open.Remove(tool);
+        _windows.Remove(tool);
+        StateHasChanged();
+    }
+
+    /// <summary>
+    /// Insert, from the Command Reference. The command lands in the console's box and the window
+    /// shuts, which is what the desktop's does — it is not sent, and you still decide that.
+    /// </summary>
+    private async Task Insert(string command)
+    {
+        await OnInsert.InvokeAsync(command);
+        Close(ConsoleTool.Catalog);
+    }
+}

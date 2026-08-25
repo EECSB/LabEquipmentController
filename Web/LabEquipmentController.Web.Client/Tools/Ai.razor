@@ -1,0 +1,788 @@
+@inject BenchClient Bench
+@inject IJSRuntime JS
+@inject ScriptChats Chats
+@implements IDisposable
+
+@* The desktop's two AI windows, in one component because they share a connection and nothing
+   else: ScriptAiForm, opened from a script editor with the script it is about, and
+   DatasheetExtractForm, opened from a console. Which one you get is the Tool parameter, and
+   the two buttons that open them are in the two places the desktop puts them.
+
+   Neither is a page of its own: a script is written for one instrument out of one
+   instrument's catalog, and a datasheet is read to produce a catalog for one instrument. The
+   connection they spend — provider, model, key — is the one part that belongs to the
+   application rather than to an instrument, and that is under the gear in the title bar. *@
+
+@* Nothing above the tool itself. The desktop puts the provider on one line inside the
+   datasheet window and says nothing at all about the key, which is under the gear where it
+   is set. A card standing over both of these to say it again was a card of preamble. *@
+@if (_status is null)
+{
+    <p class="muted">Checking&hellip;</p>
+}
+else if (!_status.Configured)
+{
+    <div class="panel">
+        <p class="error">@_status.Reason</p>
+        <p class="muted">@Where</p>
+
+        @* The picker again, because this is the one state where it is most needed: with
+           several connections set up, the one in force can be the one without a key, and a
+           window that only says so leaves you no way to switch to a connection that has one
+           short of going back to the settings box. There is nothing to choose between when
+           there is one connection, so it appears when there are two. *@
+        @if (_status.Connections.Count > 1)
+        {
+            <label class="row tight" style="margin:.6rem 0 0" for="@($"{_id}-conn-off")">
+                <span class="muted">Using:</span>
+                <select class="conn" id="@($"{_id}-conn-off")" value="@_status.SelectedId" @onchange="ConnectionChanged"
+                        title="Which AI connection to spend. One of the others may have a key on it.">
+                    @foreach (var c in _status.Connections)
+                    {
+                        <option value="@c.Id">@c.Label@(c.Configured ? "" : " — no key")</option>
+                    }
+                </select>
+            </label>
+        }
+    </div>
+}
+
+@if (_status?.Configured == true && Tool == AiTool.Script)
+{
+    @* No caption: the window this is in is called the same thing. *@
+    <div class="group tall">
+        @* What the model is being given, in one paragraph that can be checked before asking —
+           ScriptAiForm's sentence and its bullet per instrument.
+
+           Which instruments is not a question in a console's script window. The script runs on
+           the instrument whose console it was opened from, so that instrument's catalog is what
+           it is written against, and the desktop asks nobody: ScriptForm hands ScriptAiForm the
+           one instrument, SequenceForm hands it the bench. The ticks are kept for the
+           multi-instrument editor, where several catalogs at once is the point of the window. *@
+        @if (_sessions.Count == 0)
+        {
+            <p class="muted">
+                No instrument is connected, so there is no command catalog to write against.
+                Connect one first — otherwise the script can only be guesswork.
+            </p>
+        }
+        else
+        {
+            <p class="muted" style="margin:0">
+                The model is given the command catalogs below and told to use nothing else.
+                Check what it writes before you run it.
+            </p>
+
+            @if (IsSequence)
+            {
+                <div class="row" style="margin:.4rem 0 0">
+                    @foreach (var s in _sessions)
+                    {
+                        <label class="chip @(_chosen.Contains(s.Id) ? "on" : "")">
+                            <input type="checkbox" checked="@_chosen.Contains(s.Id)"
+                                   title="Include this instrument's catalog in what the model is allowed to use."
+                                   @onchange="e => Toggle(s.Id, (bool?)e.Value == true)" />
+                            @s.ProfileName
+                        </label>
+                    }
+                </div>
+            }
+            else
+            {
+                <ul class="bullets">
+                    @foreach (var s in _sessions.Where(s => _chosen.Contains(s.Id)))
+                    {
+                        <li>@Catalogued(s)</li>
+                    }
+                </ul>
+            }
+        }
+
+        @* The conversation, and above it what the conversation costs.
+
+           Clear sits with the transcript it deletes rather than down beside Use This Script:
+           one forgets everything above it, the other takes the script out of it, and putting
+           them together made two unrelated verbs look like a pair.
+
+           The figure beside it is why the button is there. A count of turns on its own does
+           not answer "should I clear this?" — two turns carrying two-hundred-line scripts are
+           worth more than ten carrying four — so it is characters of transcript, which is not
+           tokens but is the only honest number the browser has and moves with them. *@
+        <div class="row chathead">
+            <span class="muted">@Ledger</span>
+        </div>
+
+        @* Everything asked and everything written, oldest first, exactly as ScriptAiForm's
+           transcript shows it — and all of it goes back to the model with the next request,
+           which is what makes "now do the same at 5 V" mean anything.
+
+           It is there from the moment the window opens, empty, taking the space the draft box
+           used to. Rendered only once there was something in it, the window was a short strip
+           of controls that doubled in height the moment the model answered. *@
+        <div class="chatwrap">
+
+        @* In the transcript's own top corner, over the first line of it, because that line is
+           the nearest thing this pane has to a header — and pinned to the wrapper rather than
+           scrolling with the turns, so the button that empties the conversation is reachable
+           from the bottom of a long one. *@
+        <button class="clearchat" @onclick="ClearChat" disabled="@(_busy || _turns.Count == 0)"
+                title="Forget the conversation. Nothing above is sent again, which is how the request stops growing — and how a new subject starts clean."><Icon Name="clear" /> Clear</button>
+
+        <div class="chat" @ref="_chat">
+            @if (_turns.Count == 0)
+            {
+                @* What this pane is, not what to type in the box under it. The box opens on a
+                   worked request and the button beside it says Write Script; a line here
+                   telling you to describe what the script should do is the caption that was
+                   taken off the box, put back one card higher. *@
+                <p class="muted empty">
+                    Nothing asked yet. What comes back appears here, and each new request is
+                    asked with everything above it &mdash; so a follow-up like &ldquo;now do the
+                    same at 5&nbsp;V&rdquo; means something.
+                </p>
+            }
+            @for (int i = 0; i < _turns.Count; i++)
+            {
+                var turn = _turns[i];
+                <div class="turn">
+                    <p class="who">You &middot; @(i + 1) of @_turns.Count</p>
+                    <p class="said">@turn.Request</p>
+
+                    <p class="who">Written</p>
+                    <pre class="code">@turn.Script</pre>
+
+                    @* Under the script it takes, in the answer it belongs to.
+
+                       One at the foot of the window could only ever mean the newest, which in
+                       a conversation is the wrong one as often as it is the right one: you ask
+                       for a change, the change is worse, and the draft you wanted is three
+                       inches up the transcript with nothing to press. Under it, and after it,
+                       because it is read before it is used. *@
+                    <div class="row taketurn">
+                        <span class="spacer"></span>
+                        <button @onclick="() => Use(turn)" disabled="@(turn.Script.Trim().Length == 0)"
+                                title="Put this script into the editor. It is not run — you still decide that."><Icon Name="insert" /> Use This Script</button>
+                    </div>
+
+                    @* The catalog check first, the model's own account second. What must be
+                       read is what the catalog says, not what the thing being checked says
+                       about itself. *@
+                    @if (turn.Undocumented.Count > 0)
+                    {
+                        <p class="error">
+                            &#9888; @turn.Undocumented.Count line(s) use commands that are in no
+                            catalog here. Check them against the instrument's guide before
+                            running: @string.Join(", ", turn.Undocumented.Take(8))@(turn.Undocumented.Count > 8 ? ", …" : "")
+                        </p>
+                    }
+                    else if (turn.Script.Trim().Length > 0)
+                    {
+                        @* Worth saying plainly, because "no warnings" reads as "verified"
+                           otherwise. The check compares headers; the arguments after them are
+                           the model's, and only the instrument can judge those. *@
+                        <p class="muted">
+                            Every command header here is in the catalog. The values after them
+                            were not checked — read the script before you run it.
+                        </p>
+                    }
+                    @if (turn.Notes.Trim().Length > 0)
+                    {
+                        <p class="muted">@turn.Notes</p>
+                    }
+                </div>
+            }
+        </div>
+        </div>
+
+        @* One line, and as many as the text needs.
+
+           It was a box six lines deep whether or not there was anything in it, which is a
+           paragraph's worth of empty standing between the conversation and the row that sends
+           it. Most requests here are one sentence. So it opens at one line and grows with what
+           is in it — a pasted script, or Shift+Enter — up to a ceiling, after which it scrolls
+           rather than eating the transcript.
+
+           Enter sends, because this is a chat and that is what Enter does in one; Shift+Enter
+           is the newline. Both live in lec.chatbox, because a textarea's own Enter has to be
+           stopped before it inserts anything and Blazor cannot decide that per-keystroke.
+
+           It still opens on a worked example, written in rather than greyed behind the box: a
+           placeholder cannot be edited, selected or sent, and it goes the moment you type over
+           it. Written, it is a request that already works. *@
+        <textarea class="prompt" rows="1" @ref="_box" @bind="_request" @bind:event="oninput"
+                  title="Plain English. Say what you want measured or set, and at what values — the more specific, the less the model has to guess. Enter sends it; Shift+Enter starts a new line."
+                  placeholder="@Hint"></textarea>
+
+        @* The two switches that decide what else gets sent, and the button that sends it: the
+           desktop's options row, everything belonging to the request in one place, under the box
+           it acts on — and no wider than it, so Write Script ends where the words it sends end.
+           Against the card's edge instead, it stood a hand away from the box it acts on and level
+           with Use This Script, which acts on the other one. *@
+        @* Two stacks and a button, rather than one long line of everything. Across, it wrapped —
+           four controls and a button do not fit the width of the request box — and a row that
+           wraps puts its own button on a line of its own with a field of nothing beside it.
+
+           Stacked, the two questions each keep their pair: which model and how hard to work it
+           in one column, and what else to send in the other. The button ends the row, which is
+           where the thing that acts on all four of them belongs. *@
+        <div class="row promptrow">
+            @* The same pair the datasheet window carries, for the same reason: this is the
+               window where you would notice that a draft wants the better model. *@
+            <div class="stack">
+                <label class="row tight" for="@($"{_id}-conn")">
+                    <span class="muted">Using:</span>
+                    <select class="conn" id="@($"{_id}-conn")" value="@_status.SelectedId" @onchange="ConnectionChanged"
+                            title="Which AI connection to spend. Set them up under the gear at the top right; the one picked here is the one every AI window uses.">
+                        @foreach (var c in _status.Connections)
+                        {
+                            <option value="@c.Id">@c.Label</option>
+                        }
+                    </select>
+                </label>
+
+                @* Which model and how hard to work it are one decision taken twice, and a window
+                   that offers the first without the second is asking you to go to the settings
+                   box for the other half. This is the window where the second half earns its
+                   keep: a sweep with a WITH block and a FOR in it is not transcription. *@
+                <label class="row tight" for="@($"{_id}-effort")">
+                    <span class="muted">Effort:</span>
+                    <select class="effort" id="@($"{_id}-effort")" value="@_effort" @onchange="EffortChanged"
+                            title="How hard to ask the model to think before answering. Higher is slower and costs more tokens; provider default sends nothing at all. A sweep across several instruments is worth it, a one-line query is not.">
+                        @foreach (string name in _status.Efforts)
+                        {
+                            <option value="@name">@(name == "Default" ? "Provider default" : name)</option>
+                        }
+                    </select>
+                </label>
+            </div>
+
+            <span class="gap"></span>
+            <div class="stack">
+                <label class="check" title="Send the script currently in the editor and ask for it to be changed, rather than starting again.">
+                    <input type="checkbox" checked="@_revise" disabled="@(CurrentScript is not { Length: > 0 })"
+                           @onchange="e => _revise = e.Value is true" /> Revise the current script
+                </label>
+                <label class="check" title="Send what the last run printed, so a failure can be read and worked around.">
+                    <input type="checkbox" checked="@_includeOutput" disabled="@(RecentOutput is not { Length: > 0 })"
+                           @onchange="e => _includeOutput = e.Value is true" /> Include the last run's output
+                </label>
+            </div>
+            <span class="spacer"></span>
+            <button class="primary" @onclick="Write" disabled="@(_busy || _chosen.Count == 0 || _request.Trim().Length == 0)"
+                    title="Send the request, the command catalogs and the script language to your AI connection."><Icon Name="ai" /> Write Script</button>
+        </div>
+
+        @* The foot of the window: what happened, and nothing else. Use This Script moved up into
+           the answers, one to each, so there is no longer a button here that could only ever
+           mean the newest of them. *@
+        <div class="row userow">
+            @* A ring while it is away. A model asked for a sweep across two instruments takes
+               tens of seconds to answer and says nothing at all while it does — and a line of
+               grey text that has not changed for half a minute reads the same as one that has
+               stopped. The ring is the difference between waiting and hung. *@
+            @if (_busy) { <span class="spin" aria-hidden="true"></span> }
+            <span class="@(_scriptError is null ? "muted" : "error")">@(_scriptError ?? _scriptStatus)</span>
+        </div>
+    </div>
+}
+
+@if (_status?.Configured == true && Tool == AiTool.Datasheet)
+{
+    @* No caption and no preamble. The title bar says what this is and this is the only card in
+       it, and the paragraph that used to sit here — that what comes back is kept apart from the
+       curated catalogs and marked AI — was this build's own invention. It is still true, and the
+       pill on every extracted command says it in the place it matters, which is the catalog
+       months later rather than the window you are already in. The three rows are
+       DatasheetExtractForm's, in its order: the file, what will read it, then the switch that
+       decides what gets sent and the button that sends it. *@
+    <div class="group tall" @ref="_drop">
+        @* The file on the left, what will read it on the right.
+
+           A file input draws its own button and its own "no file chosen", which is neither the
+           desktop's path box nor anything that looks like it would take a dropped file — so the box
+           is ours and the picker is hidden behind it. It is a target rather than a strip because
+           that is what it is for: a file dropped anywhere on the window lands in it, and the box
+           is where that is said. There is no Browse beside it because the box itself is the
+           button — a second control opening the same picker only asks which one to press. *@
+        <div class="dropcard">
+        <div class="row dropbay">
+            <div class="drop @(_fileName is null ? "" : "has")" role="button" tabindex="0"
+                 @onclick="Browse" @onkeydown="DropKey"
+                 title="The instrument's programming guide or datasheet. PDF, Word or text file — drop one anywhere on this window, or press to browse.">
+                <Icon Name="openfile" />
+                <span class="what">@(_fileName ?? "Drop a PDF, Word or text file here")</span>
+                <span class="how">@(_fileName is null ? "or press to browse" : "press to choose another")</span>
+            </div>
+
+            @* The picker itself, behind the box that opens it. *@
+            <input type="file" @ref="_file" accept=".pdf,.docx,.txt" style="display:none" @onchange="Picked" />
+
+            @* What will read it, what it will be given, and the press that sends it — the rest of
+               DatasheetExtractForm's rows, in its order, standing beside the file rather than
+               under it. Under it they were three short rows across a window's width. *@
+            <div class="dropside">
+                @* Which connection, rather than a line saying which one it happens to be.
+                   There can be several — the cheap fast model that suits reading commands out
+                   of a guide is not the one you want writing a sequence — and choosing here
+                   chooses everywhere, the same rule the two settings under it follow. *@
+                <label class="row tight" for="@($"{_id}-conn")">
+                    <span class="muted">Using:</span>
+                    <select class="conn" id="@($"{_id}-conn")" value="@_status.SelectedId" @onchange="ConnectionChanged"
+                            title="Which AI connection to spend. Set them up under the gear at the top right; the one picked here is the one every AI window uses.">
+                        @foreach (var c in _status.Connections)
+                        {
+                            <option value="@c.Id">@c.Label</option>
+                        }
+                    </select>
+                </label>
+
+                @* Reachable from here as well as from the settings box, for the same reason
+                   the checkbox under it is: it is a decision about this extraction, taken
+                   while looking at the file it applies to. Applied rather than remembered, so
+                   the two places cannot disagree about what is in force. *@
+                <label class="row tight" for="@($"{_id}-effort")">
+                    <span class="muted">Effort:</span>
+                    <select class="effort" id="@($"{_id}-effort")" value="@_effort" @onchange="EffortChanged"
+                            title="How hard to ask the model to think before answering. Higher is slower and costs more tokens. Copying commands out of a guide is transcription and rarely needs it; provider default sends nothing at all.">
+                        @foreach (string name in _status.Efforts)
+                        {
+                            <option value="@name">@(name == "Default" ? "Provider default" : name)</option>
+                        }
+                    </select>
+                </label>
+
+                <label class="check" title="Pull the text out of the PDF here and send only the text, rather than uploading the file. Sidesteps the upload size caps, and nothing but the words leaves the server.">
+                    <input type="checkbox" checked="@_extractLocally" @onchange="LocalExtraction" /> Extract text locally before sending
+                </label>
+
+                @if (_busy)
+                {
+                    <button class="danger" @onclick="StopExtract"
+                            title="Stop reading. The request is cancelled at the server, not merely ignored here."><Icon Name="stop" /> Stop</button>
+                }
+                else
+                {
+                    <button class="primary" @onclick="Extract"
+                            title="Read the file and pull commands out of it. A long guide takes minutes."><Icon Name="script" /> Extract</button>
+                }
+            </div>
+        </div>
+        </div>
+
+        @* The grid is there from the moment the window opens, headings and all, and takes the rest of
+           the window — which is what DatasheetExtractForm shows: a list view docked to fill, with the
+           status line and Save Ticked under it. Rendered only once something had been read, the window
+           was a strip of four controls that turned into a full window when the model answered. *@
+        <div class="scroll fill">
+            @* prose: the Description column wraps, so these rows hang from the top. *@
+            <table class="prose">
+                <thead><tr><th style="width:2rem"></th><th>Command</th><th>Category</th><th>Description</th></tr></thead>
+                <tbody>
+                    @for (int i = 0; i < (_extracted?.Commands.Count ?? 0); i++)
+                    {
+                        int index = i;
+                        var c = _extracted!.Commands[index];
+                        <tr>
+                            <td><input type="checkbox" checked="@_keep.Contains(index)"
+                                       @onchange="e => Keep(index, e.Value is true)" /></td>
+                            <td class="mono">@c.Syntax</td>
+                            <td class="muted">@c.Category</td>
+                            <td>@c.Description</td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+
+        <div class="row foot">
+            @* The same ring as the other half of this window, for the same reason and for longer:
+               a guide of four hundred pages is minutes of a line of text that does not change. *@
+            @if (_busy) { <span class="spin" aria-hidden="true"></span> }
+            <span class="@(_extractError is null ? "muted" : "error")">@(_extractError ?? _extractStatus)</span>
+            <span class="spacer"></span>
+            <button @onclick="SaveTicked" disabled="@(_extracted is null || _keep.Count == 0)"
+                    title="Save the ticked commands for this instrument. They are kept separately from the built-in catalogs and always shown as AI-extracted."><Icon Name="save" /> Save Ticked</button>
+        </div>
+    </div>
+}
+
+@code {
+    /// <summary>
+    /// The connection itself is one thing in one place — the gear at the top right — and this
+    /// page is the two features that spend it. Saying it twice, in full, in both places is how
+    /// the two come to disagree.
+    /// </summary>
+    private const string Where = "Set the provider, model and key under the gear at the top right.";
+
+    /// <summary>Which of the desktop's two AI windows this is.</summary>
+    [Parameter] public AiTool Tool { get; set; } = AiTool.Datasheet;
+
+    /// <summary>The instrument this was opened for. A script drafted from one console is
+    /// about that instrument, not about the whole bench.</summary>
+    [Parameter] public string? Session { get; set; }
+
+    /// <summary>What is in the editor, for "Revise the current script".</summary>
+    [Parameter] public string? CurrentScript { get; set; }
+
+    /// <summary>What the last run printed, for "Include the last run's output".</summary>
+    [Parameter] public string? RecentOutput { get; set; }
+
+    /// <summary>Whether the editor that opened this speaks the multi-instrument language.</summary>
+    [Parameter] public bool IsSequence { get; set; }
+
+    /// <summary>Where Use This Script puts it.</summary>
+    [Parameter] public EventCallback<string> OnUse { get; set; }
+
+    private readonly string _id = "ai" + Guid.NewGuid().ToString("N")[..8];
+
+    private AiStatus? _status;
+    private IReadOnlyList<SessionDto> _sessions = [];
+    private readonly HashSet<string> _chosen = [];
+    private string _request = "";
+    private bool _busy;
+
+    private bool _revise;
+    private bool _includeOutput;
+    private string? _scriptError;
+    private string _scriptStatus = "";
+
+    /// <summary>
+    /// The conversation — the live list out of <see cref="ScriptChats"/>, not a copy, so it
+    /// is still there when this window is closed and opened again.
+    /// </summary>
+    private List<AiTurn> _turns = [];
+
+    /// <summary>The transcript's box, for scrolling a new answer into view.</summary>
+    private ElementReference _chat;
+
+    /// <summary>The request box, which is sized to what is in it. See lec.chatbox.</summary>
+    private ElementReference _box;
+
+    /// <summary>Whether the newest turn still needs scrolling to. Set when one arrives.</summary>
+    private bool _scrollChat;
+
+    /// <summary>Held for the lifetime of the component so the box's Enter can call back in.</summary>
+    private DotNetObjectReference<Ai>? _self;
+    private bool _boxWired;
+
+    /// <summary>What the transcript costs to send — the reason Clear is next to it.</summary>
+    private string Ledger
+    {
+        get
+        {
+            if (_turns.Count == 0)
+                return "No conversation yet. Only your request and the catalogs get sent.";
+
+            int chars = ScriptChats.Size(_turns);
+            string size = chars < 1024 ? $"{chars} characters" : $"about {chars / 1024.0:0.#} kB";
+            return $"{_turns.Count} turn(s) — {size} of transcript goes with every request. "
+                 + "Clear to start again without it.";
+        }
+    }
+
+    private ElementReference _file;
+
+    /// <summary>The chosen file's name, for the box that shows it. Null until one is picked.</summary>
+    private string? _fileName;
+
+    private bool _extractLocally;
+
+    /// <summary>How hard the model is being asked to think, as the server last reported it.</summary>
+    private string _effort = "Default";
+    private AiExtractReply? _extracted;
+    private readonly HashSet<int> _keep = [];
+    private string? _extractError;
+    private string _extractStatus = "Pick a datasheet, then Extract.";
+    private CancellationTokenSource? _extracting;
+
+    /// <summary>One instrument's line in the paragraph, in ScriptAiForm's words.</summary>
+    private static string Catalogued(SessionDto s)
+        => s.CatalogCommandCount > 0
+            ? $"{s.ProfileName}: {s.CatalogCommandCount:N0} documented commands"
+            : $"{s.ProfileName}: no catalog — only *IDN?, *RST, *CLS and *OPC? can be checked";
+
+    /// <summary>
+    /// The request the box opens on: a real one, for the kind of instrument this window was
+    /// opened from. Written into the box rather than shown behind it — see the note there.
+    /// </summary>
+    private string Example => IsSequence
+        ? "Sweep the generator from 100 Hz to 100 kHz in 20 log steps and record the scope's peak-to-peak voltage at each one."
+        : "Set a 1 kHz sine at 2 Vpp on channel 1, turn the output on, wait a second, then read it back.";
+
+    /// <summary>And the same words behind an emptied box, which is the one time they are needed
+    /// again — said as an example there, because that is all a placeholder can be.</summary>
+    private string Hint => "e.g. " + Example;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _turns = Chats.For(IsSequence);
+        _status = await Bench.AiStatusAsync();
+        _sessions = await Bench.SessionsAsync();
+        _extractLocally = _status?.ExtractTextLocally ?? false;
+        _effort = _status?.Effort ?? "Default";
+
+        // Ticked when there is something for them to send, as the desktop ticks them: a
+        // switch that is on and has nothing to offer is a switch that lies.
+        _revise = CurrentScript is { Length: > 0 };
+        _includeOutput = RecentOutput is { Length: > 0 };
+
+        // And the box opens on a request rather than empty, the way both editors open on a
+        // worked script. Only if nothing has been typed yet: this runs on the way in, but the
+        // window is rebuilt each time it is opened and there is no sense in which a request
+        // being written could be overwritten by it.
+        if (Tool == AiTool.Script && _request.Length == 0) _request = Example;
+
+        if (Session is { Length: > 0 } one) _chosen.Add(one);
+        else foreach (var s in _sessions) _chosen.Add(s.Id);
+    }
+
+    private void Toggle(string id, bool on)
+    {
+        if (on) _chosen.Add(id); else _chosen.Remove(id);
+    }
+
+    // ------------------------------------------------------------------ the script
+
+    private async Task Write()
+    {
+        string asked = _request.Trim();
+
+        _busy = true; _scriptError = null;
+        // "Thinking", not "Writing": nothing is being written yet, and on a model asked for
+        // effort most of the wait is spent before the first word of the answer exists.
+        _scriptStatus = "Thinking…";
+        try
+        {
+            // The conversation goes with it. Sent from here rather than remembered on the
+            // server: two script editors open at once are two conversations, and the server
+            // has no notion of a window to keep them apart with.
+            var reply = await Bench.AiScriptAsync(new AiScriptRequest(
+                asked, _chosen.ToList(), IsSequence,
+                _revise ? CurrentScript : null,
+                _includeOutput ? RecentOutput : null,
+                _turns.ToList()));
+
+            if (reply.Error is not null) { _scriptError = reply.Error; _scriptStatus = "Failed."; return; }
+
+            _turns.Add(new AiTurn(asked, reply.Script, reply.Notes, reply.Undocumented));
+
+            // The box empties, because the request is now in the transcript above it and a
+            // chat you have to clear by hand before each turn is a form, not a chat.
+            _request = "";
+            _scrollChat = true;
+            _scriptStatus = "Written. Read it, then press Use This Script — or ask for a change.";
+        }
+        finally { _busy = false; }
+    }
+
+    /// <summary>
+    /// Forget the conversation.
+    ///
+    /// The whole thing, and the newest draft with it: what is left is what a freshly-opened
+    /// window would have had, which is what "clear" has to mean for the figure above it to be
+    /// true afterwards.
+    /// </summary>
+    private void ClearChat()
+    {
+        if (_turns.Count == 0) return;
+
+        _turns.Clear();
+        _scriptError = null;
+        _scriptStatus = "Conversation cleared. The next request goes on its own.";
+    }
+
+    /// <summary>Put one answer's script into the editor — any of them, not only the newest.</summary>
+    private async Task Use(AiTurn turn)
+    {
+        if (turn.Script.Trim().Length > 0) await OnUse.InvokeAsync(turn.Script);
+    }
+
+    /// <summary>
+    /// Enter in the request box. Called from lec.chatbox, which has already stopped the
+    /// textarea inserting a line for it.
+    /// </summary>
+    [JSInvokable]
+    public async Task SendRequest()
+    {
+        if (_busy || _chosen.Count == 0 || _request.Trim().Length == 0) return;
+        await Write();
+        StateHasChanged();
+    }
+
+    // --------------------------------------------------------------- the datasheet
+
+    /// <summary>
+    /// The same setting the AI box carries, in the second place the desktop puts it. Applied
+    /// rather than remembered here, so the two cannot disagree about what is in force.
+    /// </summary>
+    private async Task LocalExtraction(ChangeEventArgs e)
+    {
+        _extractLocally = e.Value is true;
+        await ApplyConnection();
+    }
+
+    /// <summary>
+    /// Which connection to spend, changed from the window that spends it.
+    ///
+    /// Told to the server rather than kept here: one selection for the whole app, so the
+    /// datasheet window and the script window cannot disagree about which key is being spent.
+    /// The reply is the state after, which is what the rest of this window reads.
+    /// </summary>
+    private async Task ConnectionChanged(ChangeEventArgs e)
+    {
+        if (e.Value is not string id || id.Length == 0) return;
+
+        var reply = await Bench.AiSelectAsync(id);
+        if (reply.Status is not null)
+        {
+            _status = reply.Status;
+            _extractLocally = _status.ExtractTextLocally ?? false;
+            _effort = _status.Effort;
+        }
+        else _extractError = reply.Error;
+    }
+
+    /// <summary>How hard the model should think, changed from the window it applies to.</summary>
+    private async Task EffortChanged(ChangeEventArgs e)
+    {
+        _effort = e.Value as string ?? "Default";
+        await ApplyConnection();
+    }
+
+    /// <summary>
+    /// Send the two settings this window carries back to the server, leaving the rest of the
+    /// connection as it stands — the endpoint, model and provider are read off the status
+    /// rather than edited here, and the key is not sent at all, which is what null means.
+    /// </summary>
+    private async Task ApplyConnection()
+    {
+        if (_status is null) return;
+
+        var reply = await Bench.AiApplyAsync(new AiSettingsUpdate(
+            _status.Provider, _status.Endpoint, _status.Model, _extractLocally,
+            _status.TimeoutSeconds, null, _effort));
+        if (reply.Status is not null) { _status = reply.Status; _effort = _status.Effort; }
+        else _extractError = reply.Error;
+    }
+
+    private void Keep(int index, bool on)
+    {
+        if (on) _keep.Add(index); else _keep.Remove(index);
+    }
+
+    /// <summary>Open the picker. Both the box and Browse do it, as pressing either would.</summary>
+    private async Task Browse() => await JS.InvokeVoidAsync("lec.press", _file);
+
+    private async Task DropKey(KeyboardEventArgs e)
+    {
+        if (e.Key is "Enter" or " ") await Browse();
+    }
+
+    /// <summary>A file was chosen, or dropped into the input by lec.dropFile.</summary>
+    private async Task Picked()
+        => _fileName = await JS.InvokeAsync<string?>("lec.fileName", _file);
+
+    private async Task Extract()
+    {
+        _busy = true; _extractError = null; _extracted = null; _keep.Clear();
+        _extractStatus = "Thinking — a long guide takes minutes.";
+        _extracting = new CancellationTokenSource();
+        try
+        {
+            var picked = await JS.InvokeAsync<FilePayload?>("lec.readFile", _file);
+            if (picked is null) { _extractError = "Choose a file first."; return; }
+
+            var reply = await Bench.AiExtractAsync(
+                new AiExtractRequest(picked.name, picked.base64), _extracting.Token);
+
+            if (reply.Error is not null) { _extractError = reply.Error; _extractStatus = "Extraction failed."; return; }
+
+            _extracted = reply;
+            // Everything ticked to begin with, as the desktop ticks them: the reading is for
+            // taking things out, and starting with nothing in would make it for putting them
+            // back.
+            for (int i = 0; i < reply.Commands.Count; i++) _keep.Add(i);
+
+            // What was found, in the status line and in the desktop's words — it had a line of its
+            // own above the table here, saying the same thing twice.
+            string dropped = reply.Rejected > 0
+                ? $"  {reply.Rejected} reply line(s) were not valid SCPI and were dropped."
+                : "";
+            _extractStatus = reply.Commands.Count == 0
+                ? "No commands found in that document." + dropped
+                : $"Found {reply.Commands.Count} command(s). Untick anything wrong, then Save Ticked."
+                  + dropped;
+        }
+        catch (OperationCanceledException) { _extractStatus = "Stopped."; }
+        catch (Exception ex) { _extractError = ex.Message; _extractStatus = "Extraction failed."; }
+        finally
+        {
+            _busy = false;
+            _extracting?.Dispose();
+            _extracting = null;
+        }
+    }
+
+    private void StopExtract() => _extracting?.Cancel();
+
+    private async Task SaveTicked()
+    {
+        if (_extracted?.Token is not { Length: > 0 } token) return;
+
+        @* Filed under the instrument it was opened for, which is what the desktop does with it:
+           the model out of its *IDN?, and the address only if it would not say. There is nothing
+           to type, and nothing to get wrong. *@
+        var reply = await Bench.AiSaveExtractedAsync(
+            new AiSaveExtractRequest(token, Session ?? "", _keep.Order().ToList()));
+
+        if (reply.Error is not null) { _extractError = reply.Error; return; }
+        _extractError = null;
+        _extractStatus = $"Saved {reply.Saved} command(s) to {reply.SavedTo}";
+    }
+
+    /// <summary>
+    /// The card, as somewhere to drop a datasheet on. Wired once, and only for the tool that
+    /// takes a file: a drop lands in the same file input the browser's own picker fills, so
+    /// there is one path from here on and nothing to keep in step.
+    /// </summary>
+    private ElementReference _drop;
+
+    /// <summary>
+    /// Not on the first render: the card is not there on the first render. Whether there is a
+    /// connection at all is asked over the wire, so the first thing this component draws is
+    /// "Checking…" and the file input arrives a render or two later.
+    /// </summary>
+    protected override async Task OnAfterRenderAsync(bool first)
+    {
+        // Not on the first render for either of these: whether there is a connection at all is
+        // asked over the wire, so the first thing this component draws is "Checking…" and the
+        // card arrives a render or two later.
+        if (!_boxWired && Tool == AiTool.Script && _status?.Configured == true)
+        {
+            _boxWired = true;
+            _self ??= DotNetObjectReference.Create(this);
+            await JS.InvokeVoidAsync("lec.chatbox", _box, _self);
+        }
+
+        // A new answer is at the bottom of the transcript, which is where a chat is read from.
+        // After the render rather than during it: the turn has to be in the DOM before its
+        // height counts towards what there is to scroll. The box is re-measured in the same
+        // breath — it was just emptied, and nothing fires input when Blazor does that.
+        if (_scrollChat)
+        {
+            _scrollChat = false;
+            await JS.InvokeVoidAsync("lec.scrollToEnd", _chat);
+            await JS.InvokeVoidAsync("lec.fitBox", _box);
+        }
+
+        if (_dropWired || Tool != AiTool.Datasheet || _status?.Configured != true) return;
+        _dropWired = true;
+        await JS.InvokeVoidAsync("lec.dropFile", _drop, _file);
+    }
+
+    private bool _dropWired;
+
+    public void Dispose() => _self?.Dispose();
+
+    private sealed record FilePayload(string name, string base64);
+}

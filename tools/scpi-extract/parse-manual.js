@@ -170,7 +170,15 @@ function dehyphenate(s) {
   });
 }
 
-function pushEntry(syntaxes, desc, example, category) {
+/// <param name="proseLen">
+/// How much of the description is prose, when a table of values has been appended to it.
+/// De-duplication keeps the longest description, and a guide documents the same command in
+/// several chapters — so once a list could be pulled in, the occurrence carrying the biggest
+/// table started outranking the one carrying the best sentence. Nine FSL entries swapped a
+/// paragraph about delta markers for a column of output units that way. Rank on the prose
+/// and the appended table stops being evidence of a better record.
+/// </param>
+function pushEntry(syntaxes, desc, example, category, proseLen) {
   desc = dehyphenate(clean(desc));
   if (CONTENTS_PAGE.test(desc)) desc = '';
   for (const s of syntaxes) {
@@ -184,6 +192,7 @@ function pushEntry(syntaxes, desc, example, category) {
       example: example ? clean(example) : null,
       isQuery: syntax.includes('?'),
       category: category ? clean(category) : undefined,
+      _prose: proseLen ?? undefined,      // dropped before output; ranking only
     });
   }
 }
@@ -274,7 +283,26 @@ function parseSiglent() {
       desc = (lines[j].match(/^\s*(?:Description|Instruction)\s*(.*)$/i) || [, ''])[1];
       for (let k = j + 1; k < lines.length && k < j + 6; k++) {
         const t = lines[k].trim();
-        if (!t || /^(Example|Response|Parameter|Return|Default|Menu|Command|Note)/i.test(t)) break;
+        if (!t) break;
+        // These guides are two columns, and a description too long for its column wraps
+        // into the right-hand one *beside the next label*:
+        //
+        //     Instruction  Sets the resolution bandwidth ... rounding up) available RBW to the
+        //     Parameter    value entered.
+        //     Type         Discrete
+        //
+        // Breaking on the label lost "value entered." and left the sentence ending on an
+        // article. The same wrap is read in the Chroma/B&K reader further down. Take the
+        // right-hand column, but only while the sentence is still open — which is what
+        // stops "Type / Discrete" being read as prose, since the line before it closes.
+        const beside = t.match(/^(?:Example|Response|Parameter|Return|Default|Menu|Command|Note|Type)\s{2,}(\S.*)$/i);
+        if (beside) {
+          if (!desc || /[.!?]$/.test(desc)) break;
+          desc += ' ' + beside[1];
+          if (/[.!?]$/.test(desc)) break;
+          continue;
+        }
+        if (/^(Example|Response|Parameter|Return|Default|Menu|Command|Note)/i.test(t)) break;
         desc += ' ' + t;
       }
     }
@@ -499,6 +527,22 @@ function parseKeithley() {
         // The guide writes every description as "This command/query/attribute ...".
         // Drop that opening so the catalog reads as instructions, like the others.
         desc = desc.replace(/^This (command|query|attribute|function)\s+/i, '');
+        // And it wraps that sentence at the margin like any other paragraph:
+        //
+        //     This command determines the format that is used to display measurement
+        //     readings on the front-panel display of
+        //     the instrument.
+        //
+        // Taking only the line it starts on left "…on the front-panel display of", and
+        // emit's full stop made the cut look deliberate. Keep reading while the sentence
+        // is open; one that already ends joins nothing, so only the truncated ones move.
+        for (let m = k + 1; m < end && m < k + 4; m++) {
+          if (/[.!?]$/.test(desc)) break;
+          const u = lines[m].trim();
+          if (!u) break;
+          if (/^(Type|Usage|Details|Example|Also see)\b/.test(u) || isCmd(u)) break;
+          desc += ' ' + u;
+        }
         continue;
       }
       if (/^Usage\b/.test(t)) {
@@ -569,10 +613,28 @@ function parseKeysight2() {
     if (!isCmd(syntax)) continue;
 
     // Continue the sentence across wrapped lines.
+    //
+    // A clause its last word leaves open is still running, and this guide breaks such a
+    // sentence two ways — across a line that starts with a command name:
+    //
+    //     interprets the tolerance parameters for automasking as defined by
+    //     :MTESt:AMASk:XDELta and :MTESt:AMASk:YDELta commands.
+    //
+    // and across a blank one:
+    //
+    //     ON -- the analog channel memory depth is automatically determined by the
+    //
+    //     oscilloscope based on the horizontal time/div setting ...
+    //
+    // Both used to stop the join, and 18 descriptions ended on "by the" or "as defined
+    // by". A finished sentence still stops at either, so only the truncated ones move.
     let desc = rest;
-    for (let k = i + 1; k < lines.length && k < i + 5; k++) {
+    for (let k = i + 1; k < lines.length && k < i + 7; k++) {
       const t = lines[k].trim();
-      if (!t || isCmd(t) || /^(The|NOTE|Example)\b/.test(t)) break;
+      const open = /(?:^|\s)(the|a|an|of|and|or|with|by|to|in|for|from|on|at|as|than|that|into|using|between)$/.test(desc);
+      if (!t) { if (open) continue; break; }
+      if (/^(The|NOTE|Example)\b/.test(t)) break;
+      if (isCmd(t) && !open) break;
       desc += ' ' + t;
       if (/[.!?]$/.test(t)) break;
     }
@@ -640,17 +702,31 @@ function parseBlock() {
     if (!syntaxes.length) continue;
 
     // Then the prose, within a short reach — skipping model notes and tables.
+    //
+    // A description is one sentence, and the manual wraps it at the margin like any other
+    // paragraph. Taking only the line the sentence starts on stopped it wherever the
+    // column ran out — "The couple command consists of an" — and emit's full stop then
+    // made the cut look deliberate. So keep writing whichever sentence is still open.
+    //
+    // "Open" means no terminal period, which is what bounds this: a description that ended
+    // on its first line joins nothing, so only the truncated ones move. A blank line closes
+    // the sentence too, which keeps the parameter tables and notes below out of the prose.
     let setDesc = '', queryDesc = '';
+    let open = null;                       // 'set' | 'query' — the sentence still running
+    const opens = d => (/[.!?]$/.test(d) ? null : true);
     for (let m = k; m < lines.length && m < k + 14; m++) {
       const s = lines[m].trim();
-      if (!s) continue;
+      if (!s) { open = null; continue; }
       if (isCmd(s)) break;
       const cm = s.match(/^The command\s+(\S.*)$/i);
       const qm = s.match(/^The query\s+(\S.*)$/i);
-      if (cm && !setDesc) { setDesc = cm[1]; continue; }
-      if (qm && !queryDesc) { queryDesc = qm[1]; continue; }
-      if (!setDesc && !queryDesc && /^(Sets?|Returns?|Queries|Specifies|Enables?|Selects?|Clears?)\b/.test(s))
-        setDesc = s;
+      if (cm && !setDesc) { setDesc = cm[1]; open = opens(setDesc) && 'set'; continue; }
+      if (qm && !queryDesc) { queryDesc = qm[1]; open = opens(queryDesc) && 'query'; continue; }
+      if (!setDesc && !queryDesc && /^(Sets?|Returns?|Queries|Specifies|Enables?|Selects?|Clears?)\b/.test(s)) {
+        setDesc = s; open = opens(setDesc) && 'set'; continue;
+      }
+      if (open === 'set')   { setDesc   += ' ' + s; if (/[.!?]$/.test(s)) open = null; }
+      if (open === 'query') { queryDesc += ' ' + s; if (/[.!?]$/.test(s)) open = null; }
     }
     if (!setDesc && !queryDesc) { i = k - 1; continue; }
 
@@ -917,7 +993,7 @@ function parseRs() {
       ? Math.min(heads[h + 1][0], start + 60)
       : Math.min(lines.length, start + 60);
 
-    let desc = '';
+    let desc = '', proseLen = null;
     for (let k = start + 1; k < end; k++) {
       const t = lines[k].trim();
       if (!t) continue;
@@ -929,11 +1005,110 @@ function parseRs() {
       // reached one FPC entry as its prose, and no real sentence runs four dots deep.
       if (/\.{4}/.test(t)) continue;
       desc = t;
+      let last = k;
       for (let m = k + 1; m < end && m < k + 3; m++) {                       // wrapped sentence
         const u = lines[m].trim();
-        if (!u || RS_LABEL.test(u) || isCmd(u) || /^R&S|^User Manual/.test(u)) break;
-        desc += ' ' + u;
+        if (!u || RS_LABEL.test(u) || /^R&S|^User Manual/.test(u)) break;
+        // A description may name another command, and the manual breaks that name at the
+        // margin like any other word:
+        //
+        //     This command deletes the selected transducer factor. Prior to this
+        //     command, the command SENS:
+        //     CORR:TRAN:SEL must be sent.
+        //
+        // The continuation is a command as far as isCmd is concerned — it reads only the
+        // first token, and "CORR:TRAN:SEL" is one — so the join stopped and the sentence
+        // shipped as "…the command SENS:", with emit's full stop turning the cut into
+        // something that looks deliberate. 119 descriptions across the four R&S analyzers
+        // ended that way.
+        //
+        // A mnemonic ending in a colon is a name still being spelled, so join it back with
+        // no space. Prose ending in a colon — "the following commands:" — is a real
+        // sentence end and still stops the join, which is what keeps this from swallowing
+        // the command lists that legitimately follow one.
+        // The same break also cut every sentence whose next line merely *starts* with a
+        // command name:
+        //
+        //     This command activates or deactivates the external generator selected with
+        //     SOUR:EXT<1|2>:FREQ:SWE ON in the selected window.
+        //
+        // which shipped as "…the external generator selected with." — a sentence ending on
+        // a preposition, which no sentence does. A clause left open by its last word is
+        // still running, so let it run.
+        //
+        // Joining inside a paragraph is safe because a blank line already ends this loop
+        // and an R&S heading is always set off by one (the heading scan above depends on
+        // exactly that). So a line starting with a command name, reached without crossing
+        // a blank, is prose that mentions a command — never the next entry.
+        // The class carries ':' so it can span a whole path. Without it the test only
+        // recognised a single mnemonic — "the command SENS:" — and missed a sentence cut
+        // after a deep one, "…previously using CALCulate<n>:MARKer<m>:FUNCtion:", which is
+        // how two FSW queries kept a description that stopped at the colon.
+        const cutPath = /(?:^|\s)[A-Z]{2,}[A-Za-z0-9<>|.\[\]:]*:$/.test(desc);
+        const openClause =
+          /(?:^|\s)(the|a|an|of|and|or|with|by|to|in|for|from|on|at|as|than|that|into|using|between)$/.test(desc);
+        if (isCmd(u) && !cutPath && !openClause) break;
+        desc += cutPath ? u : ' ' + u;
+        last = m;
         if (/[.!?]$/.test(u)) break;
+      }
+
+      // A description ending in a colon promises a list, and the guide prints that list as
+      // rows underneath — either name/value pairs
+      //
+      //     This command resets the scaling of the X and Y axes ... The following values
+      //     are set:
+      //
+      //     X axis ref level: -20 dBm
+      //     X axis range APD: 100 dB
+      //
+      // or the alternatives a parameter accepts, token and meaning in two columns
+      //
+      //     This command sets the sort mode for the search for maxima:
+      //
+      //     X      the maxima are sorted ... according to increasing X values
+      //     Y      the maxima are sorted ... according to decreasing Y values
+      //
+      // Ninety-two descriptions across the analyzers stopped at that colon. Each was a
+      // whole sentence, so none of them looked broken — they simply promised something the
+      // reader never went to fetch, and the answer to "what does SORT actually take?" was
+      // in the guide and not in the catalog.
+      //
+      // Only a description that ends in a *lower-case* word and a colon is extended, which
+      // is what bounds this: prose that already finished is never reopened to swallow the
+      // table under it, and a sentence cut inside a SCPI name ("…the command SENS:") is the
+      // other repair above, not this one. The rows stop at the next label, and cannot reach
+      // the next command because `end` is where that heading starts.
+      //
+      // The colon must end a *sentence*, not a label. A guide also writes one-word headings
+      // that end in a colon — "Impedance:" over a list of related commands, "Result:" over
+      // an example's output — and reading those as a promise to be kept gave three FPC
+      // entries the description "Impedance: INPut:IMPedance; INPut:IMPedance:PAD" and gave
+      // an FSW entry a zip filename. Four words and twenty-five characters is the line
+      // between a sentence that introduces a table and a label that heads one.
+      //
+      // And it must not be a colon inside a SCPI name. "…activated previously using
+      // CALCulate<n>:MARKer<m>:FUNCtion:" ends in a lower-case tail like any word does, so
+      // the test below matches it; that is a sentence cut mid-path, which the wrapped-line
+      // join above exists to mend, and appending a table to it cost the FSW two commands.
+      const prose = desc.replace(/:$/, '').trim();
+      const sentence = prose.length >= 25 && prose.split(/\s+/).length >= 4;
+      const cutName = /(?:^|\s)[A-Z]{2,}[A-Za-z0-9<>|.\[\]:]*:$/.test(desc);
+      if (sentence && !cutName && /[a-z]{2,}:$/.test(desc)) {
+        const rows = [];
+        for (let m = last + 1; m < end && rows.length < 8; m++) {
+          const u = lines[m].trim();
+          if (!u) continue;
+          if (RS_LABEL.test(u)) break;
+          if (/^R&S|^User Manual|^Remote Control Commands$/.test(u) || /\.{4}/.test(u)) continue;
+          rows.push(u.replace(/\s{2,}/g, ' — '));
+        }
+        // Two columns read as "token — meaning"; the join keeps the rows apart. The prose
+        // length is remembered so de-duplication still ranks on the sentence.
+        if (rows.length) {
+          proseLen = desc.length;
+          desc = (desc + ' ' + rows.join('; ')).slice(0, 600);
+        }
       }
       break;
     }
@@ -956,12 +1131,22 @@ function parseRs() {
     // every command look settable, and the rule then invents a query for all of them,
     // including *RST? and "position the marker to the next peak?". Take the sentence as the
     // Usage field it stands in for.
+    // Read the whole block, not the part before the first label. These guides put that
+    // sentence at the *end* of an entry, after Example, Characteristics and Mode:
+    //
+    //     CALCulate<1|2>:DELTamarker<1...4>:AOFF
+    //         This command switches off all active delta markers.
+    //     Example:  "CALC:DELT:AOFF"
+    //     Characteristics: *RST value: -
+    //     Mode:     A
+    //     This command is an event and therefore has no *RST value and no query.
+    //
+    // Stopping at "Example:" meant the statement was never reached, and the convention
+    // rule then invented a query for the command it explicitly denies one to — "switch
+    // off all delta markers?" among them. The scan is still bounded: `end` is where the
+    // next heading starts, so it cannot run into another entry's text.
     let prose = '';
-    for (let k = start + 1; k < end; k++) {
-      const t = lines[k];
-      if (/^\s*(Suffix|Parameters?|Example|Manual operation)\s*:/i.test(t)) break;
-      prose += ' ' + t;
-    }
+    for (let k = start + 1; k < end; k++) prose += ' ' + lines[k];
     const noQuery = /\bis an "?event"?\b|\bhas no query\b|\bno \*RST value and no query\b/i.test(prose);
 
     const settable = !noQuery && !/Query only|Setting only|Event/i.test(usage);
@@ -972,7 +1157,7 @@ function parseRs() {
       const bare = head.split(/\s/)[0];
       if (settable && !bare.endsWith('?')) syntaxes.push(bare + '?');
     }
-    pushEntry(syntaxes, desc, null);
+    pushEntry(syntaxes, desc, null, undefined, proseLen);
   }
 }
 
@@ -1526,12 +1711,25 @@ function parsePlain() {
         // footer under it must stay descriptionless rather than be described by the
         // page it is on.
         desc = content;
-        for (let m = k + 1; m < end && m < k + 4; m++) {
+        for (let m = k + 1; m < end && m < k + 6; m++) {
           // The wrap may sit beside the next label — strip it the same way.
           const u = lines[m].trim()
             .replace(new RegExp(`^(${LABELS})\\s*:\\s*`), '')
             .replace(new RegExp(`^(${LABELS})\\s{2,}`), '').trim();
-          if (!u || isCmd(u)) break;
+          // Same rule as the R&S reader: a clause its last word leaves open is still
+          // running, so a continuation that merely starts with a command name is prose
+          // mentioning that command, not the next entry. "…the 63200A will be set in
+          // the." was six Chroma descriptions ending on an article.
+          //
+          // Chroma also breaks a wrapped sentence across a blank line — it separates the
+          // halves of a wrapped *syntax* line the same way, which the join at the top of
+          // this function already allows for. So an open clause steps over the blank and
+          // keeps reading; a finished one still stops there, which is what keeps the
+          // parameter table below a description out of it.
+          const openClause =
+            /(?:^|\s)(the|a|an|of|and|or|with|by|to|in|for|from|on|at|as|than|that|into|using|between)$/.test(desc);
+          if (!u) { if (openClause) continue; break; }
+          if (isCmd(u) && !openClause) break;
           desc += ' ' + u;
           if (/[.!?]$/.test(u)) break;
         }
@@ -1613,13 +1811,16 @@ else if (style === 'toc') parseToc();
 else if (style === 'both') { parseHeading(); parseToc(); }
 else parseKeysight();
 
-// De-duplicate, keeping the entry that carries the most description.
+// De-duplicate, keeping the entry that carries the most description — measured on its
+// prose, not on a table of values appended to it. See pushEntry's proseLen.
+const rank = r => r._prose ?? (r.description || '').length;
 const best = new Map();
 for (const r of out) {
   const k = r.syntax.toUpperCase();
   const prev = best.get(k);
-  if (!prev || (r.description || '').length > (prev.description || '').length) best.set(k, r);
+  if (!prev || rank(r) > rank(prev)) best.set(k, r);
 }
+for (const r of best.values()) delete r._prose;
 // A command index legitimately yields entries with no prose — keep those.
 const keepBare = style === 'toc' || style === 'both';
 const result = [...best.values()].filter(r => keepBare || r.description || r.example);

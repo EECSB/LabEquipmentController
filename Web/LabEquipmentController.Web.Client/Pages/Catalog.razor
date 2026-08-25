@@ -1,81 +1,216 @@
 @page "/catalog"
+@inject IJSRuntime JS
 @inject BenchClient Bench
 
-<h1>Command library</h1>
-<p class="lede">
-    Every command this project knows, transcribed from the manufacturer's own programming guide.
-    A <span class="pill ok">✓</span> marks an entry confirmed against real hardware; a
-    <span class="pill">AI</span> marks one a model read out of a datasheet rather than a person
-    transcribing it.
-</p>
+@* No heading and no lede, in either shape — the title bar names this window and the browser tab
+   names it again, and a third copy at the top of the work area is the window saying its own name
+   back to you. CommandLibraryForm opens straight onto its tree and its list.
 
-<div class="panel">
+   What the lede explained is on the marks themselves: each carries what it means as a tooltip,
+   which is where the question is asked — reading down a list and wondering what a diamond is —
+   rather than in a paragraph read once on the way past. *@
+
+<div class="group">
+    <span class="cap">Catalog</span>
     <div class="row">
         <label for="cat">Catalog</label>
-        <select id="cat" @onchange="Pick">
-            <option value="">— @_catalogs.Count catalogs, @_totalCommands.ToString("N0") commands —</option>
-            @foreach (var c in _catalogs)
+        @* The chosen option is marked, not merely known about: opened from a console this
+           arrives with that instrument's catalog already picked, and a select that does not
+           say so is showing one catalog while listing another. Marked on the option rather
+           than as a value on the select, which HTML does not read. *@
+        <select id="cat" @onchange="Pick"
+                title="Which instrument's catalog to read.">
+            <option value="" selected="@(_selected is null)">— @_catalogs.Count catalogs, @_totalCommands.ToString("N0") commands —</option>
+
+            @* Grouped by manufacturer, which is the desktop's tree with the branches
+               collapsed into a list — CommandReferenceForm has a node per maker and the
+               instruments under it. A flat list repeated the maker on every line, so thirty-six
+               entries read as thirty-six unrelated ones and "which Rigol was it" meant reading
+               the same word ten times. The maker is said once, at the head of its group, and the
+               browser indents what belongs to it. *@
+            @foreach (var maker in _catalogs.GroupBy(c => c.Manufacturer))
             {
-                <option value="@c.Family">@c.Manufacturer — @c.Instrument (@c.CommandCount.ToString("N0"))</option>
+                <optgroup label="@maker.Key">
+                    @foreach (var c in maker)
+                    {
+                        <option value="@c.Family" selected="@(c.Family == _selected?.Family)">@c.Instrument (@c.CommandCount.ToString("N0"))</option>
+                    }
+                </optgroup>
             }
         </select>
-
-        <input class="grow" type="text" @bind="_filter" @bind:event="oninput" @bind:after="Reload"
-               placeholder="Filter by command, description, or the command as you would send it" />
     </div>
 
     @if (_selected is not null)
     {
-        <p class="muted" style="margin:.5rem 0 0">
-            @_selected.Instrument · @_selected.BenchVerified.ToString("N0") of
-            @_selected.CommandCount.ToString("N0") bench-verified
-            @if (_selected.GuideTitle is not null)
+        @* The guide's one line, and the button that fetches it, on that line — Open Vendor
+           Page belongs beside the guide it opens rather than out at the window's corner. *@
+        <div class="row" style="margin:.5rem 0 0">
+            <span class="muted">
+                @_selected.Instrument · @_selected.BenchVerified.ToString("N0") of
+                @_selected.CommandCount.ToString("N0") bench-verified
+                @if (_selected.GuideTitle is not null)
+                {
+                    <text> · transcribed from @_selected.GuideTitle</text>
+                }
+            </span>
+            @if (_selected.GuideUrl is not null)
             {
-                <text> · transcribed from </text>
-                @if (_selected.GuideUrl is not null)
-                {
-                    <a href="@_selected.GuideUrl" target="_blank" rel="noopener">@_selected.GuideTitle</a>
-                }
-                else
-                {
-                    @_selected.GuideTitle
-                }
+                <a class="btn" href="@_selected.GuideUrl" target="_blank" rel="noopener"
+                   title="Open the manufacturer's page for this guide, to download a copy of it."><Icon Name="globe" /> Open Vendor Page</a>
             }
-        </p>
+        </div>
     }
 </div>
 
-<div class="panel">
+@* The commands and the guide they were transcribed from, side by side — which is what
+   CommandLibraryForm shows: a split with the list on the left and the PDF on the right, a
+   little over half the width to the list. Reading a command against the page it came from is
+   the reason to have the guide at hand at all. *@
+<div class="library">
+<div class="group">
+    @* The filter belongs to the list, so it sits on the list's own caption line rather than
+       on the row that picks the catalog — where it read as another thing to set before
+       anything appeared. CommandReferenceForm gives it a strip of its own directly over the
+       list for the same reason. Outside the empty check on purpose: a list showing nothing is
+       exactly when the filter is the control you are reaching for. *@
+    <div class="cap-row">
+        <span class="cap">Commands</span>
+        <span class="spacer"></span>
+        <label for="@($"{_id}-filter")">Filter:</label>
+        <input id="@($"{_id}-filter")" class="filter" type="text" @bind="_filter" @bind:event="oninput" @bind:after="Reload"
+               title="Narrows the list. Matches the command, its category and its description — and the command as you would actually send it, so MEASure:VOLTage:DC finds an entry the guide prints with brackets around its optional parts."
+               placeholder="Filter by command, description, or the command as you would send it" />
+    </div>
     @if (_commands.Count == 0)
     {
         <p class="muted">@(_selected is null ? "Pick a catalog above." : "Nothing matches that filter.")</p>
     }
     else
     {
-        <div class="scroll" style="max-height:60vh">
-            <table>
+        <div class="scroll cmds">
+            @* CommandReferenceForm's list, and its three columns: the provenance mark, the
+               command, and what it does. The category is a heading over the commands in it —
+               the desktop builds a ListViewGroup per category — rather than a fourth column
+               repeating the same word down the page.
+
+               One line per command. A ListView row is one line and this one runs off into an
+               ellipsis rather than wrapping onto a second: a list read by running the eye down
+               the left edge stops working when every third entry is two lines tall. *@
+            <table class="cmdref">
                 <thead>
-                    <tr><th style="width:2rem"></th><th>Command</th><th>Category</th><th>Description</th></tr>
+                    @* The desktop's three headings, and it calls the first column by the mark. *@
+                    <tr><th class="mark">✓</th><th>Command</th><th>Description</th></tr>
                 </thead>
                 <tbody>
-                    @foreach (var c in _commands)
+                    @* Grouped, not merely broken where the category happens to change: the catalog
+                       comes back in the guide's own order and a category can be returned to pages
+                       later. The desktop keeps a dictionary of groups and drops each command into
+                       its own, which is a ListView drawing every group once however the items
+                       arrived; GroupBy is the same thing — first appearance decides the order of the
+                       headings, and inside one the commands keep the order the guide put them in. *@
+                    @foreach (var group in _commands.GroupBy(c => c.Category, StringComparer.OrdinalIgnoreCase))
                     {
-                        <tr>
-                            <td>
-                                @if (c.BenchVerified) { <span class="pill ok" title="Confirmed on real hardware">✓</span> }
-                                else if (c.AiExtracted) { <span class="pill" title="Read from a datasheet by a model">AI</span> }
-                                else if (c.CrossChecked) { <span class="pill" title="Corroborated by an independent driver">•</span> }
+                        <tr class="cat"><td colspan="3">@group.Key</td></tr>
+                        foreach (var c in group)
+                        {
+                            var pick = c;
+                        <tr class="@(Insertable ? "clickable" : "") @(ReferenceEquals(pick, _picked) ? "on" : "")"
+                            @onclick="() => _picked = pick" @ondblclick="() => InsertOne(pick)">
+                            @* MarkFor's order, which is not the order of confidence: the diamond is
+                               checked first and reads as the odd one out, because every other mark
+                               means a person transcribed the command and this one means nobody did. *@
+                            <td class="mark">
+                                @if (c.AiExtracted) { <span class="ai" title="Read out of a datasheet by AI. Not checked against a vendor guide or the instrument — treat it as a lead, not a fact.">◆</span> }
+                                else if (c.BenchVerified) { <span class="ok" title="Confirmed on real hardware">✓</span> }
+                                else if (c.CrossChecked) { <span title="Corroborated by an independent driver">•</span> }
                             </td>
-                            <td class="mono">@c.Syntax</td>
-                            <td class="muted">@c.Category</td>
-                            <td>@c.Description</td>
+                            <td class="mono cmd" title="@c.Syntax">@c.Syntax</td>
+                            <td class="desc" title="@c.Description">@c.Description</td>
                         </tr>
+                        }
                     }
                 </tbody>
             </table>
         </div>
-        <p class="muted" style="margin:.5rem 0 0">Showing @_commands.Count.ToString("N0").</p>
+        <div class="row" style="margin:.5rem 0 0">
+            <span class="muted">Showing @_commands.Count.ToString("N0").</span>
+            @* Opened from a console, this is the desktop's Command Reference rather than its
+               Command Library, and those two buttons are what makes it one: pick a line, and
+               either take it away or put it in the box you were typing into. *@
+            @if (Insertable)
+            {
+                <span class="spacer"></span>
+                <button @onclick="CopyPicked" disabled="@(_picked is null)"
+                        title="Copy the selected command to the clipboard."><Icon Name="copy" /> Copy</button>
+                <button @onclick="InsertPicked" disabled="@(_picked is null)"
+                        title="Put the selected command into the console's command box. It is not sent — you still decide that."><Icon Name="insert" /> Insert</button>
+            }
+        </div>
     }
+</div>
+
+@* The guide itself. The app ships none of these — they are the vendors' copyright — so it is
+   the user's own copy, and on this build it is a copy the server holds: the desktop points at a
+   folder on the machine it runs on, and a server has nobody at a keyboard to point anywhere. *@
+<div class="group guide">
+    <div class="cap-row">
+        <span class="cap">Programming guide</span>
+        <span class="spacer"></span>
+        @if (_guide is not null)
+        {
+            <span class="muted" title="@_guide.Name">@_guide.Name — @Size(_guide.Bytes)</span>
+        }
+    </div>
+
+    @if (_selected is null)
+    {
+        <p class="muted">Pick a catalog above.</p>
+    }
+    else if (_guide is not null)
+    {
+        @* An object rather than an iframe: a PDF is not a document this page is embedding a
+           page of, it is a resource the browser already knows how to render, and object is
+           what says so. Keyed on the path so switching catalogs replaces the viewer rather
+           than asking one that is already showing a file to show a different one. *@
+        <object class="pdf" @key="_guide.Path" type="application/pdf"
+                data="@($"api/datasheets/file/{_guide.Path}")"
+                title="@_guide.Name">
+            <p class="muted">
+                This browser will not display a PDF inline.
+                <a href="@($"api/datasheets/file/{_guide.Path}")" target="_blank" rel="noopener">Open @_guide.Name</a>
+            </p>
+        </object>
+    }
+    else
+    {
+        @* No copy held. The same two answers the desktop gives: fetch it from the vendor, or
+           put the one you already have where this build can read it. *@
+        <div class="noguide">
+            <p class="muted">
+                No copy of @(_selected.GuideTitle ?? "this guide") is on the server.
+                The app does not ship these — they are the manufacturers' copyright — so it is
+                your own copy, uploaded here once and read from the server after.
+            </p>
+            <div class="row">
+                @if (_selected.GuideUrl is not null)
+                {
+                    <a class="btn" href="@_selected.GuideUrl" target="_blank" rel="noopener"
+                       title="Open the manufacturer's page for this guide, to download a copy of it."><Icon Name="globe" /> Open Vendor Page</a>
+                }
+                <button @onclick="Browse" disabled="@_uploading"
+                        title="Put a PDF on the server, filed under this catalog's manufacturer. It is then found for this catalog automatically."><Icon Name="openfile" /> @(_uploading ? "Uploading…" : "Upload a PDF…")</button>
+            </div>
+            @if (_uploadError is not null)
+            {
+                <p class="error">@_uploadError</p>
+            }
+        </div>
+    }
+
+    @* The picker itself, behind the button that opens it — a file input draws its own control
+       and its own "no file chosen", neither of which is anything this window wants. *@
+    <input type="file" @ref="_file" accept="application/pdf,.pdf" style="display:none" @onchange="Picked" />
+</div>
 </div>
 
 @code {
@@ -83,13 +218,128 @@
     private IReadOnlyList<CatalogCommandDto> _commands = [];
     private CatalogSummary? _selected;
     private string _filter = "";
+
+    /// <summary>The guide the server holds for the chosen catalog, or null if it holds none.</summary>
+    private DatasheetDto? _guide;
+    private ElementReference _file;
+    private bool _uploading;
+    private string? _uploadError;
     private int _totalCommands;
+
+    /// <summary>The instrument family to open on, when this is reached from a console that
+    /// already knows which instrument you are looking at. Null shows the whole list.</summary>
+    [Parameter] public string? Family { get; set; }
+
+    /// <summary>True when hosted in a dialog rather than shown as a page.</summary>
+    [Parameter] public bool Embedded { get; set; }
+
+    /// <summary>
+    /// Where Insert puts a command. Set by a console, which is what turns this from the
+    /// Command Library into the desktop's Command Reference — the same list, with somewhere
+    /// for a line to go.
+    /// </summary>
+    [Parameter] public EventCallback<string> OnInsert { get; set; }
+
+    private bool Insertable => OnInsert.HasDelegate;
+
+    private readonly string _id = "cat" + Guid.NewGuid().ToString("N")[..8];
+    private CatalogCommandDto? _picked;
+
+    private async Task CopyPicked()
+    {
+        if (_picked is not null) await JS.InvokeAsync<string?>("lec.copyText", _picked.Syntax);
+    }
+
+    private async Task InsertPicked()
+    {
+        if (_picked is not null) await OnInsert.InvokeAsync(_picked.Syntax);
+    }
+
+    /// <summary>
+    /// Take the command that was double-clicked — <c>CommandReferenceForm</c>'s
+    /// <c>_list.DoubleClick += (_, _) =&gt; InsertSelected()</c>.
+    ///
+    /// The clicks that make up the double have already picked the row, so the two gestures agree
+    /// rather than compete: point at a command to see it picked, point twice to take it. Silent
+    /// where there is nowhere to put one — as a page this is the Command Library, and a library
+    /// has no command box to insert into.
+    /// </summary>
+    private async Task InsertOne(CatalogCommandDto command)
+    {
+        _picked = command;
+        if (Insertable) await OnInsert.InvokeAsync(command.Syntax);
+    }
 
     protected override async Task OnInitializedAsync()
     {
         _catalogs = await Bench.CatalogsAsync();
         _totalCommands = _catalogs.Sum(c => c.CommandCount);
+
+        if (Family is { Length: > 0 })
+        {
+            _selected = _catalogs.FirstOrDefault(c => c.Family == Family);
+            await Reload();
+        }
     }
+
+    /// <summary>
+    /// Which guide goes with the chosen catalog. Asked of the server rather than worked out
+    /// here: the matching is Core's, so the guide the desktop finds for a catalog is this one.
+    /// </summary>
+    private async Task FindGuide()
+    {
+        _uploadError = null;
+        _guide = _selected is null ? null : await Bench.DatasheetForAsync(_selected.Family);
+    }
+
+    /// <summary>Open the picker. The button is the control; the input behind it is not.</summary>
+    private async Task Browse() => await JS.InvokeVoidAsync("lec.press", _file);
+
+    /// <summary>
+    /// Put the chosen PDF on the server, filed under this catalog's manufacturer — which is how
+    /// the collection is filed, and what lets two vendors' identical model numbers be told
+    /// apart. Once it is there the ordinary matching finds it, so this asks again rather than
+    /// assuming the file it just sent is the one that will be found.
+    /// </summary>
+    private async Task Picked(ChangeEventArgs e)
+    {
+        if (_selected is null) return;
+
+        _uploading = true;
+        _uploadError = null;
+        try
+        {
+            var file = await JS.InvokeAsync<PickedFile?>("lec.readFile", _file);
+            if (file is null) return;
+
+            var saved = await Bench.DatasheetUploadAsync(
+                new DatasheetUpload(file.name, file.base64, _selected.Manufacturer));
+
+            if (saved is null)
+            {
+                _uploadError = "That file could not be saved. It has to be a PDF.";
+                return;
+            }
+            await FindGuide();
+
+            // Saved, but not where this catalog looks: the name has nothing in common with the
+            // guide, so the ordinary matching will not find it. Say so rather than showing an
+            // empty pane after an upload that appeared to work.
+            if (_guide is null)
+                _uploadError = $"{saved.Name} was saved, but nothing about its name says it is this "
+                             + "catalog's guide. Rename it after the guide and upload it again.";
+        }
+        catch (Exception ex) { _uploadError = ex.Message; }
+        finally { _uploading = false; }
+    }
+
+    private sealed record PickedFile(string name, string base64);
+
+    /// <summary>A file size a person reads, which above a megabyte is not a count of bytes.</summary>
+    private static string Size(long bytes)
+        => bytes >= 1024 * 1024
+            ? $"{bytes / 1024d / 1024d:0.#} MB"
+            : $"{bytes / 1024d:0} KB";
 
     private async Task Pick(ChangeEventArgs e)
     {
@@ -100,7 +350,19 @@
 
     private async Task Reload()
     {
-        if (_selected is null) { _commands = []; return; }
+        if (_selected is null) { _commands = []; _guide = null; return; }
         _commands = await Bench.CatalogAsync(_selected.Family, _filter);
+
+        // Only when the catalog changed. Typing in the filter reloads the list on every
+        // keystroke, and asking the server for the same guide once per letter is a question
+        // whose answer cannot have changed.
+        if (_guide?.Path is null || _guideFor != _selected.Family)
+        {
+            _guideFor = _selected.Family;
+            await FindGuide();
+        }
     }
+
+    /// <summary>Which catalog the guide in hand belongs to, so the filter does not re-ask.</summary>
+    private string? _guideFor;
 }

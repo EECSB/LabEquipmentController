@@ -13,108 +13,126 @@
     {
       "category": "IEEE 488.2 Common",
       "syntax": "*CLS",
-      "description": "Clears the standard event register, query event register, operation event register, status byte register and the error code."
+      "description": "Clears the standard event register, query event register, operation event register, status byte register and the error code.",
+      "crossChecked": true
     },
     {
       "category": "IEEE 488.2 Common",
       "syntax": "*ESE <NRf>",
       "description": "Edits the value of the standard event enable register. The parameter determines which bit of the standard event register is 1, which sets the ESB bit of the status byte register to 1. Parameters 0-255. Power-on value: see *PSC.",
-      "example": "*ESE 128"
+      "example": "*ESE 128",
+      "crossChecked": true
     },
     {
       "category": "IEEE 488.2 Common",
       "syntax": "*ESE?",
       "description": "Returns the value of the standard event enable register as <NR1>.",
-      "isQuery": true
+      "isQuery": true,
+      "crossChecked": true
     },
     {
       "category": "IEEE 488.2 Common",
       "syntax": "*ESR?",
       "description": "Reads the value of the standard event register, which is cleared to zero once the query has been carried out. Its bit definitions are the same as the standard event enable register.",
-      "isQuery": true
+      "isQuery": true,
+      "crossChecked": true
     },
     {
       "category": "IEEE 488.2 Common",
       "syntax": "*IDN?",
       "description": "Reads the identity of the power supply. The reply has four comma-separated segments.",
       "example": "*IDN?  ->  B&K Precision, 9130B, 123456, V1.06-V1.04",
-      "isQuery": true
+      "isQuery": true,
+      "crossChecked": true
     },
     {
       "category": "IEEE 488.2 Common",
       "syntax": "*OPC",
-      "description": "Sets the OPC bit of the standard event register to 1 once every command sent before it has been carried out."
+      "description": "Sets the OPC bit of the standard event register to 1 once every command sent before it has been carried out.",
+      "crossChecked": true
     },
     {
       "category": "IEEE 488.2 Common",
       "syntax": "*OPC?",
       "description": "Returns <NR1> once every command sent before it has been carried out.",
-      "isQuery": true
+      "isQuery": true,
+      "crossChecked": true
     },
     {
       "category": "IEEE 488.2 Common",
       "syntax": "*PSC <bool>",
       "description": "Controls what happens to the enable registers when the unit is repowered. 1 or ON: the status byte, operation event, query event and standard event enable registers are set to zero at power-on. 0 or OFF: their values are saved to NVM and recalled at power-on. Parameter 0|1|ON|OFF.",
-      "guideMisprint": "Documented twice, and the two entries disagree on the parameter type: the first prints '*PSC <bool>' and the second '*PSC <NR1>'. Both list the same accepted values (0|1|ON|OFF), so the difference is probably only in how they are written down."
+      "guideMisprint": "Documented twice, and the two entries disagree on the parameter type: the first prints '*PSC <bool>' and the second '*PSC <NR1>'. Both list the same accepted values (0|1|ON|OFF), so the difference is probably only in how they are written down.",
+      "crossChecked": true
     },
     {
       "category": "IEEE 488.2 Common",
       "syntax": "*PSC?",
       "description": "Returns 0 or 1 — whether the enable registers are cleared at power-on.",
-      "isQuery": true
+      "isQuery": true,
+      "crossChecked": true
     },
     {
       "category": "IEEE 488.2 Common",
       "syntax": "*RST",
       "description": "Resets the power supply to its default settings: OUTP OFF, CURR MAX, VOLT MIN, VOLT:PROT MAX, VOLT:PROT:STAT OFF.",
-      "guideMisprint": "The guide prints the syntax line as '*RST>', with a stray closing angle bracket. The heading and the reset behaviour are unambiguous; the '>' is not part of the command."
+      "guideMisprint": "The guide prints the syntax line as '*RST>', with a stray closing angle bracket. The heading and the reset behaviour are unambiguous; the '>' is not part of the command.",
+      "crossChecked": true
     },
     {
       "category": "IEEE 488.2 Common",
       "syntax": "*SRE <NRf>",
       "description": "Edits the value of the status byte enable register. The parameter determines which bit of the status byte register is 1, which sets its RQS bit to 1. Parameters 0-255. Power-on value: see *PSC.",
-      "example": "*SRE 128"
+      "example": "*SRE 128",
+      "crossChecked": true
     },
     {
       "category": "IEEE 488.2 Common",
       "syntax": "*SRE?",
       "description": "Returns the value of the status byte enable register as <NR1>.",
-      "isQuery": true
+      "isQuery": true,
+      "crossChecked": true
     },
     {
       "category": "IEEE 488.2 Common",
       "syntax": "*STB?",
       "description": "Reads the value of the status byte register, which is cleared once the query has been carried out.",
-      "isQuery": true
+      "isQuery": true,
+      "crossChecked": true
     },
     {
       "category": "IEEE 488.2 Common",
       "syntax": "*TRG",
-      "description": "Generates a trigger signal when the trigger source is in command mode. The same function as the [SYSTem:]TRIGger command."
+      "description": "Generates a trigger signal when the trigger source is in command mode. The same function as the [SYSTem:]TRIGger command.",
+      "crossChecked": true
     },
     {
       "category": "IEEE 488.2 Common",
       "syntax": "*SAV <NRf>",
       "description": "Saves the present setting — current setup, voltage setup, maximum voltage and stepped voltage — to a storage location. Parameter 1-36.",
-      "example": "*SAV 3"
+      "example": "*SAV 3",
+      "crossChecked": true
     },
     {
       "category": "IEEE 488.2 Common",
       "syntax": "*RCL <NRf>",
       "description": "Recalls a saved setting from a storage location. Parameter 1-36.",
-      "example": "*RCL 3"
+      "example": "*RCL 3",
+      "crossChecked": true
     },
     {
       "category": "IEEE 488.2 Common",
       "syntax": "*TST?",
       "description": "Runs a self-test and reports errors. Returns <NR1>: zero means the power supply passed, non-zero means there is an error.",
-      "isQuery": true
+      "isQuery": true,
+      "crossChecked": true
     },
     {
       "category": "IEEE 488.2 Common",
       "syntax": "*WAI",
       "description": "Prohibits the instrument from executing any new command until every pending overlapped command has completed.",
-      "guideMisprint": "The guide prints the syntax line as 'WAI?' — no leading asterisk, and a question mark on a command that returns nothing. The heading prints '*WAI', which is the IEEE 488.2 spelling and almost certainly what the instrument accepts."
+      "guideMisprint": "The guide prints the syntax line as 'WAI?' — no leading asterisk, and a question mark on a command that returns nothing. The heading prints '*WAI', which is the IEEE 488.2 spelling and almost certainly what the instrument accepts.",
+      "crossChecked": true
     },
 
     {
@@ -122,31 +140,36 @@
       "syntax": "SYSTem:ERRor?",
       "description": "Reads the error code and error text of the power supply. Returns (NR1), (SRD).",
       "example": "SYST:ERR?",
-      "isQuery": true
+      "isQuery": true,
+      "crossChecked": true
     },
     {
       "category": "System",
       "syntax": "SYSTem:VERSion?",
       "description": "Queries the software version, for example 1.02. Returns <NR2>.",
       "example": "SYST:VERS?",
-      "isQuery": true
+      "isQuery": true,
+      "crossChecked": true
     },
     {
       "category": "System",
       "syntax": "SYSTem:REMote",
       "description": "Puts the instrument into remote control mode.",
-      "example": "SYST:REM"
+      "example": "SYST:REM",
+      "crossChecked": true
     },
     {
       "category": "System",
       "syntax": "SYSTem:LOCal",
       "description": "Returns the instrument to front-panel control.",
-      "example": "SYST:LOC"
+      "example": "SYST:LOC",
+      "crossChecked": true
     },
     {
       "category": "System",
       "syntax": "SYSTem:BEEPer",
-      "description": "Sounds the instrument's beeper."
+      "description": "Sounds the instrument's beeper.",
+      "crossChecked": true
     },
     {
       "category": "System",
@@ -203,31 +226,36 @@
     {
       "category": "Status",
       "syntax": "STATus:PRESet",
-      "description": "Resets the status registers."
+      "description": "Resets the status registers.",
+      "crossChecked": true
     },
     {
       "category": "Status",
       "syntax": "STATus:QUEStionable[:EVENt]?",
       "description": "Reads the value of the query event register, which is cleared once the query has been carried out. Returns <NR1>. Bits 0 and 1 are CV and CC; bit 9 is OV.",
-      "isQuery": true
+      "isQuery": true,
+      "crossChecked": true
     },
     {
       "category": "Status",
       "syntax": "STATus:QUEStionable:CONDition?",
       "description": "Reads the query condition register. When one of its values changes, the matching bit of the query event register is set to 1. Returns <NR1>.",
-      "isQuery": true
+      "isQuery": true,
+      "crossChecked": true
     },
     {
       "category": "Status",
       "syntax": "STATus:QUEStionable:ENABle <NRf>",
       "description": "Edits the query event enable register. The parameter determines which bit of the query event register is set to 1, which sets the QUES bit of the status byte register to 1. Parameter 0~255. Power-on value: see *PSC.",
-      "example": "STATus:QUEStionable:ENABle 128"
+      "example": "STATus:QUEStionable:ENABle 128",
+      "crossChecked": true
     },
     {
       "category": "Status",
       "syntax": "STATus:QUEStionable:ENABle?",
       "description": "Returns the query event enable register as <NR1>.",
-      "isQuery": true
+      "isQuery": true,
+      "crossChecked": true
     },
     {
       "category": "Status",
@@ -324,25 +352,29 @@
       "syntax": "STATus:OPERation[:EVENt]?",
       "description": "Reads the operation event register, which is cleared once the query has been carried out. Returns <NR1>. Bit 0 is CAL and bit 1 is ON.",
       "isQuery": true,
-      "guideMisprint": "The command index prints this as ':EVENt]?' — the opening bracket is missing. The described entry prints it correctly as STATus:OPERation[:EVENt]?, which is what this entry carries."
+      "guideMisprint": "The command index prints this as ':EVENt]?' — the opening bracket is missing. The described entry prints it correctly as STATus:OPERation[:EVENt]?, which is what this entry carries.",
+      "crossChecked": true
     },
     {
       "category": "Status",
       "syntax": "STATus:OPERation:CONDition?",
       "description": "Reads the operation condition register. When one of its bits changes, the matching bit of the operation event register is set to 1. Returns <NR1>.",
-      "isQuery": true
+      "isQuery": true,
+      "crossChecked": true
     },
     {
       "category": "Status",
       "syntax": "STATus:OPERation:ENABle <NRf>",
       "description": "Edits the operation event enable register. Parameter 0~255. Power-on value: see *PSC.",
-      "example": "STATus:OPERation:ENABle 128"
+      "example": "STATus:OPERation:ENABle 128",
+      "crossChecked": true
     },
     {
       "category": "Status",
       "syntax": "STATus:OPERation:ENABle?",
       "description": "Returns the operation event enable register as <NR1>.",
-      "isQuery": true
+      "isQuery": true,
+      "crossChecked": true
     },
     {
       "category": "Status",
@@ -383,7 +415,8 @@
       "category": "Status",
       "syntax": "STATus:OPERation:INSTrument:ISUMmary1:CONDition?",
       "description": "Queries the operation status register of channel 1.",
-      "isQuery": true
+      "isQuery": true,
+      "crossChecked": true
     },
     {
       "category": "Status",
@@ -407,7 +440,8 @@
       "category": "Status",
       "syntax": "STATus:OPERation:INSTrument:ISUMmary2:CONDition?",
       "description": "Queries the operation status register of channel 2.",
-      "isQuery": true
+      "isQuery": true,
+      "crossChecked": true
     },
     {
       "category": "Status",
@@ -431,7 +465,8 @@
       "category": "Status",
       "syntax": "STATus:OPERation:INSTrument:ISUMmary3:CONDition?",
       "description": "Queries the operation status register of channel 3.",
-      "isQuery": true
+      "isQuery": true,
+      "crossChecked": true
     },
 
     {
@@ -471,7 +506,8 @@
     {
       "category": "Output",
       "syntax": "OUTPut:TRACk[:STATe] <bool>",
-      "description": "Sets channel 1 and channel 2 to track each other. Parameter 0|1|ON|OFF. If channel 3 is already in series, parallel or sync with channel 1 or 2, this command reports an error."
+      "description": "Sets channel 1 and channel 2 to track each other. Parameter 0|1|ON|OFF. If channel 3 is already in series, parallel or sync with channel 1 or 2, this command reports an error.",
+      "crossChecked": true
     },
     {
       "category": "Output",
@@ -505,42 +541,49 @@
     {
       "category": "Channel",
       "syntax": "[SOURce:]CHANnel:OUTPut[:STATe] {<NRf>}",
-      "description": "Turns the selected channel's output on or off. The channel has to be selected with INSTrument first. Parameter 0|1|ON|OFF."
+      "description": "Turns the selected channel's output on or off. The channel has to be selected with INSTrument first. Parameter 0|1|ON|OFF.",
+      "crossChecked": true
     },
     {
       "category": "Channel",
       "syntax": "[SOURce:]CHANnel:OUTPut[:STATe]?",
       "description": "Returns the selected channel's output state.",
-      "isQuery": true
+      "isQuery": true,
+      "crossChecked": true
     },
     {
       "category": "Channel",
       "syntax": "CHANnel?",
       "description": "Listed in the manual's command index above CHANnel:OUTPut. The manual gives it no described entry, so what it returns is not documented.",
-      "isQuery": true
+      "isQuery": true,
+      "crossChecked": true
     },
     {
       "category": "Channel",
       "syntax": "INSTrument[:SELect] {<NR1>}",
       "description": "Selects the channel that subsequent commands act on. Parameter CH1|CH2|CH3.",
-      "example": "INST CH2"
+      "example": "INST CH2",
+      "crossChecked": true
     },
     {
       "category": "Channel",
       "syntax": "INSTrument[:SELect]?",
       "description": "Returns the selected channel.",
-      "isQuery": true
+      "isQuery": true,
+      "crossChecked": true
     },
     {
       "category": "Channel",
       "syntax": "INSTrument:NSELect {<NR1>}",
-      "description": "Selects the channel by number instead of by name — otherwise the same as INSTrument[:SELect]. Parameter 1-3."
+      "description": "Selects the channel by number instead of by name — otherwise the same as INSTrument[:SELect]. Parameter 1-3.",
+      "crossChecked": true
     },
     {
       "category": "Channel",
       "syntax": "INSTrument:NSELect?",
       "description": "Returns the selected channel number.",
-      "isQuery": true
+      "isQuery": true,
+      "crossChecked": true
     },
     {
       "category": "Channel",
@@ -576,13 +619,15 @@
       "category": "Channel",
       "syntax": "INSTrument:COUPle[:TRIGger]",
       "description": "Names the channels that *TRG affects, separated by commas. With no channel assigned, *TRG affects only the present channel. Parameter CH1|CH2|CH3.",
-      "example": "INSTrument:COUPle:TRIGger CH1, CH2"
+      "example": "INSTrument:COUPle:TRIGger CH1, CH2",
+      "crossChecked": true
     },
     {
       "category": "Channel",
       "syntax": "INSTrument:COUPle[:TRIGger]?",
       "description": "Returns the channels that *TRG affects.",
-      "isQuery": true
+      "isQuery": true,
+      "crossChecked": true
     },
 
     {
@@ -594,7 +639,8 @@
       "category": "Voltage",
       "syntax": "[SOURce:]VOLTage[:LEVel]?",
       "description": "Returns the voltage setting as <NR2>. Takes an optional MIN or MAX.",
-      "isQuery": true
+      "isQuery": true,
+      "crossChecked": true
     },
     {
       "category": "Voltage",
@@ -633,27 +679,31 @@
       "category": "Voltage",
       "syntax": "[SOURce:]VOLTage:PROTection[:LEVel]",
       "description": "Sets the software over-voltage limit. Parameter MIN TO MAX|MIN|MAX, in V or mV. *RST value: MAX.",
-      "example": "VOLT:PROT 30V"
+      "example": "VOLT:PROT 30V",
+      "crossChecked": true
     },
     {
       "category": "Voltage",
       "syntax": "[SOURce:]VOLTage:PROTection[:LEVel]?",
       "description": "Returns the over-voltage limit as <NR2>. Takes an optional MIN or MAX.",
       "example": "VOLT:PROT? MAX",
-      "isQuery": true
+      "isQuery": true,
+      "crossChecked": true
     },
     {
       "category": "Voltage",
       "syntax": "[SOURce:]VOLTage:PROTection:STATe <bool>",
       "description": "Turns over-voltage protection on or off. Parameter 0|1|ON|OFF. *RST value: OFF.",
-      "example": "VOLT:PROT:STAT ON"
+      "example": "VOLT:PROT:STAT ON",
+      "crossChecked": true
     },
     {
       "category": "Voltage",
       "syntax": "[SOURce:]VOLTage:PROTection:STATe?",
       "description": "Returns whether over-voltage protection is on, as 0 or 1.",
       "example": "VOLT:PROT:STAT?",
-      "isQuery": true
+      "isQuery": true,
+      "crossChecked": true
     },
     {
       "category": "Voltage",
@@ -665,7 +715,8 @@
     {
       "category": "Voltage",
       "syntax": "[SOURce:]VOLTage:PROTection:CLEar",
-      "description": "Clears the present over-voltage protection status."
+      "description": "Clears the present over-voltage protection status.",
+      "crossChecked": true
     },
     {
       "category": "Voltage",
@@ -683,14 +734,16 @@
       "category": "Current",
       "syntax": "[SOURce:]CURRent[:LEVel][:IMMediate][:AMPLitude] <NRf>",
       "description": "Sets the output current of the selected channel. Parameter MIN TO MAX|MIN|MAX|UP|DOWN|DEF, in A or mA. *RST value: MIN.",
-      "example": "CURR 3A"
+      "example": "CURR 3A",
+      "crossChecked": true
     },
     {
       "category": "Current",
       "syntax": "[SOURce:]CURRent[:LEVel][:IMMediate][:AMPLitude]?",
       "description": "Returns the current setting as <NR2>. Takes an optional MIN or MAX.",
       "example": "CURR? MAX",
-      "isQuery": true
+      "isQuery": true,
+      "crossChecked": true
     },
     {
       "category": "Current",
@@ -743,7 +796,8 @@
       "category": "Measure",
       "syntax": "MEASure[:SCALar]:CURRent[:DC]?",
       "description": "Reads the output current of the selected channel.",
-      "isQuery": true
+      "isQuery": true,
+      "crossChecked": true
     },
     {
       "category": "Measure",
@@ -796,25 +850,29 @@
     {
       "category": "Display",
       "syntax": "DISPlay[:WINDow]:TEXT:CLEar",
-      "description": "Clears the string from the display and returns it to its normal state."
+      "description": "Clears the string from the display and returns it to its normal state.",
+      "crossChecked": true
     },
 
     {
       "category": "Trigger",
       "syntax": "TRIGger[:IMMediate]",
-      "description": "Listed in the manual's command index as the parent of the trigger delay nodes. The manual gives it no described entry; *TRG is documented as the way to generate a trigger."
+      "description": "Listed in the manual's command index as the parent of the trigger delay nodes. The manual gives it no described entry; *TRG is documented as the way to generate a trigger.",
+      "crossChecked": true
     },
     {
       "category": "Trigger",
       "syntax": "TRIGger:DELay {<NR1>}",
       "description": "Sets the delay between the instrument receiving a trigger signal and acting on it. Parameter 0.1-99999.9, in seconds.",
-      "guideMisprint": "The command index prints this node as ':DELey' and ':DELey?' — an e for the a. The described entry prints 'DELay' throughout, which is the SCPI spelling and what this entry carries."
+      "guideMisprint": "The command index prints this node as ':DELey' and ':DELey?' — an e for the a. The described entry prints 'DELay' throughout, which is the SCPI spelling and what this entry carries.",
+      "crossChecked": true
     },
     {
       "category": "Trigger",
       "syntax": "TRIGger:DELay?",
       "description": "Returns the trigger delay, in seconds.",
-      "isQuery": true
+      "isQuery": true,
+      "crossChecked": true
     },
 
     {

@@ -5,8 +5,20 @@
 # The build context is the repository root, because the server needs Core (the transports
 # and the catalogs) and the client project alongside it — a context of Web/ alone could not
 # see them.
+#
+# ─── Why the build stage pins itself to the build machine's architecture ────────────────
+# $BUILDPLATFORM is the machine doing the building; the runtime stage below has no such
+# pin, so buildx pulls the *target* architecture's aspnet image for it. The result is one
+# amd64 build producing both an amd64 and an arm64 image — no QEMU for the expensive part.
+#
+# That is only sound because the publish is framework-dependent and RID-agnostic, so what
+# lands in /app is architecture-neutral IL. The one thing in this app that is genuinely
+# native — System.IO.Ports' serial shim — is shipped by NuGet as every RID at once
+# (runtimes/linux-arm64/native/libSystem.IO.Ports.Native.so and eleven siblings), and the
+# host picks the right one when the process starts. Add a `-r` to that publish and this
+# stops being true.
 
-FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
+FROM --platform=$BUILDPLATFORM mcr.microsoft.com/dotnet/sdk:10.0 AS build
 WORKDIR /src
 
 # The wasm-tools workload relinks the WebAssembly runtime natively on publish, and that

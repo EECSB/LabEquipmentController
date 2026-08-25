@@ -1,6 +1,14 @@
 {
   "instrument": "Keysight oscilloscope (InfiniiVision 3000/3000T X-Series)",
   "source": "Transcribed from the Keysight InfiniiVision 3000T X-Series Oscilloscopes Programmer's Guide (9018-07265). Cross-checked against python-ivi agilentBaseInfiniiVision and pymeasure keysightDSOX1102G.",
+  "parse": [
+    {
+      "input": "parsed/keysight-3000tx.json",
+      "manual": "manuals/keysight-3000tx.txt",
+      "style": "keysight2",
+      "known": "measured"
+    }
+  ],
   "groups": [
     {
       "file": "parsed/keysight-3000tx.json"

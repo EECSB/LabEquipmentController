@@ -9,6 +9,14 @@
     "url": "https://www.rohde-schwarz.com/manual/fpc/",
     "fileName": "RohdeSchwarz_FPC_SpectrumAnalyzer_UserManual.pdf"
   },
+  "parse": [
+    {
+      "input": "parsed/rs-fpc.json",
+      "manual": "manuals/rs-fpc.txt",
+      "style": "rs",
+      "known": "measured"
+    }
+  ],
   "groups": [
     {
       "file": "parsed/rs-fpc.json",

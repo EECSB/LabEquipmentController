@@ -1,0 +1,370 @@
+@inject BenchClient Bench
+@inject IJSRuntime JS
+
+@* The desktop app's AI Connection box: provider, endpoint, model, key, timeout, and the one
+   choice that decides how a PDF is sent. Same fields, same defaults, same Apply.
+
+   Two things differ, and both are the container rather than a decision.
+
+   The key is stored by the server, not by the browser, because the browser is not what talks
+   to the provider — a page cannot open a socket to an instrument and it is not going to hold
+   the credential for a service either. On Windows the desktop app encrypts it for the
+   signed-in account with DPAPI; a Linux container has no account to encrypt for, so it is
+   written to a file the server's own user alone can read. And it is one key for everyone who
+   can reach this address, because there are no accounts here to have one each. The box says
+   both rather than leaving them to be found out.
+
+   And the key is write-only from here. It goes up when you type one and never comes back
+   down, so nothing that can read this page can read the key out of it. The desktop box does
+   the same thing with a password character and a placeholder that says a key is stored. *@
+
+<dialog class="sheet" @ref="_dialog" aria-label="AI Connection">
+    <div class="sheet-head">
+        <span class="mark-ico"><Icon Name="ai" /></span>
+        <div>
+            <h2>AI Connection</h2>
+            <p class="ver">
+                @if (_status is null)
+                {
+                    <span>Asking the server…</span>
+                }
+                else if (_status.Configured)
+                {
+                    <span class="pill ok">configured</span>
+                    <span>@(_status.KeyFromConfiguration ? "key from the environment" : "key held by the server")</span>
+                }
+                else
+                {
+                    <span class="pill">off</span>
+                    <span>no key yet</span>
+                }
+            </p>
+        </div>
+        <button class="shut" @onclick="Close" aria-label="Close"><Icon Name="close" /></button>
+    </div>
+
+    @if (_status is not null)
+    {
+        <div class="fields">
+            @* Which connection these fields are about. There can be several, because the
+               model is a choice — the cheap fast one that suits reading commands out of a
+               guide is not the one you want writing a sequence — and every AI window offers
+               the same list. Picking here picks everywhere, which is why this box shows the
+               one in force rather than a scratch copy of it. *@
+            <label for="ai-connection">Connection:</label>
+            <div class="row tight">
+                <select id="ai-connection" value="@_status.SelectedId" @onchange="Pick"
+                        disabled="@(_busy || _status.Connections.Count == 0)"
+                        title="Which connection to edit, and to use. The one chosen here is the one every AI window spends.">
+                    @if (_status.Connections.Count == 0)
+                    {
+                        <option value="">None yet — press New</option>
+                    }
+                    @foreach (var c in _status.Connections)
+                    {
+                        <option value="@c.Id">@c.Label@(c.Configured ? "" : " (no key)")</option>
+                    }
+                </select>
+                @* Marks, not words, and on the row with the picker they act on. Two labelled
+                   buttons under a dropdown read as a second row of settings; beside it they
+                   read as what they are — the ends of the list this picker is choosing from. *@
+                <button class="mark" @onclick="AddOne" disabled="@_busy" aria-label="New connection"
+                        title="Another connection, on this provider's defaults. It becomes the one in use."><Icon Name="plus" /></button>
+                <button class="mark bad" @onclick="RemoveOne" disabled="@(_busy || _status.Connections.Count == 0)" aria-label="Delete this connection"
+                        title="Forget this connection and the key stored against it. The others are left alone."><Icon Name="close" /></button>
+            </div>
+
+            @* Optional. Two connections on one model are told apart by the server without
+               anyone naming them; a name is for when "the cheap one" and "the good one" is
+               what you actually think of them as. *@
+            <label for="ai-name">Name:</label>
+            <input id="ai-name" type="text" @bind="_name" spellcheck="false"
+                   title="What to call this connection in the pickers. Leave it blank to be called after the model it reaches."
+                   placeholder="@(_status.Model.Length > 0 ? _status.Model : "named after the model")" />
+
+            <label for="ai-provider">Provider:</label>
+            <select id="ai-provider" @bind="_provider" @bind:after="ProviderChanged"
+                    title="Which service to use. The endpoint and model below are filled with that provider's defaults.">
+                @foreach (var p in _status.Providers)
+                {
+                    <option value="@p.Name">@p.Label</option>
+                }
+            </select>
+
+            <label for="ai-endpoint">Endpoint:</label>
+            <input id="ai-endpoint" type="text" @bind="_endpoint" spellcheck="false"
+                   title="Scheme and host only. The provider's own endpoint unless you set it for a local server or a proxy."
+                   placeholder="@Preset?.DefaultBaseUrl" />
+
+            <label for="ai-model">Model:</label>
+            <input id="ai-model" type="text" @bind="_model" spellcheck="false"
+                   title="Model name as the provider spells it."
+                   placeholder="@Preset?.DefaultModel" />
+
+            @* Between the model and the key, because it is the last thing about the model:
+               which one, and how hard it works. Every provider spells this differently and
+               Core translates — see AiEffort. *@
+            <label for="ai-effort">Effort:</label>
+            <select id="ai-effort" @bind="_effort"
+                    title="How hard to ask the model to think before answering. Higher is slower and costs more tokens; it is worth it for writing a script and rarely worth it for copying commands out of a guide. Provider default sends nothing at all, which is the safe setting for an endpoint that has never heard of the field.">
+                @foreach (string name in _status.Efforts)
+                {
+                    <option value="@name">@EffortLabel(name)</option>
+                }
+            </select>
+
+            <label for="ai-key">API key:</label>
+            <div>
+                <input id="ai-key" type="password" @bind="_key" autocomplete="off" spellcheck="false"
+                       title="Held by the server, not by this browser, and never sent back to it. There are no accounts here, so it is one key for everyone who can reach this address."
+                       placeholder="@KeyPlaceholder" />
+                @if (_status.Configured && _status.KeyFromConfiguration)
+                {
+                    <p class="note">
+                        Set as <span class="mono">Ai__ApiKey</span> where the server runs. Type one
+                        here to use a different key instead; from then on this one wins.
+                    </p>
+                }
+            </div>
+
+            <label for="ai-timeout">Timeout (s):</label>
+            <div class="row tight">
+                <input id="ai-timeout" type="number" min="15" max="900" step="15" @bind="_timeout"
+                       title="How long to wait for one request. A whole programming guide takes longer than a page." />
+                <span class="muted">seconds for one request &mdash; a whole programming guide takes longer than a page</span>
+            </div>
+
+            <label>PDF extraction:</label>
+            <div>
+                @* The one setting the rest of the app actually branches on. Where the provider
+                   cannot take a file there is no choice to offer, so it is ticked and locked
+                   rather than presented as a decision that does nothing. *@
+                <label class="check">
+                    <input type="checkbox" checked="@LocalExtraction"
+                           title="@LocalExtractionHelp"
+                           disabled="@(Preset?.SupportsPdfUpload != true)"
+                           @onchange="e => _local = (bool?)e.Value == true" />
+                    Extract text locally before sending
+                </label>
+                <p class="note">@Preset?.PdfCostNote</p>
+            </div>
+        </div>
+
+        @if (_error is not null)
+        {
+            <p class="error">@_error</p>
+        }
+        else if (_applied)
+        {
+            <p class="applied">Applied. The next request uses this connection.</p>
+        }
+
+        <div class="actions">
+            @* No Cancel: the ✕ and Esc already do that, and the desktop box dropped its own
+               for the same reason. Apply stays, because it is not another way out — it is the
+               one that commits — and it is named as that box names it.
+
+               No Forget the key either. It was here while there was one connection and losing
+               its key meant losing the only one; with a list, the way to be rid of a key is to
+               be rid of the connection it belongs to, which the ✕ beside the picker does. *@
+            <button class="primary" @onclick="Apply" disabled="@_busy"
+                    title="Save this connection on the server. It is used from the next request on, and survives a restart.">Apply</button>
+        </div>
+    }
+    else if (!_loading)
+    {
+        <p class="error">
+            The server did not answer, so there is nothing here to edit. This box reads the
+            connection off the server rather than keeping a copy of its own, which is why it
+            would rather show you nothing than settings that might not be the ones in use.
+        </p>
+    }
+
+    <p class="fine">
+        <strong>One key, shared.</strong> There are no accounts here, so anyone who can reach this
+        address can spend this key and change these settings &mdash; right on a private bench
+        network, wrong on a public one. What you apply is held by the server and survives a
+        restart; <span class="mono">Ai__ApiKey</span> and its siblings in the environment are the
+        starting point when nothing has been applied.
+    </p>
+</dialog>
+
+@code {
+    private ElementReference _dialog;
+    private AiStatus? _status;
+    private bool _loading;
+    private bool _busy;
+    private bool _applied;
+    private string? _error;
+
+    // The edited connection. Kept apart from _status, which is always what the server last
+    // said — so "what is set" and "what I have typed" can never be confused for each other.
+    private string _provider = "";
+    private string _endpoint = "";
+    private string _model = "";
+    private string _key = "";
+    private int _timeout = 300;
+    private bool? _local;
+    private string _effort = "Default";
+    private string _name = "";
+
+    /// <summary>The chosen provider's preset, or null before the server has answered.</summary>
+    private AiProviderDto? Preset =>
+        _status?.Providers.FirstOrDefault(p => p.Name == _provider) ?? _status?.Providers.FirstOrDefault();
+
+    /// <summary>
+    /// Whether PDFs are flattened here before being sent. Null means "follow the provider",
+    /// which is what a connection starts as and returns to when the provider changes; where a
+    /// provider cannot accept a file at all it is on regardless.
+    /// </summary>
+    private bool LocalExtraction => _local ?? Preset?.SupportsPdfUpload != true;
+
+    /// <summary>
+    /// The checkbox's hover text: what it does, why it exists at all, and what it costs either
+    /// way on this particular provider. Composed the way Core's AiConnection composes it, out
+    /// of the two facts the preset carries.
+    /// </summary>
+    private string LocalExtractionHelp =>
+        "Convert the PDF to plain text on the server and send the text, instead of uploading "
+      + "the file itself.\n\n"
+      + (Preset?.SupportsPdfUpload == true
+            ? "Off by default: this provider reads the PDF directly, which keeps the page "
+            + "layout. Flattening a two-column programming guide interleaves its columns, "
+            + "which is how a command ends up with its neighbour's description.\n\n"
+            : "Forced on: this provider cannot accept a file, so there is no other way to "
+            + "send a PDF to it.\n\n")
+      + "Cost: " + (Preset?.PdfCostNote ?? "");
+
+    private string KeyPlaceholder => _status?.Configured == true
+        ? "A key is stored. Type to replace it."
+        : "Paste your API key";
+
+    /// <summary>
+    /// Open it, re-reading the connection every time. Someone opening this box a second time
+    /// is usually checking whether something took, and a cached answer cannot tell them.
+    /// </summary>
+    public async Task ShowAsync()
+    {
+        _loading = true;
+        _error = null;
+        _applied = false;
+        StateHasChanged();
+
+        await JS.InvokeVoidAsync("lec.dialog.open", _dialog);
+
+        // A failure here is the box's own subject matter — "the server did not answer" is
+        // exactly what someone opens this to find out — so it is shown rather than thrown out
+        // of a dialog that is already on screen.
+        try { Load(await Bench.AiStatusAsync()); }
+        catch { _status = null; }
+        finally { _loading = false; StateHasChanged(); }
+    }
+
+    /// <summary>Take the server's answer as the new truth, and refill the form from it.</summary>
+    private void Load(AiStatus status)
+    {
+        _status = status;
+        _key = "";
+
+        _provider = status.Provider is { Length: > 0 } named && status.Providers.Any(p => p.Name == named)
+            ? named
+            : status.Providers.FirstOrDefault()?.Name ?? "";
+
+        // The resolved values, not the blanks behind them: a box showing an empty Model field
+        // while the server is using gemini-3.6-flash is not showing the connection. The
+        // provider switch below knows a still-default value when it sees one.
+        _endpoint = status.Endpoint;
+        _model = status.Model;
+        _timeout = status.TimeoutSeconds is >= 15 and <= 900 ? status.TimeoutSeconds : 300;
+        _local = status.ExtractTextLocally;
+        _effort = status.Efforts.Contains(status.Effort) ? status.Effort : status.Efforts.FirstOrDefault() ?? "Default";
+        _name = status.Connections.FirstOrDefault(c => c.Id == status.SelectedId)?.Name ?? "";
+    }
+
+    /// <summary>
+    /// A new provider brings its own endpoint and model, but only over values nobody has
+    /// typed — anything still equal to some provider's default counts as untouched, which is
+    /// how the desktop box decides too. The PDF choice goes back to following the provider,
+    /// because an answer that was right about one service is not an answer about another.
+    /// </summary>
+    private void ProviderChanged()
+    {
+        if (_status is null || Preset is null) return;
+
+        if (IsDefault(_endpoint, p => p.DefaultBaseUrl)) _endpoint = Preset.DefaultBaseUrl;
+        if (IsDefault(_model, p => p.DefaultModel)) _model = Preset.DefaultModel;
+        _local = null;
+        _applied = false;
+    }
+
+    /// <summary>What "Default" is called where it is offered: the absence of a request.</summary>
+    private static string EffortLabel(string name)
+        => name == "Default" ? "Provider default" : name;
+
+    private bool IsDefault(string value, Func<AiProviderDto, string> of)
+        => value.Trim().Length == 0 || (_status?.Providers.Any(p => of(p) == value.Trim()) ?? false);
+
+    private async Task Apply() => await Send(_key.Length > 0 ? _key : null);
+
+    /// <summary>
+    /// Edit — and use — a different one.
+    ///
+    /// Selecting rather than merely showing: there is one selection for the whole app, so a
+    /// box that let you look at a connection without switching to it would be showing you
+    /// settings that are not the ones in force, which is the thing this box refuses to do.
+    /// Anything typed and not applied is dropped, as it would be by closing the box.
+    /// </summary>
+    private async Task Pick(ChangeEventArgs e)
+    {
+        if (e.Value is not string id || id.Length == 0) return;
+        await Act(() => Bench.AiSelectAsync(id));
+    }
+
+    /// <summary>Another one, on the provider currently shown. The server selects it.</summary>
+    private async Task AddOne() => await Act(() => Bench.AiAddAsync(_provider));
+
+    /// <summary>Forget this one and its key.</summary>
+    private async Task RemoveOne()
+    {
+        if (_status?.SelectedId is not { Length: > 0 } id) return;
+        await Act(() => Bench.AiRemoveAsync(id));
+    }
+
+    /// <summary>Run one of the three, and take the state it hands back.</summary>
+    private async Task Act(Func<Task<AiSettingsReply>> what)
+    {
+        _busy = true;
+        _error = null;
+        _applied = false;
+        try
+        {
+            var reply = await what();
+            if (reply.Error is not null) { _error = reply.Error; return; }
+            if (reply.Status is not null) Load(reply.Status);
+        }
+        catch (Exception ex) { _error = ex.Message; }
+        finally { _busy = false; }
+    }
+
+
+    private async Task Send(string? key)
+    {
+        _busy = true;
+        _error = null;
+        _applied = false;
+        try
+        {
+            var reply = await Bench.AiApplyAsync(
+                new AiSettingsUpdate(_provider, _endpoint, _model, _local, _timeout, key, _effort,
+                                     _status?.SelectedId, _name));
+
+            if (reply.Error is not null) { _error = reply.Error; return; }
+            if (reply.Status is not null) Load(reply.Status);
+            _applied = true;
+        }
+        catch (Exception ex) { _error = ex.Message; }
+        finally { _busy = false; }
+    }
+
+    private async Task Close() => await JS.InvokeVoidAsync("lec.dialog.close", _dialog);
+}

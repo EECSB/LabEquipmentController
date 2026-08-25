@@ -1,0 +1,764 @@
+@implements IDisposable
+@inject BenchClient Bench
+@inject IJSRuntime JS
+
+@* Pulling a trace or a screen off one instrument, opened over that instrument's console.
+
+   Not a page and not routable, for the same reason the script editor is not: the scaling
+   from raw bytes to volts and seconds is that instrument's own arithmetic, so a capture with
+   no instrument behind it is not a thing you can ask for. *@
+
+@* A screen grab is taken on the way in, and a transfer over a link that answers when it
+   feels like it takes as long as it takes. Until it lands there is nothing to draw, and
+   what stood here was the sentence for having no instrument at all — which is a different
+   thing, and while a capture is running it is not true. The desktop says the same word in
+   the console the moment it starts: "--- capturing screen (:DISPlay:DATA?) ---". *@
+@if (_loading)
+{
+    <div class="panel waiting">
+        <span class="spin" aria-hidden="true"></span>
+        <span class="muted">@(Mode == CaptureMode.Screen ? "Capturing the instrument’s screen…" : "Opening…")</span>
+    </div>
+}
+else if (_session is null)
+{
+    <div class="panel"><p class="muted">Connect an instrument first.</p></div>
+}
+else
+{
+    @* Two windows on the desktop, opened by two buttons, so two here — each showing only its
+       own controls. WaveformForm keeps a repeat toggle and an interval beside it, because a
+       trace is something you watch change; a screen grab is something you take once.
+
+       One card, laid out as those windows are: the picture filling it, and the buttons that
+       act on the picture along the bottom. It was three cards — a card to press the button, a
+       card for the picture, and the buttons in that card's heading — which is three boxes for
+       one window's worth of work. *@
+    <div class="group">
+        @* Only the waveform window has anything to set before it captures — how often, and
+           whether to keep going. A screen grab has no settings, so it has no row: the desktop
+           takes the picture before its viewer exists and the viewer is the picture.
+
+           Which channels is asked further down, on the card that draws them: one capture can
+           be drawn as several pictures and each picture has its own answer. *@
+        @if (Mode == CaptureMode.Waveform)
+        {
+            <div class="row waverow">
+                <button class="primary" @onclick="Waveform"
+                        disabled="@(_busy || !_session.SupportsWaveform || _panes.Count == 0)"
+                        title="Download the trace and plot it, scaled to volts against time using the instrument's own scaling data."><Icon Name="wave" /> Capture Waveform</button>
+
+                @* The desktop's Run: keep taking it, on a timer, so a trace can be watched
+                   rather than sampled. Its glyph flips with it, as Scan's and Connect's do. *@
+                <span class="gap"></span>
+                <button @onclick="ToggleRun" disabled="@(!_session.SupportsWaveform || _panes.Count == 0)"
+                        title="Keep capturing on a timer, so the trace follows the instrument. Press again to stop.">
+                    <Icon Name="@(_repeating ? "stop" : "start")" /> Run
+                </button>
+                <label for="@($"{_id}-every")">every</label>
+                <input id="@($"{_id}-every")" class="num" type="number" min="50" max="60000" step="50" @bind="_interval"
+                       title="How long to wait between captures. A scope takes a moment to fill its buffer, so this is the floor rather than the rate." />
+                <span class="muted">ms</span>
+                @if (_busy) { <span class="spin" aria-hidden="true"></span> <span class="muted">Capturing&hellip;</span> }
+            </div>
+        }
+        @* The reason an instrument cannot do this is now on the button that opens this window,
+           where it is read before the window is opened rather than after. The buttons in here
+           keep their own guard — cheap, and it is the guard that makes the claim true. *@
+
+        @if (_error is not null)
+        {
+            <p class="error" style="margin:.6rem 0 0">@_error</p>
+        }
+
+        @if (Mode == CaptureMode.Waveform)
+        {
+            @* One card per picture. Which channels go on which card is the user's: alone, they
+               are read apart; together, they are read against each other — and which of those
+               is wanted is a question about the measurement rather than about the app. Every
+               card is drawn from the one capture, so two cards showing two channels cost the
+               same two reads as one card showing both. *@
+            @foreach (var pane in _panes)
+            {
+                <div class="pane" @key="pane">
+                    <div class="row waverow panehead">
+                        @* A chip each rather than a number box, because a scope with two probes
+                           on it is the ordinary case. Each is drawn in the colour the instrument
+                           draws it in, so the picture here and the picture on the front panel
+                           name the same channel the same way. Four offered because that is the
+                           widest scope this app knows; a channel the instrument does not have
+                           says so on its own and the others are still drawn. *@
+                        <span class="muted">Channels</span>
+                        @for (int n = 1; n <= 4; n++)
+                        {
+                            int ch = n;
+                            <label class="chip ch@(ch) @(pane.Channels.Contains(ch) ? "on" : "")"
+                                   title="@($"Draw channel {ch} on this card. At least one channel is always on.")">
+                                <input type="checkbox" checked="@pane.Channels.Contains(ch)"
+                                       @onchange="e => PickChannel(pane, ch, e.Value is true)" /> @ch
+                            </label>
+                        }
+
+                        @* The gestures, as buttons. The wheel and the drag are quicker once you
+                           know they are there, and nothing on a plot says that they are — so the
+                           three things they do are on the card as well, where they can be found
+                           by looking. Zoom about the middle, because a button has no pointer to
+                           zoom about; the wheel keeps that. *@
+                        <span class="spacer"></span>
+                        <span class="zoomers">
+                            <button class="zoom" @onclick="() => Nudge(pane, 1.25)" aria-label="Zoom in"
+                                    disabled="@(pane.Wave is null)"
+                                    title="Zoom in about the middle of what is drawn. Ctrl and the wheel does the same about the pointer."><Icon Name="plus" /></button>
+                            <button class="zoom" @onclick="() => Nudge(pane, 1 / 1.25)" aria-label="Zoom out"
+                                    disabled="@(pane.Wave is null || pane.View.IsWholeRecord)"
+                                    title="Zoom out about the middle of what is drawn."><Icon Name="minus" /></button>
+                            <button class="zoom fit" @onclick="() => ResetView(pane)" aria-label="Show the whole record"
+                                    disabled="@(pane.Wave is null || pane.View.IsWholeRecord)"
+                                    title="Show the whole record again, centred. Double-clicking the trace does the same."><Icon Name="fit" /></button>
+                        </span>
+
+                        <button class="shut" @onclick="() => Drop(pane)" aria-label="Close this capture"
+                                title="Take this card away. The channels on it stop being captured."><Icon Name="close" /></button>
+                    </div>
+
+                    @if (pane.Wave is { Time.Count: > 1 })
+                    {
+                        @* The dark ground is drawn inside the picture rather than left to the
+                           stylesheet, so it is still there when the picture is taken out of the
+                           page: a serialised SVG carries what is in it and nothing the page said
+                           about it.
+
+                           The wheel, the drag and the double-click are the desktop's TracePanel,
+                           gesture for gesture: wheel alone slides the view sideways, Ctrl and the
+                           wheel zoom about the pointer so whatever is under it stays under it,
+                           dragging moves the trace with the hand, and a double-click puts the
+                           whole record back. preventDefault on the wheel, or the page scrolls out
+                           from under the thing being zoomed.
+
+                           Each card zooms on its own. Two cards on one capture are two views of
+                           it, and a zoom that moved both would make the second card a copy of the
+                           first rather than a second look. *@
+                        <svg viewBox="0 0 900 320" width="100%" height="320" @ref="pane.Svg"
+                             class="trace @(pane.Dragging ? "dragging" : "")"
+                             role="img" aria-label="@($"Captured waveform, {Named(pane)}")"
+                             @onwheel="e => Wheel(pane, e)" @onwheel:preventDefault="true"
+                             @onmousedown="e => DragStart(pane, e)" @onmousemove="e => DragMove(pane, e)"
+                             @onmouseup="() => { pane.Dragging = false; }" @onmouseleave="() => { pane.Dragging = false; }"
+                             @ondblclick="() => ResetView(pane)">
+                            <rect x="0" y="0" width="900" height="320" fill="#05070a" />
+
+                            @* One path per channel, in that channel's own colour, all against one
+                               vertical scale — two traces drawn to two different scales look like
+                               a comparison and are not one. *@
+                            @foreach (var drawn in pane.Paths)
+                            {
+                                <path d="@drawn.Path" fill="none" stroke="@Ink(drawn.Channel)" stroke-width="1.2" />
+                            }
+
+                            @* Which colour is which channel, where the colours are. *@
+                            @if (pane.Paths.Count > 1)
+                            {
+                                @for (int i = 0; i < pane.Paths.Count; i++)
+                                {
+                                    @Words(12 + i * 46, 16, "start", "CH" + pane.Paths[i].Channel, Ink(pane.Paths[i].Channel))
+                                }
+                            }
+
+                            @* The times at the ends of what is drawn. Without these, zooming
+                               changes the picture without saying what part of the record you are
+                               looking at. *@
+                            @Words(6, 314, "start", Sig(pane.From) + " s")
+                            @Words(894, 314, "end", Sig(pane.To) + " s")
+                            @* What you are looking at, and how to move it. Drawn whether or not
+                               it is zoomed: a plot that only mentions the wheel once you have
+                               already found the wheel is a plot that never mentions it. *@
+                            @Words(450, 314, "middle", Gestures(pane))
+                        </svg>
+                        <div class="row foot">
+                            <span class="muted">
+                                @pane.Wave.Time.Count.ToString("N0") points ·
+                                @foreach (var t in pane.Wave.Traces.Where(t => t.Error is null))
+                                {
+                                    <text>CH@(t.Channel) Vpp @Sig(Vpp(t)) V · </text>
+                                }
+                                span @Sig(pane.RecordSpan) s
+                            </span>
+
+                            @* A channel that could not be read says so rather than quietly not
+                               being there. *@
+                            @foreach (var t in pane.Wave.Traces.Where(t => t.Error is not null))
+                            {
+                                <span class="error" title="@t.Error">CH@(t.Channel): @t.Error</span>
+                            }
+
+                            <span class="spacer"></span>
+                            <button @onclick="() => SaveWave(pane)" title="Save the channels on this card as a CSV file: one time column, then a column of volts per channel."><Icon Name="save" /> Save CSV&hellip;</button>
+                            @* The numbers, and then the picture. The same camera the plot carries
+                               and the same gesture — this one aimed at the trace as it is drawn
+                               here, which is not the instrument's own screen: Capture Screen is
+                               that, and it is a different window. *@
+                            <button @onclick="() => SaveTrace(pane)" aria-label="Save trace as image"
+                                    title="Save this trace as a PNG image. Save CSV is the numbers; this is the picture — of the plot drawn here, not of the instrument's screen."><Icon Name="camera" /></button>
+                        </div>
+                    }
+                    else
+                    {
+                        <p class="empty">Nothing on this card yet — press Capture Waveform.</p>
+                    }
+                </div>
+            }
+
+            @* The way to the next card: a card-shaped hole where it will go. Dashed rather than
+               drawn as a button, for the same reason the datasheet target is — dashes are what an
+               empty place that takes something looks like. *@
+            <button class="addpane" @onclick="AddPane" disabled="@(_panes.Count >= 4)"
+                    title="@(_panes.Count >= 4
+                        ? "Four cards is one per channel, which is as far apart as they go."
+                        : "Another card, drawing whichever channels you tick on it. Channels on separate cards are read apart; channels on one card are read against each other.")">
+                <Icon Name="plus" /> Add channel capture
+            </button>
+        }
+
+        @if (Mode == CaptureMode.Screen)
+        {
+            @if (_shot is { Bytes: > 0 })
+            {
+                <img class="shot" src="data:@_shot.ContentType;base64,@_shot.Base64" alt="Instrument screen"
+                     title="Screen captured from the instrument." />
+            }
+
+            @* One row along the bottom, drawn whether or not there is a picture yet: what the
+               picture is on the left, and everything that acts on it at the right.
+
+               Capture Screen is here rather than over the picture because by the time the window
+               is open the capture has already been taken — the desktop hands ScreenCaptureForm a
+               finished bitmap and its viewer has no capture button at all. Kept, and put with the
+               others, for the one thing the desktop cannot do without closing the window: take
+               the same screen again after the instrument has moved on. Set apart from Copy by the
+               same gap the console puts before Send — it acts on the instrument, and the two
+               beside it act on what came back. *@
+            <div class="row foot">
+                @if (_busy) { <span class="spin" aria-hidden="true"></span> }
+                @* What it is, under it. The format is the instrument's choice — a Rigol sends
+                   BMP whatever was asked for — so it is read from the bytes rather than
+                   assumed, which is why the type is worth printing at all. *@
+                <span class="muted" title="The format is the instrument's choice — a Rigol sends BMP, a Tektronix set to PNG sends PNG — so it is read from the bytes rather than assumed.">
+                    @if (_busy)
+                    {
+                        <text>Capturing&hellip;</text>
+                    }
+                    else if (_shot is { Bytes: > 0 })
+                    {
+                        <text>@_shot.Bytes.ToString("N0") bytes · @_shot.ContentType · from @_shot.Command</text>
+                    }
+                </span>
+                <span class="spacer"></span>
+                <button @onclick="Screenshot" disabled="@(_busy || !_session.SupportsScreenshot)"
+                        title="Take the instrument's screen again, as it is now."><Icon Name="camera" /> Capture Screen</button>
+                <span class="gap"></span>
+                <button @onclick="Copy" disabled="@(_shot is not { Bytes: > 0 })"
+                        title="Copy this screenshot to the clipboard."><Icon Name="copy" /> Copy</button>
+                <button @onclick="SaveShot" disabled="@(_shot is not { Bytes: > 0 })"
+                        title="Save this screenshot as an image file."><Icon Name="save" /> Save as PNG&hellip;</button>
+            </div>
+        }
+    </div>
+}
+
+@code {
+    private IReadOnlyList<SessionDto> _sessions = [];
+    private SessionDto? _session;
+    private string? _sessionId;
+    private bool _busy;
+    /// <summary>
+    /// True until the window has whatever it opens with. Told apart from having no
+    /// instrument, which is what the two states used to share a sentence over.
+    /// </summary>
+    private bool _loading = true;
+    private string? _error;
+    private ScreenshotDto? _shot;
+
+    /// <summary>
+    /// One picture of the capture: the channels drawn on it, and how far into the record it is
+    /// looking.
+    ///
+    /// A class rather than a record so the element reference can be written into it by @@ref, and
+    /// so two cards holding the same channels are still two cards — @@key is on the object itself.
+    /// </summary>
+    private sealed class Pane
+    {
+        /// <summary>Which channels this card draws. Never empty: a card of nothing is not a card.</summary>
+        public readonly SortedSet<int> Channels = [];
+
+        /// <summary>The last capture, cut down to this card's channels.</summary>
+        public WaveformSetDto? Wave;
+
+        /// <summary>One drawn path per channel that came back, in the order they were captured.</summary>
+        public List<(int Channel, string Path)> Paths = [];
+
+        /// <summary>
+        /// Which slice of the record is on screen. Core's <see cref="WaveformView"/>, referenced
+        /// rather than copied — see the csproj: the desktop and the web are meant to zoom
+        /// identically, and two implementations of one rule are one rule and one guess.
+        ///
+        /// One per card. Two cards on one capture are two views of it, and a zoom that moved both
+        /// would make the second a copy of the first rather than a second look.
+        /// </summary>
+        public readonly WaveformView View = new();
+
+        /// <summary>The times at the ends of what is drawn, so a zoomed picture says where it is.</summary>
+        public double From, To;
+
+        /// <summary>The whole record's span, which is a fact about the capture and does not zoom.</summary>
+        public double RecordSpan;
+
+        /// <summary>The trace element, for the camera beside Save CSV.</summary>
+        public ElementReference Svg;
+
+        public bool Dragging;
+        public double DragFrom;    // the pointer's last position, in client pixels
+        public double PlotWidth;   // the trace's width in real pixels, read once per drag
+    }
+
+    /// <summary>The cards, in the order they were added. One to start, on channel 1.</summary>
+    private readonly List<Pane> _panes = [];
+
+    /// <summary>The instrument to capture from. The console that opened this supplies it.</summary>
+    [Parameter, EditorRequired] public string? Session { get; set; }
+
+    /// <summary>Which of the desktop's two capture windows this is.</summary>
+    [Parameter] public CaptureMode Mode { get; set; } = CaptureMode.Waveform;
+
+    private readonly string _id = "cap" + Guid.NewGuid().ToString("N")[..8];
+    private bool _repeating;
+    private int _interval = 500;
+    private CancellationTokenSource? _repeat;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _sessions = await Bench.SessionsAsync();
+        // The fallbacks are for the case that cannot arise while this is only ever opened
+        // from a console: no instrument named, so prefer one that can hand over a waveform.
+        _sessionId = Session
+                     ?? _sessions.FirstOrDefault(s => s.SupportsWaveform)?.Id
+                     ?? _sessions.FirstOrDefault()?.Id;
+        _session = _sessions.FirstOrDefault(s => s.Id == _sessionId);
+
+        if (Mode == CaptureMode.Waveform) AddPane();
+
+        // Take it on the way in. On the desktop the console captures the screen and only then
+        // builds the viewer around the bitmap — the window never exists without a picture in it,
+        // and there is nothing to press. A window that opened empty and waited to be asked was a
+        // press to get the thing the window is for.
+        //
+        // The waveform window is left alone: it has a channel to choose first, and choosing it
+        // after a capture of the wrong one is a wasted transfer.
+        try
+        {
+            if (Mode == CaptureMode.Screen && _session is { SupportsScreenshot: true })
+                await Screenshot();
+        }
+        finally { _loading = false; }
+    }
+
+    // ------------------------------------------------------------------------- the cards
+
+    /// <summary>
+    /// Another card, on the lowest channel no card is showing — so pressing it repeatedly walks
+    /// 1, 2, 3, 4 and lands on one channel per card without anything being typed. Once all four
+    /// are spoken for it starts again at 1, which is the overlapping case asked for the other way
+    /// round.
+    /// </summary>
+    private void AddPane()
+    {
+        var taken = _panes.SelectMany(p => p.Channels).ToHashSet();
+        int next = Enumerable.Range(1, 4).FirstOrDefault(c => !taken.Contains(c), 1);
+
+        var pane = new Pane();
+        pane.Channels.Add(next);
+
+        // Whatever is already captured is already here, so a new card is drawn from it rather
+        // than waiting for the next press: adding a card to look at channel 2 of a capture that
+        // holds channel 2 should show it.
+        _panes.Add(pane);
+        Redraw(pane);
+    }
+
+    /// <summary>
+    /// Take a card away. The last one can go too: what is left is the outline that puts it back,
+    /// which says what to do more plainly than a ✕ that refuses to work would.
+    /// </summary>
+    private void Drop(Pane pane)
+    {
+        _panes.Remove(pane);
+        if (_panes.Count == 0) _repeat?.Cancel();
+    }
+
+    /// <summary>
+    /// Turn a channel on or off for one card. The last one on cannot be turned off: a card with
+    /// no channels is a card with nothing to draw, and the ✕ is the way to be rid of it.
+    /// </summary>
+    private void PickChannel(Pane pane, int channel, bool on)
+    {
+        if (on) pane.Channels.Add(channel);
+        else if (pane.Channels.Count > 1) pane.Channels.Remove(channel);
+        else return;
+
+        // Redraw from what is already in hand rather than going back to the instrument: the
+        // capture holds every channel any card asked for, so unticking one is a question whose
+        // answer is already here. A channel newly ticked that was not in the capture stays blank
+        // until the next one, which is the honest state — nothing was measured on it.
+        Redraw(pane);
+    }
+
+    /// <summary>Which channels this card is, for a label — "CH1" or "CH1, CH2".</summary>
+    private static string Named(Pane pane)
+        => string.Join(", ", pane.Channels.Select(c => "CH" + c));
+
+    // ---------------------------------------------------------------------- the capture
+
+    /// <summary>The last capture, whole. Each card takes its own channels out of it.</summary>
+    private WaveformSetDto? _capture;
+
+    /// <summary>
+    /// One capture, drawn on every card.
+    ///
+    /// The union of what the cards ask for goes to the instrument, once. Two cards on channel 1
+    /// and channel 2 are two reads, the same two a single card showing both would take — and two
+    /// cards both showing channel 1 are one read, drawn twice.
+    /// </summary>
+    private async Task Waveform()
+    {
+        if (_session is null || _panes.Count == 0) return;
+
+        var wanted = _panes.SelectMany(p => p.Channels).Distinct().OrderBy(c => c).ToList();
+        _busy = true; _error = null; _shot = null;
+        try
+        {
+            var got = await Bench.WaveformAsync(_session.Id, wanted);
+            if (got.Error is not null)
+            {
+                _error = got.Error;
+                _capture = null;
+                foreach (var p in _panes) { p.Wave = null; p.Paths = []; }
+                return;
+            }
+
+            _capture = got;
+            foreach (var p in _panes) Redraw(p);
+        }
+        finally { _busy = false; }
+    }
+
+    /// <summary>Cut the capture down to one card's channels, then draw it.</summary>
+    private void Redraw(Pane pane)
+    {
+        if (_capture is null) return;
+
+        var mine = _capture.Traces.Where(t => pane.Channels.Contains(t.Channel)).ToList();
+        pane.Wave = mine.Count > 0
+            ? new WaveformSetDto(_capture.Time, mine, _capture.XIncrement, null)
+            : null;
+        Draw(pane);
+    }
+
+    /// <summary>
+    /// The picture of whatever slice of the record the view is on.
+    ///
+    /// Vpp and the span in the foot stay the *record's* — they are facts about the capture, and a
+    /// figure that changed as you dragged would be a different measurement every time you looked.
+    /// What is drawn is the slice, and the times at its ends say which slice it is.
+    /// </summary>
+    private static void Draw(Pane pane)
+    {
+        WaveformSetDto? w = pane.Wave;
+        if (w is null) { pane.Paths = []; return; }
+
+        pane.RecordSpan = w.Time.Count > 1 ? w.Time[^1] - w.Time[0] : 0;
+
+        (int first, int count) = pane.View.Range(w.Time.Count);
+        if (count == 0) { pane.Paths = []; pane.From = pane.To = 0; return; }
+        int last = first + count - 1;
+        pane.From = w.Time[first];
+        pane.To = w.Time[last];
+
+        var drawn = w.Traces.Where(t => t.Error is null && t.Voltage.Count > last).ToList();
+        if (drawn.Count == 0) { pane.Paths = []; return; }
+
+        // Scaled to what is on screen rather than to the whole record: zooming into a ripple
+        // riding on a 5 V level is the reason to zoom at all, and a fixed vertical scale would
+        // leave it a flat line along the top of the plot. TracePanel does the same, with the
+        // same eight per cent of air above and below so the peaks are not drawn on the edge.
+        //
+        // One scale across every channel drawn, not one each: two traces drawn to two different
+        // scales look like a comparison and are not one — a 100 mV ripple and a 5 V square wave
+        // would come out the same height. Across the channels on *this* card, not across the
+        // capture: putting two channels on separate cards is how you ask to see each on its own
+        // terms, and it would be a poor answer if they were still tied together.
+        double min = double.MaxValue, max = double.MinValue;
+        foreach (var t in drawn)
+            for (int i = first; i <= last; i++)
+            {
+                double v = t.Voltage[i];
+                if (v < min) min = v;
+                if (v > max) max = v;
+            }
+        if (max - min < 1e-9) { max += 0.5; min -= 0.5; }
+        double pad = (max - min) * 0.08;
+        min -= pad; max += pad;
+
+        // Every sample in the slice is drawn — a scope hands back 1,400 points and dropping some
+        // of them is how a glitch disappears from a trace that was captured to find it.
+        var paths = new List<(int, string)>(drawn.Count);
+        foreach (var t in drawn)
+        {
+            var sb = new System.Text.StringBuilder();
+            for (int i = 0; i < count; i++)
+            {
+                double x = count == 1 ? 0 : 900.0 * i / (count - 1);
+                double y = 310 - 300 * (t.Voltage[first + i] - min) / (max - min);
+                sb.Append(i == 0 ? 'M' : 'L')
+                  .Append(x.ToString("0.##", System.Globalization.CultureInfo.InvariantCulture)).Append(' ')
+                  .Append(y.ToString("0.##", System.Globalization.CultureInfo.InvariantCulture)).Append(' ');
+            }
+            paths.Add((t.Channel, sb.ToString().Trim()));
+        }
+        pane.Paths = paths;
+    }
+
+    /// <summary>Peak to peak over the whole record, for the figure in the foot.</summary>
+    private static double Vpp(TraceDto t) => t.Voltage.Count > 0 ? t.Voltage.Max() - t.Voltage.Min() : 0;
+
+    /// <summary>
+    /// The colour a scope draws each channel in — yellow, cyan, magenta, blue.
+    ///
+    /// Not a palette chosen here: it is the one on the front panel of every scope this app talks
+    /// to, printed beside the BNC connectors. A trace drawn in a different colour from the one the
+    /// instrument uses for it is a trace you have to look up.
+    /// </summary>
+    private static string Ink(int channel) => channel switch
+    {
+        1 => "#f5d90a",
+        2 => "#22d3ee",
+        3 => "#e879f9",
+        _ => "#60a5fa",
+    };
+
+    // ------------------------------------------------------------------ zoom and pan
+
+    /// <summary>Where the pointer is across a trace, and how wide that trace is.</summary>
+    private async Task<(double At, double Width)> Across(Pane pane, double clientX)
+    {
+        var box = await JS.InvokeAsync<PointerAt>("lec.across", pane.Svg, clientX);
+        return (box.at, box.width);
+    }
+
+    private sealed record PointerAt(double at, double width);
+
+    /// <summary>
+    /// Wheel alone slides the view sideways; Ctrl and the wheel zoom about the pointer.
+    ///
+    /// A browser reports a wheel away from the hand as a negative deltaY where WinForms reports a
+    /// positive Delta, so the sign is flipped here and every number after it is the desktop's:
+    /// 1.25 per notch zooming, fifteen per cent of the visible span panning.
+    /// </summary>
+    private async Task Wheel(Pane pane, WheelEventArgs e)
+    {
+        if (pane.Wave is null) return;
+
+        double notches = -e.DeltaY / 120.0;
+        if (notches == 0) return;
+
+        if (e.CtrlKey)
+        {
+            var where = await Across(pane, e.ClientX);
+            pane.View.ZoomAt(where.At, Math.Pow(1.25, notches));
+        }
+        else
+        {
+            // Up goes earlier, matching the direction the trace moves under a drag the same way.
+            pane.View.PanBy(-notches * 0.15);
+        }
+
+        Draw(pane);
+    }
+
+    private async Task DragStart(Pane pane, MouseEventArgs e)
+    {
+        if (pane.Wave is null || e.Button != 0) return;
+        var where = await Across(pane, e.ClientX);
+        pane.PlotWidth = where.Width;
+        pane.DragFrom = e.ClientX;
+        pane.Dragging = true;
+    }
+
+    /// <summary>
+    /// Drag right, trace moves right, so the view moves earlier — the desktop's sign.
+    ///
+    /// No interop in here: the width was read when the drag began and cannot change while it is
+    /// in progress, and a hop out to JavaScript per mouse-move is a hop per frame.
+    /// </summary>
+    private static void DragMove(Pane pane, MouseEventArgs e)
+    {
+        if (!pane.Dragging || pane.Wave is null || pane.PlotWidth <= 0) return;
+
+        double dx = e.ClientX - pane.DragFrom;
+        if (dx == 0) return;
+
+        pane.View.PanBy(-dx / pane.PlotWidth);
+        pane.DragFrom = e.ClientX;
+        Draw(pane);
+    }
+
+    /// <summary>
+    /// What is on screen and how to move it, in one line under the trace.
+    ///
+    /// The reset is only worth mentioning once there is something to reset, but the wheel is
+    /// worth mentioning always — it is the gesture nothing else on the card hints at, and the
+    /// one that makes the plot worth having.
+    /// </summary>
+    private static string Gestures(Pane pane)
+        => pane.View.IsWholeRecord
+            ? "whole record — scroll to move, Ctrl+scroll to zoom"
+            : $"{pane.View.Span:P1} of the record — scroll to move, Ctrl+scroll to zoom, "
+            + "double-click to reset";
+
+    /// <summary>
+    /// One press of the zoom buttons: the wheel's own factor, about the middle.
+    ///
+    /// The middle rather than the pointer, because a button has no pointer to zoom about. The
+    /// wheel keeps that, which is the reason to keep the wheel.
+    /// </summary>
+    private static void Nudge(Pane pane, double factor)
+    {
+        if (pane.Wave is null) return;
+        pane.View.ZoomAt(0.5, factor);
+        Draw(pane);
+    }
+
+    /// <summary>The whole record again. A double-click, as the desktop resets.</summary>
+    private static void ResetView(Pane pane)
+    {
+        pane.View.Reset();
+        Draw(pane);
+    }
+
+    /// <summary>One SVG text element. Razor claims &lt;text&gt; for its own control element and
+    /// will not accept one carrying attributes, wherever it appears.</summary>
+    private static MarkupString Words(double x, double y, string anchor, string words,
+                                      string fill = "#8b949e")
+        => new($"<text x=\"{x}\" y=\"{y}\" text-anchor=\"{anchor}\" font-size=\"11\" "
+             + $"fill=\"{fill}\">{words.Replace("&", "&amp;").Replace("<", "&lt;")}</text>");
+
+    private async Task Screenshot()
+    {
+        if (_session is null) return;
+        _busy = true; _error = null;
+        try
+        {
+            _shot = await Bench.ScreenshotAsync(_session.Id);
+            if (_shot.Error is not null) { _error = _shot.Error; _shot = null; }
+        }
+        finally { _busy = false; }
+    }
+
+    // --------------------------------------------------------------------- taking it away
+
+    /// <summary>
+    /// One card's trace as a picture, through the same interop the plot uses. Save CSV is the
+    /// numbers and this is what they look like — worth keeping on its own, into a report or beside
+    /// the next run's, without reaching for a screenshot tool.
+    /// </summary>
+    private async Task SaveTrace(Pane pane)
+        => await JS.InvokeVoidAsync("lec.savePng", pane.Svg, FileName(pane, ".png"));
+
+    /// <summary>
+    /// One card as CSV: one time column, then a column of volts per channel on that card.
+    ///
+    /// The whole record rather than the visible slice — the zoom is a way of looking at it, not a
+    /// way of choosing what was measured, and a file that quietly held a third of the capture
+    /// because of where the plot happened to be is a file that lies.
+    /// </summary>
+    private async Task SaveWave(Pane pane)
+    {
+        if (pane.Wave is null) return;
+
+        var kept = pane.Wave.Traces.Where(t => t.Error is null).ToList();
+        var sb = new System.Text.StringBuilder("Time (s)");
+        foreach (var t in kept) sb.Append(",CH").Append(t.Channel).Append(" (V)");
+        sb.Append("\r\n");
+
+        for (int i = 0; i < pane.Wave.Time.Count; i++)
+        {
+            sb.Append(pane.Wave.Time[i].ToString("G17", System.Globalization.CultureInfo.InvariantCulture));
+            foreach (var t in kept)
+                sb.Append(',').Append(i < t.Voltage.Count
+                    ? t.Voltage[i].ToString("G17", System.Globalization.CultureInfo.InvariantCulture)
+                    : "");
+            sb.Append("\r\n");
+        }
+        await JS.InvokeVoidAsync("lec.download", FileName(pane, ".csv"), "text/csv",
+            Convert.ToBase64String(System.Text.Encoding.UTF8.GetBytes(sb.ToString())));
+    }
+
+    /// <summary>
+    /// What a saved card is called. The channels are in the name because with several cards open
+    /// the alternative is four files called waveform, and which is which is the one thing you
+    /// would want to know.
+    /// </summary>
+    private static string FileName(Pane pane, string extension)
+        => "waveform-ch" + string.Join("-", pane.Channels) + extension;
+
+    /// <summary>
+    /// Keep capturing, on a timer, until pressed again. Clamped to the desktop's own range —
+    /// 50 ms to a minute — because a number box in a browser hands back whatever was typed.
+    /// </summary>
+    private async Task ToggleRun()
+    {
+        if (_repeating)
+        {
+            _repeat?.Cancel();
+            _repeating = false;
+            return;
+        }
+
+        _repeating = true;
+        _repeat = new CancellationTokenSource();
+        var token = _repeat.Token;
+        try
+        {
+            while (!token.IsCancellationRequested)
+            {
+                await Waveform();
+                StateHasChanged();
+                await Task.Delay(Math.Clamp(_interval, 50, 60000), token);
+            }
+        }
+        catch (OperationCanceledException) { /* pressed again, or the pane closed */ }
+        finally { _repeating = false; }
+    }
+
+    private async Task Copy()
+    {
+        if (_shot is null) return;
+        _error = await JS.InvokeAsync<string?>("lec.copyImage", _shot.ContentType, _shot.Base64);
+    }
+
+    private async Task SaveShot()
+    {
+        if (_shot is null) return;
+        string ext = _shot.ContentType switch
+        {
+            "image/png" => ".png", "image/bmp" => ".bmp",
+            "image/jpeg" => ".jpg", "image/gif" => ".gif", _ => ".bin",
+        };
+        await JS.InvokeVoidAsync("lec.download", "screen" + ext, _shot.ContentType, _shot.Base64);
+    }
+
+    /// <summary>Closing the window stops the repeat. A capture nobody is watching is a
+    /// capture that is still tying up the instrument.</summary>
+    public void Dispose() { _repeat?.Cancel(); _repeat?.Dispose(); }
+
+    private static string Sig(double v) =>
+        v.ToString(Math.Abs(v) >= 0.01 ? "0.###" : "0.###e+0", System.Globalization.CultureInfo.InvariantCulture);
+}

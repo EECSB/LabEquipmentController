@@ -1,0 +1,311 @@
+@inject BenchClient Bench
+@inject IJSRuntime JS
+
+@* The desktop's script editors' toolbar and text box, shared by both of them.
+
+   ScriptForm and SequenceForm are two windows with one toolbar between them: the file pair, then
+   the text that already exists — an example, a snippet — then a model writing text that does not,
+   then running it. The gaps are what say so. Only New and Save As… differ, and only because
+   SequenceForm does not have them.
+
+   Save and Save As… both come out as downloads, because a browser cannot write back over the
+   file it was handed. Save uses the name the script already has and Save As… asks for one,
+   which is as close as the two get here. *@
+
+<div class="row scripttools">
+    @if (!IsSequence)
+    {
+        <button @onclick="New" title="Start a new script. Anything unsaved in the box is lost — save it first if you want to keep it."><Icon Name="new" /> New</button>
+    }
+    <button @onclick="Open" title="Open a script file from disk."><Icon Name="openfile" /> Open&hellip;</button>
+    <button @onclick="() => Save(rename: false)" disabled="@(Script.Length == 0)"
+            title="Save the script (Ctrl+S)."><Icon Name="save" /> Save</button>
+    @if (!IsSequence)
+    {
+        <button @onclick="() => Save(rename: true)" disabled="@(Script.Length == 0)"
+                title="Save the script under a new name."><Icon Name="save" /> Save As&hellip;</button>
+    }
+
+    <span class="gap"></span>
+
+    <select @onchange="LoadExample" value=""
+            title="Load a ready-made example script. This replaces the editor's contents.">
+        <option value="">Examples&hellip;</option>
+        @foreach (var e in Examples)
+        {
+            <option value="@e.Name">@e.Name</option>
+        }
+    </select>
+
+    @* Every word the language has, and one press to put it in the editor — the language
+       reference in the place where it is needed. *@
+    <div class="settings" @onkeydown="OnMenuKey">
+        <button class="@(_snippets ? "on" : "")" @onclick="() => _snippets = !_snippets"
+                aria-expanded="@(_snippets ? "true" : "false")"
+                title="Every word the language has, with a note on what each is for. Pressing one writes it into the editor."><Icon Name="new" /> Snippets ▾</button>
+        @if (_snippets)
+        {
+            <div class="scrim" @onmousedown="() => _downOutside = true" @onmouseup="ReleasedOutside"></div>
+            <div class="menu left" role="group" aria-label="Snippets"
+                 @onmousedown="() => _downOutside = false" @onmouseup="() => _downOutside = false">
+                @foreach (var s in _snippetList)
+                {
+                    <button class="item" @onclick="() => Insert(s)"
+                            title="@($"{s.Summary}\n\nType \"{s.Trigger}\" and press Tab for the same thing.\n\n{s.Body}")">
+                        @s.Title
+                    </button>
+                }
+                <div class="rule"></div>
+                <button class="item" @onclick="OpenReference"
+                        title="What every word in the language means, with a worked example of each."><Icon Name="book" /> What all of this means&hellip;</button>
+            </div>
+        }
+    </div>
+
+    @* No step before this one: it belongs to the group beside it. ScriptForm puts a gap on the
+       first control of a group and there are three of them — the file buttons, the three ways a
+       script arrives, then running it — and its own comment says why this is in the middle one:
+       "Snippets and Script with AI sit beside the examples, because all three answer the same
+       question — where a script comes from when you do not have one yet." *@
+    <button @onclick="OpenAi" title="Have a model draft the script, out of the connected instruments' catalogs and nothing else."><Icon Name="ai" /> Script with AI&hellip;</button>
+
+    <span class="gap"></span>
+
+    <button class="primary" @onclick="OnRun" disabled="@(Running || !CanRun)"
+            title="@(IsSequence ? "Run the script (F5). Every instrument it uses is locked to it while it runs." : "Run the script against this instrument.")"><Icon Name="start" /> Run</button>
+    <button @onclick="OnStop" disabled="@(!Running)"
+            title="Stop the running script. Results collected so far are kept."><Icon Name="stop" /> Stop</button>
+</div>
+
+@* Behind Open…, because the button that says Open… is ours and the picker is the browser's. *@
+<input type="file" @ref="_file" accept=".txt,.lec,.script" style="display:none" @onchange="Opened" />
+
+@* The editor, and nothing else in the card with it. There is no caption over the desktop's
+   editor — it is docked straight into the window, and a word over a box of code says nothing
+   the code does not — and the status line is docked to the foot of the window rather than
+   sitting under the text. Both of those are where they are now. *@
+<div class="group editor">
+    @* Whatever the page has to say about the script itself, over the text of it.
+       SequenceForm docks its binding strip here — between the toolbar and the editor —
+       and it is about what is written below it, so it is in the card with it. *@
+    @Strip
+
+    @* Monaco, in the same colours the desktop's editor paints — see wwwroot/js/monaco.js. A div
+       rather than a textarea: the editor builds its own DOM in here, and everything that reads or
+       writes the text goes through the interop. *@
+    <div class="code monaco" @ref="_editor"
+         title="@(IsSequence
+                   ? "DEVICE names an instrument, WITH scopes lines to it, FOR sweeps, RECORD appends a row. Ctrl+Space suggests, and Snippets writes any of them for you."
+                   : "One SCPI command per line. A hash or a double slash starts a comment, DELAY pauses for milliseconds, REPEAT … END repeats a block, and PRINT logs a message. Ctrl+Space suggests.")"></div>
+</div>
+
+@* The editor’s own two windows, over the editor they were opened from, as the desktop opens
+   ScriptAiForm and ScriptReferenceForm over theirs. Windows rather than anything else: both are
+   read beside the script rather than instead of it, which is the whole reason they are not the
+   page you were on. *@
+@if (_aiOpen)
+{
+    @* ScriptAiForm asks for 1320×920 — not the editor's size, which is what a filling window
+       otherwise takes. It is two text boxes and a row of switches; it does not want the screen. *@
+    <ToolWindow Title="Write a Script with AI" Fill="true" OpenWidth="1320" OpenHeight="920"
+                OnClosed="() => _aiOpen = false">
+        <Ai Tool="AiTool.Script" Session="@SessionId" IsSequence="IsSequence"
+            CurrentScript="@Script" RecentOutput="@RecentOutput" OnUse="UseScript" />
+    </ToolWindow>
+}
+
+@if (_referenceOpen)
+{
+    <ToolWindow Title="Script Language Reference" OnClosed="() => _referenceOpen = false">
+        <ScriptReference Embedded="true" Sequence="IsSequence" />
+    </ToolWindow>
+}
+
+@code {
+    /// <summary>Which of the two languages this editor speaks.</summary>
+    [Parameter] public bool IsSequence { get; set; }
+
+    [Parameter] public string Script { get; set; } = "";
+    [Parameter] public EventCallback<string> ScriptChanged { get; set; }
+
+    [Parameter] public IReadOnlyList<ExampleDto> Examples { get; set; } = [];
+
+    [Parameter] public bool Running { get; set; }
+    [Parameter] public bool CanRun { get; set; } = true;
+    [Parameter] public EventCallback OnRun { get; set; }
+    [Parameter] public EventCallback OnStop { get; set; }
+
+    /// <summary>What the status line says. Empty until something has happened.</summary>
+    [Parameter] public string Status { get; set; } = "";
+    [Parameter] public EventCallback<string> StatusChanged { get; set; }
+
+    /// <summary>The last run's output, for the AI window's second switch.</summary>
+    [Parameter] public string? RecentOutput { get; set; }
+
+    /// <summary>The instrument this editor runs against, when it has just one.</summary>
+    [Parameter] public string? SessionId { get; set; }
+
+    /// <summary>Raised when the whole script is replaced — an example loaded, or a draft
+    /// used — rather than typed into. The multi-instrument editor re-reads its DEVICE lines
+    /// then, which is a server call and not something to do per keystroke.</summary>
+    [Parameter] public EventCallback OnScriptReplaced { get; set; }
+
+    /// <summary>A line over the editor, inside its card: the multi-instrument page puts its
+    /// binding strip there, where SequenceForm docks its own.</summary>
+    [Parameter] public RenderFragment? Strip { get; set; }
+
+    private ElementReference _editor;
+    private ElementReference _file;
+    private bool _referenceOpen;
+
+    private IReadOnlyList<SnippetDto> _snippetList = [];
+    private bool _snippets;
+    private bool _downOutside;
+    private bool _aiOpen;
+
+    /// <summary>The name it was opened or last saved under, for Save.</summary>
+    private string _name = "";
+
+    protected override async Task OnInitializedAsync()
+        => _snippetList = await Bench.SnippetsAsync(IsSequence);
+
+    /// <summary>
+    /// Build the editor once the host div exists, and push a new Script into it after that.
+    ///
+    /// Two directions, and they must not chase each other: what is typed comes back through
+    /// <see cref="Typed"/> and is already in <see cref="Script"/> by the time this runs, so
+    /// pushing it back in would move the caret on every keystroke. The interop compares before
+    /// it writes, and stays quiet while it does.
+    /// </summary>
+    protected override async Task OnAfterRenderAsync(bool first)
+    {
+        if (first)
+        {
+            _self = DotNetObjectReference.Create(this);
+            await JS.InvokeVoidAsync("lec.monaco.create", _editor, _self, Script, IsSequence, SessionId, await Dark());
+            return;
+        }
+
+        await JS.InvokeVoidAsync("lec.monaco.set", _editor, Script);
+    }
+
+    /// <summary>Whether the page is in its dark theme, so the editor opens in the same one.</summary>
+    private async Task<bool> Dark()
+        => await JS.InvokeAsync<bool>("eval",
+            "document.documentElement.dataset.theme === 'dark' || (!document.documentElement.dataset.theme "
+          + "&& window.matchMedia('(prefers-color-scheme: dark)').matches)");
+
+    /// <summary>What was typed, from the editor. Called by the interop, not by a DOM event.</summary>
+    [JSInvokable]
+    public async Task Typed(string text)
+    {
+        _typed = text;
+        await ScriptChanged.InvokeAsync(text);
+    }
+
+    /// <summary>
+    /// The last thing typed, so a value set from C# can be told apart from one the person wrote.
+    /// </summary>
+    private string _typed = "";
+    private DotNetObjectReference<ScriptEditor>? _self;
+
+    private async Task Say(string what) => await StatusChanged.InvokeAsync(what);
+
+    // ----------------------------------------------------------------- the file pair
+
+    private async Task New()
+    {
+        _name = "";
+        await ScriptChanged.InvokeAsync("");
+        await Say("");
+    }
+
+    private async Task Open() => await JS.InvokeVoidAsync("lec.press", _file);
+
+    private async Task Opened()
+    {
+        var picked = await JS.InvokeAsync<FilePayload?>("lec.readFile", _file);
+        if (picked is null) return;
+
+        string text = System.Text.Encoding.UTF8.GetString(Convert.FromBase64String(picked.base64));
+        _name = picked.name;
+        await ScriptChanged.InvokeAsync(text);
+        await Say("Opened " + picked.name);
+    }
+
+    /// <param name="rename">
+    /// Save As…. A browser hands every download to the same folder under a name we choose, so
+    /// the only part of "save somewhere else" it can honour is the name.
+    /// </param>
+    private async Task Save(bool rename)
+    {
+        string suggested = _name.Length > 0 ? _name : (IsSequence ? "sequence.txt" : "script.txt");
+        string? name = rename
+            ? await JS.InvokeAsync<string?>("prompt", "Save the script as:", suggested)
+            : suggested;
+        if (name is not { Length: > 0 }) return;
+
+        _name = name;
+        string base64 = Convert.ToBase64String(System.Text.Encoding.UTF8.GetBytes(Script));
+        await JS.InvokeVoidAsync("lec.download", name, "text/plain", base64);
+        await Say("Saved " + name);
+    }
+
+    // ------------------------------------------------------- where a script comes from
+
+    private async Task LoadExample(ChangeEventArgs e)
+    {
+        var chosen = Examples.FirstOrDefault(x => x.Name == e.Value?.ToString());
+        if (chosen is null) return;
+        await ScriptChanged.InvokeAsync(chosen.Script);
+        await Say("Loaded example: " + chosen.Name);
+        await OnScriptReplaced.InvokeAsync();
+    }
+
+    private async Task Insert(SnippetDto snippet)
+    {
+        _snippets = false;
+        // The placeholder marks go with it, as they do in the desktop's editor — they say
+        // what has to be filled in, and they are the one part of a snippet that is not code.
+        await JS.InvokeVoidAsync("lec.monaco.insert", _editor, snippet.Body);
+        await ScriptChanged.InvokeAsync(await JS.InvokeAsync<string>("lec.monaco.get", _editor));
+    }
+
+    /// <summary>
+    /// What every word of the language means, in a window beside the script it is being read
+    /// for. It opened a browser tab, which is the wrong shape for it twice over: it took you out
+    /// of the editor to read about the thing you were editing, and it left a tab behind. The
+    /// desktop opens ScriptReferenceForm over the editor, and so does this.
+    /// </summary>
+    private void OpenReference()
+    {
+        _snippets = false;
+        _referenceOpen = true;
+    }
+
+
+    private void ReleasedOutside()
+    {
+        if (_downOutside) _snippets = false;
+        _downOutside = false;
+    }
+
+    private void OnMenuKey(KeyboardEventArgs e)
+    {
+        if (e.Key == "Escape") _snippets = false;
+    }
+
+    // ---------------------------------------------------------------------- the model
+
+    private void OpenAi() => _aiOpen = true;
+
+    private async Task UseScript(string script)
+    {
+        await ScriptChanged.InvokeAsync(script);
+        await Say("Script written by AI — read it before running it.");
+        await OnScriptReplaced.InvokeAsync();
+        _aiOpen = false;
+    }
+
+    private sealed record FilePayload(string name, string base64);
+}

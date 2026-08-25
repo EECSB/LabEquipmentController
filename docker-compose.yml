@@ -3,6 +3,18 @@
 #   docker compose up --build
 #   then open http://localhost:8080
 #
+# ─── Building, or pulling ────────────────────────────────────────────────────────────────
+# This file builds from the source beside it, which is what you want in a clone: the image
+# is then unambiguously the code you are looking at. It takes a few minutes, most of it
+# relinking the WebAssembly runtime.
+#
+# The released image is on Docker Hub if you would rather not:
+#
+#     docker pull eecsb/labequipmentcontroller-web:latest
+#
+# — amd64 and arm64, so a Raspberry Pi on the bench VLAN can be the thing that runs it. To
+# use it here, comment out the `build:` block below and change `image:` to that name.
+#
 # ─── Why host networking ─────────────────────────────────────────────────────────────────
 # Discovery sweeps a subnet. On Docker's default bridge network the container sits on its
 # own private network — 172.17.x.x — so it would sweep that, find nothing, and report an
@@ -16,6 +28,19 @@
 #     dotnet run --project Web/LabEquipmentController.Web
 #
 # — or give the container its own address on the bench VLAN with a macvlan network.
+#
+# ─── Serial instruments ──────────────────────────────────────────────────────────────────
+# A container starts with no serial ports at all — host networking does not carry them, and
+# nothing else does either. To reach an RS-232 instrument (or the USB-to-serial adapter in
+# front of one), pass its device node in explicitly with the `devices:` block below.
+#
+# Map it to the same name on both sides. The address typed into the page is the *container's*
+# name for it — serial:///dev/ttyUSB0 — and two different names is one more thing to get
+# wrong for no gain.
+#
+# Linux-only, for the same reason host networking is: the Docker Desktop VM cannot see your
+# USB adapter. Run the server directly there, or drive that instrument with `lec` or the
+# desktop app, both of which open a serial port natively.
 #
 # ─── The AI key ──────────────────────────────────────────────────────────────────────────
 # Optional. Supply it in the environment or a .env file beside this one; it is one key
@@ -33,6 +58,12 @@ services:
 
     network_mode: host
 
+    # Uncomment one line per serial instrument, naming the device node it came up as.
+    # `ls /dev/ttyUSB* /dev/ttyACM* /dev/ttyS*` on the host will say which; inside the
+    # container, `lec ports` lists what actually arrived.
+    # devices:
+    #   - "/dev/ttyUSB0:/dev/ttyUSB0"
+
     environment:
       # Ignored under host networking (the app binds this port on the host directly), but
       # correct if you switch to bridge.
@@ -40,7 +71,7 @@ services:
       # Uncomment or set in .env to turn the AI pages on.
       # Ai__ApiKey: ${LEC_AI_KEY}
       # Ai__Provider: Gemini
-      # Ai__Model: gemini-2.5-flash
+      # Ai__Model: gemini-3.6-flash
       Ai__ApiKey: ${LEC_AI_KEY:-}
       Ai__Provider: ${LEC_AI_PROVIDER:-Gemini}
       Ai__Model: ${LEC_AI_MODEL:-}

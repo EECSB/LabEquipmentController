@@ -1,0 +1,13 @@
+{
+  "name": "labequipmentcontroller-web-e2e",
+  "private": true,
+  "description": "End-to-end tests for the Blazor web client. Playwright drives a real browser against a real server; a fake SCPI instrument stands in for the bench, so a run needs no hardware. Nothing here is part of the build - dotnet build stays the whole build, and no dependency reaches wwwroot.",
+  "scripts": {
+    "test:e2e": "playwright test",
+    "test:e2e:headed": "playwright test --headed",
+    "report": "playwright show-report"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.53.0"
+  }
+}

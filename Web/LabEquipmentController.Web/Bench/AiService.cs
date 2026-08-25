@@ -2,17 +2,19 @@ using LabEquipmentController.Web.Client.Contracts;
 
 namespace LabEquipmentController.Web.Bench;
 
-/// <summary>Server-side AI configuration, read once from configuration.</summary>
+/// <summary>The AI connection as configuration supplies it, before anyone edits it.</summary>
 /// <remarks>
-/// The desktop app keeps the user's key encrypted under Windows DPAPI, which does not exist
-/// in a Linux container and is per-user anyway. Here the key comes from configuration —
-/// an environment variable, a Docker secret, or user-secrets in development — which means
-/// it is <em>one key shared by everyone who can reach the page</em>. That is fine on a
-/// private bench network and wrong on a public one, and the UI says so rather than leaving
-/// it to be discovered.
+/// This is the bottom layer only: an environment variable, a Docker secret, or user-secrets
+/// in development, which is how a container starts with a working connection and nobody at a
+/// keyboard. <see cref="AiSettingsStore"/> lays whatever was last applied in the settings box
+/// on top of it, and is what everything else reads.
 ///
-/// The key is never sent to the browser. Only whether one is configured, and which model it
-/// names, cross the wire.
+/// Either way it is <em>one key shared by everyone who can reach the page</em>, because there
+/// are no accounts here for people to have a key each. That is fine on a private bench
+/// network and wrong on a public one, and the UI says so rather than leaving it to be found
+/// out.
+///
+/// The key is never sent to the browser. Only whether there is one, and where it came from.
 /// </remarks>
 public sealed class AiOptions
 {
@@ -29,36 +31,101 @@ public sealed class AiOptions
 
 public sealed class AiService
 {
-    private readonly AiOptions _options;
+    private readonly AiSettingsStore _settings;
     private readonly BenchService _bench;
     private readonly IAiClient _client;
     private readonly ILogger<AiService> _log;
 
-    public AiService(AiOptions options, BenchService bench, IAiClient client, ILogger<AiService> log)
-        => (_options, _bench, _client, _log) = (options, bench, client, log);
+    public AiService(AiSettingsStore settings, BenchService bench, IAiClient client, ILogger<AiService> log)
+        => (_settings, _bench, _client, _log) = (settings, bench, client, log);
 
     public AiStatus Status()
     {
         var c = Connection();
+        // The list to choose from, with the labels that keep two connections on one model
+        // apart — composed in Core, so the desktop's picker and this one read the same.
+        AiConnections book = _settings.Book;
+        IReadOnlyList<string> labels = book.Labels();
+        var connections = new List<AiConnectionDto>(book.Items.Count);
+        for (int i = 0; i < book.Items.Count; i++)
+        {
+            AiConnection one = book.Items[i];
+            connections.Add(new AiConnectionDto(
+                one.Id, labels[i], one.Name, one.Info.Label, one.EffectiveModel,
+                _settings.ConfiguredFor(one.Id)));
+        }
+
         return new AiStatus(
-            _options.Configured, c.Provider.ToString(), c.EffectiveModel,
-            _options.Configured
+            _settings.Configured, c.Provider.ToString(), c.EffectiveModel, c.EffectiveBaseUrl, c.TimeoutSeconds,
+            c.ExtractTextLocally, _settings.KeyFromConfiguration,
+            _settings.Configured
                 ? null
-                : "No API key is configured. Set Ai__ApiKey in the environment (see the compose file) and restart.");
+                // Read in two places — the settings box, which has the field right there, and
+                // a console's AI tools, which do not — so it says what is true rather than
+                // pointing anywhere. Each surface adds its own "and here is where".
+                : book.Items.Count == 0
+                    ? "No AI connection is set up, so the AI features are off."
+                    : "No API key is set on this connection, so the AI features are off.",
+            Providers, c.Effort.ToString(), Efforts, connections, book.SelectedId);
     }
 
-    private AiConnection Connection()
+    /// <summary>
+    /// Apply an edited connection and answer with what it now is, so the box that sent it is
+    /// showing the server's state rather than its own idea of what it asked for.
+    /// </summary>
+    public AiSettingsReply Apply(AiSettingsUpdate update)
     {
-        var c = new AiConnection { TimeoutSeconds = _options.TimeoutSeconds };
-        if (Enum.TryParse<AiProvider>(_options.Provider, ignoreCase: true, out var p)) c.Provider = p;
-        if (_options.Model.Length > 0) c.Model = _options.Model;
-        if (_options.BaseUrl.Length > 0) c.BaseUrl = _options.BaseUrl;
-        return c;
+        string? error = _settings.Apply(update);
+        return error is null ? new AiSettingsReply(Status(), null) : new AiSettingsReply(null, error);
     }
+
+    /// <summary>Another connection on a provider's defaults, selected, and the state after.</summary>
+    public AiSettingsReply AddConnection(string? provider)
+    {
+        _settings.Add(provider);
+        return new AiSettingsReply(Status(), null);
+    }
+
+    /// <summary>Forget one, and its key with it.</summary>
+    public AiSettingsReply RemoveConnection(string id)
+        => _settings.Remove(id)
+            ? new AiSettingsReply(Status(), null)
+            : new AiSettingsReply(null, "There is no such connection.");
+
+    /// <summary>
+    /// Use this one, everywhere.
+    ///
+    /// One selection rather than one per window: picking a connection in the datasheet window
+    /// is picking the connection, the same rule the PDF switch and the effort setting are held
+    /// to. Two places that can disagree about what is in force is one place too many.
+    /// </summary>
+    public AiSettingsReply SelectConnection(string id)
+        => _settings.Select(id)
+            ? new AiSettingsReply(Status(), null)
+            : new AiSettingsReply(null, "There is no such connection.");
+
+    /// <summary>
+    /// The presets, as Core holds them. The browser cannot reach Core — the client half has
+    /// no instrument logic in it — so the provider list travels with the status.
+    /// </summary>
+    /// <summary>
+    /// The effort scale, as Core spells it. Travels with the status for the same reason the
+    /// provider list does: the browser cannot reach Core, so a settings box would otherwise
+    /// be hard-coding a copy of an enum it cannot see.
+    /// </summary>
+    private static IReadOnlyList<string> Efforts { get; } =
+        Enum.GetNames<AiEffort>();
+
+    private static IReadOnlyList<AiProviderDto> Providers { get; } =
+        AiProviderInfo.Known.Select(p => new AiProviderDto(
+            p.Provider.ToString(), p.Label, p.DefaultBaseUrl, p.DefaultModel,
+            p.SupportsPdfUpload, p.PdfCostNote)).ToList();
+
+    private AiConnection Connection() => _settings.Connection;
 
     public async Task<AiScriptReply> WriteScriptAsync(AiScriptRequest req, CancellationToken ct)
     {
-        if (!_options.Configured) return new AiScriptReply("", [], Status().Reason);
+        if (!_settings.Configured) return new AiScriptReply("", [], Status().Reason);
 
         var instruments = new List<ScriptContextInstrument>();
         foreach (string id in req.SessionIds)
@@ -77,9 +144,9 @@ public sealed class AiService
         {
             var author = new ScriptAuthor(_client);
             var result = await author.WriteAsync(
-                req.Request, instruments, req.IsSequence, Connection(), _options.ApiKey,
-                req.CurrentScript, req.RecentOutput, ct);
-            return new AiScriptReply(result.Script, result.Undocumented, null);
+                req.Request, instruments, req.IsSequence, Connection(), _settings.ApiKey,
+                req.CurrentScript, req.RecentOutput, Conversation(req.History), ct);
+            return new AiScriptReply(result.Script, result.Undocumented, null, result.Notes);
         }
         catch (Exception ex)
         {
@@ -88,9 +155,20 @@ public sealed class AiService
         }
     }
 
+    /// <summary>
+    /// The browser's transcript, as Core's turns. Nothing is dropped or trimmed here: what
+    /// the window says it is sending is what gets sent, because the figure beside its Clear
+    /// button is the user's only way to decide whether to press it.
+    /// </summary>
+    private static IReadOnlyList<ScriptTurn> Conversation(IReadOnlyList<AiTurn>? history)
+        => history is not { Count: > 0 }
+            ? []
+            : history.Select(t => new ScriptTurn(
+                t.Request, t.Script, t.Notes, t.Undocumented)).ToList();
+
     public async Task<AiExtractReply> ExtractAsync(AiExtractRequest req, CancellationToken ct)
     {
-        if (!_options.Configured) return new AiExtractReply(0, 0, [], null, Status().Reason);
+        if (!_settings.Configured) return new AiExtractReply(0, 0, [], null, Status().Reason);
 
         // The upload is written to a temp file because the extractor reads documents from
         // disk — PDF, DOCX or text — and unpicking that to take a stream would change Core
@@ -101,28 +179,19 @@ public sealed class AiService
         {
             await File.WriteAllBytesAsync(temp, Convert.FromBase64String(req.Base64), ct);
             var extractor = new CommandExtractor(_client);
-            var result = await extractor.ExtractAsync(Connection(), _options.ApiKey, temp, null, ct);
+            var result = await extractor.ExtractAsync(Connection(), _settings.ApiKey, temp, null, ct);
 
-            string? saved = null;
-            if (result.Commands.Count > 0 && req.InstrumentKey is { Length: > 0 })
-            {
-                // Kept apart from the curated catalogs, as on the desktop: extracted
-                // commands live in their own store and are never mixed into the transcribed
-                // ones. In a container this path is inside the image unless a volume is
-                // mounted for it, which the compose file does.
-                var reference = new CommandReference
-                {
-                    Instrument = req.InstrumentKey,
-                    Source = $"Read from {Path.GetFileName(req.FileName)} by {Connection().EffectiveModel}, not transcribed by hand.",
-                    Commands = result.Commands,
-                };
-                ExtractedCatalogStore.Save(req.InstrumentKey, reference);
-                saved = ExtractedCatalogStore.PathFor(req.InstrumentKey);
-            }
+            // Nothing is written here. What a model reads out of a datasheet is extracted,
+            // not verified, and the desktop makes you look at the list and untick what is
+            // wrong before Save Ticked writes any of it. Held under a token instead, so the
+            // save can name the ones to keep without shipping them back up.
+            string token = Guid.NewGuid().ToString("N");
+            _extractions[token] = new Extraction(result.Commands, Path.GetFileName(req.FileName));
+            Trim();
 
             return new AiExtractReply(
                 result.Commands.Count, result.Rejected.Count,
-                result.Commands.Select(Map).ToList(), saved, null);
+                result.Commands.Select(Map).ToList(), token, null);
         }
         catch (Exception ex)
         {
@@ -133,6 +202,76 @@ public sealed class AiService
         {
             try { if (File.Exists(temp)) File.Delete(temp); } catch { /* best effort */ }
         }
+    }
+
+    /// <summary>
+    /// Write the ticked commands out for this instrument.
+    ///
+    /// Kept apart from the curated catalogs, as on the desktop: extracted commands live in
+    /// their own store and are never mixed into the transcribed ones. In a container this
+    /// path is inside the image unless a volume is mounted for it, which the compose file
+    /// does.
+    /// </summary>
+    public AiSaveExtractReply SaveExtracted(AiSaveExtractRequest req)
+    {
+        if (!_extractions.TryGetValue(req.Token, out Extraction? extraction))
+            return new AiSaveExtractReply(0, null,
+                "That extraction is no longer held — the server has restarted, or it has been "
+                + "pushed out by later ones. Read the datasheet again.");
+
+        // Keyed on the model rather than the address: an instrument on DHCP moves, and its
+        // extracted commands should follow the instrument, not the lease. InstrumentConsole keys
+        // its own the same way, out of the same parse, so a bench driven from both builds files
+        // one instrument in one place.
+        var session = _bench.Raw(req.SessionId);
+        if (session is null)
+            return new AiSaveExtractReply(0, null,
+                "That instrument is not connected any more, so there is nothing to file these under.");
+
+        (_, string model) = InstrumentProfile.ParseIdentity(session.Identity);
+        string key = model.Length > 0 ? model : session.Host;
+        string title = model.Length > 0 ? $"{model} ({session.Host})" : $"Instrument ({session.Host})";
+
+        var keep = req.Keep
+            .Where(i => i >= 0 && i < extraction.Commands.Count)
+            .Select(i => extraction.Commands[i])
+            .ToList();
+
+        if (keep.Count == 0)
+            return new AiSaveExtractReply(0, null, "Nothing is ticked, so there is nothing to save.");
+
+        var reference = new CommandReference
+        {
+            Instrument = title,
+            // Word for word the desktop's, because it is the sentence a reader meets in the
+            // catalog months later and has to weigh what is in it by.
+            Source = $"Extracted from {extraction.FileName} by {Connection().Info.Label} "
+                   + $"({Connection().EffectiveModel}). "
+                   + "Not verified against the instrument or a vendor guide.",
+            Commands = keep,
+        };
+        ExtractedCatalogStore.Save(key, reference, _settings.ExtractedDirectory);
+
+        return new AiSaveExtractReply(
+            keep.Count, ExtractedCatalogStore.PathFor(key, _settings.ExtractedDirectory), null);
+    }
+
+    /// <summary>What one extraction produced, waiting to be ticked over.</summary>
+    private sealed record Extraction(IReadOnlyList<CommandRef> Commands, string FileName);
+
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<string, Extraction> _extractions = new();
+
+    /// <summary>
+    /// Hold the last few and let the rest go. A guide of a thousand commands is a few hundred
+    /// kilobytes, and these are only alive between reading a datasheet and deciding what to
+    /// keep of it — minutes, on one bench, by one person.
+    /// </summary>
+    private void Trim()
+    {
+        const int keep = 4;
+        while (_extractions.Count > keep)
+            foreach (string old in _extractions.Keys.Take(_extractions.Count - keep))
+                _extractions.TryRemove(old, out _);
     }
 
     internal static CatalogCommandDto Map(CommandRef c) =>
