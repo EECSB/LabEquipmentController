@@ -11,6 +11,11 @@ WebAssembly client and the ASP.NET Core server that owns every socket. A browser
 a TCP connection to port 5025 and never will, so **all instrument traffic happens in this
 container**; the page only asks it to.
 
+![The web build against a real bench: two instruments discovered and connected, a console open on the signal generator](https://raw.githubusercontent.com/EECSB/LabEquipmentController/master/docs/images/09-web.png)
+
+*A real session against the bench this is developed on — a Rigol DS2202, a Siglent SDG2042X
+and a Siglent SDM3065X. Nothing here is mocked up.*
+
 ---
 
 ## Read this before you pull it
