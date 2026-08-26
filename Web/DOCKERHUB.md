@@ -16,6 +16,11 @@ container**; the page only asks it to.
 *A real session against the bench this is developed on — a Rigol DS2202, a Siglent SDG2042X
 and a Siglent SDM3065X. Nothing here is mocked up.*
 
+![The oscilloscope, the generator and the multimeter on the bench](https://raw.githubusercontent.com/EECSB/LabEquipmentController/master/docs/images/06-instruments.jpg)
+
+*And that bench. Left to right: the oscilloscope, the generator and, on the shelf above, the
+multimeter — the three instruments answering in the screenshot above.*
+
 ---
 
 ## Read this before you pull it
