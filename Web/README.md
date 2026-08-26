@@ -25,13 +25,48 @@ needs `Core/` (the transports and the catalogs) and the client project alongside
 
 ### Or pull the released image
 
+Nothing to clone and nothing to build. The image is on Docker Hub as
+**[eecsb/labequipmentcontroller-web](https://hub.docker.com/r/eecsb/labequipmentcontroller-web)**:
+
 ```bash
-docker run -d --network host -v lec-data:/data eecsb/labequipmentcontroller-web:latest
+docker pull eecsb/labequipmentcontroller-web:latest
 ```
 
-`latest` is the newest release; `1.2.3`, `1.2` and `1` pin as tightly as you like, and
-`sha-abc1234` pins to a commit. **amd64 and arm64** — the second so a Raspberry Pi can sit on
-the bench VLAN and be the thing that runs it.
+```bash
+docker run -d --name lec-web --network host -v lec-data:/data \
+  eecsb/labequipmentcontroller-web:latest
+```
+
+Then open **http://localhost:8080**. Add `--device=/dev/ttyUSB0:/dev/ttyUSB0` for a serial
+instrument — see [below](#serial-ports-belong-to-the-server-and-a-container-has-none) for why
+the name has to match on both sides.
+
+Or with compose, if you would rather not remember the flags — this needs no checkout, unlike
+the [docker-compose.yml](../docker-compose.yml) at the repository root, which builds from
+source:
+
+```yaml
+services:
+  web:
+    image: eecsb/labequipmentcontroller-web:latest
+    container_name: lec-web
+    restart: unless-stopped
+    network_mode: host
+    volumes:
+      - lec-data:/data
+
+volumes:
+  lec-data:
+```
+
+**Which tag.** `latest` is the newest release. `1.1.0` pins that exact release, `1.1` and `1`
+follow the newest patch and minor within that line, and `sha-ef23359` pins one commit for
+something that has to be reproducible. The
+[Tags page](https://hub.docker.com/r/eecsb/labequipmentcontroller-web/tags) is the list that
+is actually there, rather than this paragraph's memory of it.
+
+**amd64 and arm64** — the second so a Raspberry Pi can sit on the bench VLAN and be the thing
+that runs it.
 
 Both architectures come out of one build. The publish is framework-dependent and
 RID-agnostic, so what lands in the image is architecture-neutral IL; the one genuinely native
@@ -45,8 +80,11 @@ starting the image and checking it serves both halves. Its header has the one-ti
 setup, and why this one stores a token where the NuGet workflow stores nothing.
 
 **The Docker Hub page itself is maintained by hand**, and not for want of trying. Paste
-[DOCKERHUB.md](DOCKERHUB.md) into *Repository overview* on the repository's page; its first
-line is the short description. The workflow still attempts it on every publish and still
+[DOCKERHUB.md](DOCKERHUB.md) into *Repository overview* on
+[the repository's page](https://hub.docker.com/repository/docker/eecsb/labequipmentcontroller-web/general);
+its first line is the short description. Images in it need absolute URLs — a relative path
+resolves against Docker Hub and silently breaks, so the screenshot there is served raw from
+this repository. The workflow still attempts it on every publish and still
 fails with `403 access denied: insufficient scope` — a Read & Write access token can push a
 five-tag multi-architecture image and cannot change the sentence describing it, which is a
 Docker Hub scope boundary rather than something callable from here. The step warns and
