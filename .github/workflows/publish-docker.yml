@@ -126,7 +126,11 @@ jobs:
             if curl -fsS http://localhost:8080/api/catalogs > /dev/null 2>&1; then break; fi
             sleep 2
           done
-          curl -fsS http://localhost:8080/api/catalogs | head -c 200
+          # Into a file rather than through `| head`, which closes the pipe early and makes
+          # curl print "(23) Failure writing output to destination" inside a step that
+          # passed — a red herring in a green log.
+          curl -fsS http://localhost:8080/api/catalogs -o catalogs.json
+          head -c 200 catalogs.json; echo
           curl -fsS http://localhost:8080/ | grep -q "Lab Equipment Controller"
           curl -fsS http://localhost:8080/_framework/blazor.webassembly.js > /dev/null
           docker rm -f lec-smoke
@@ -162,42 +166,61 @@ jobs:
       # has, and handing it to a third party's code — however reputable, on a mutable tag —
       # is the risk that decision was avoiding. Two curls are cheaper than the exception.
       #
-      # Never fatal. Docker Hub's description API is not covered by their versioning promise
-      # and has moved before; a 401 or a 404 here should not turn a successful publish red.
-      # If this step goes yellow, paste Web/DOCKERHUB.md into the page by hand — it is a
-      # twice-a-year file — and check the endpoint before fixing anything.
+      # Never fatal, and never silent either — which is the lesson from v1.1.0, where this
+      # step 403'd, `continue-on-error: true` rewrote its conclusion to "success" in the
+      # API, and the image went public with a blank page. So it now reports its own failure
+      # as a warning and exits 0, and continue-on-error is gone: a step that cannot fail
+      # does not need it, and its presence is precisely what hid the last failure.
       - name: Update the Docker Hub description
-        continue-on-error: true
         env:
           DOCKERHUB_USERNAME: ${{ vars.DOCKERHUB_USERNAME }}
           DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
         run: |
-          set -euo pipefail
+          set -uo pipefail
 
-          # jq builds both bodies, so a backslash or a quote in the markdown cannot break
-          # out of the JSON. Nothing here echoes a token.
-          jq -n --arg u "$DOCKERHUB_USERNAME" --arg p "$DOCKERHUB_TOKEN" \
-             '{username: $u, password: $p}' > login.json
+          # /v2/auth/token, not the /v2/users/login this called for v1.1.0: Docker's own
+          # OpenAPI spec marks that one **deprecated** in favour of this, and it answered
+          # 403. The scheme below is Bearer, not JWT — the spec is explicit about that for
+          # both endpoints, and the old JWT spelling is the other half of what that 403
+          # could have been. jq builds the body, so nothing in the token needs escaping and
+          # nothing echoes it.
+          code=$(jq -n --arg i "$DOCKERHUB_USERNAME" --arg s "$DOCKERHUB_TOKEN" \
+                    '{identifier: $i, secret: $s}' \
+                 | curl -sS -o auth.json -w '%{http_code}' -X POST \
+                     -H 'Content-Type: application/json' -d @- \
+                     https://hub.docker.com/v2/auth/token)
 
-          jwt=$(curl -fsS -X POST \
-                  -H 'Content-Type: application/json' \
-                  -d @login.json \
-                  https://hub.docker.com/v2/users/login/ | jq -r .token)
-          rm -f login.json
+          if [ "$code" != "200" ]; then
+            rm -f auth.json
+            echo "::warning::Docker Hub auth returned $code — description NOT updated. Paste Web/DOCKERHUB.md into the repository page by hand."
+            exit 0
+          fi
 
-          if [ -z "$jwt" ] || [ "$jwt" = "null" ]; then
-            echo "::warning::Could not exchange the access token for a session; description not updated."
-            exit 1
+          bearer=$(jq -r '.access_token // empty' auth.json)
+          rm -f auth.json
+          if [ -z "$bearer" ]; then
+            echo "::warning::Docker Hub auth returned 200 with no access_token — description NOT updated."
+            exit 0
           fi
 
           jq -Rs --arg short 'Discover and control SCPI lab instruments from a browser' \
              '{full_description: ., description: $short}' Web/DOCKERHUB.md > body.json
 
-          curl -fsS -X PATCH \
-            -H 'Content-Type: application/json' \
-            -H "Authorization: JWT $jwt" \
-            -d @body.json \
-            "https://hub.docker.com/v2/repositories/$DOCKERHUB_USERNAME/${{ env.IMAGE_NAME }}/" \
-            > /dev/null
+          # There is no documented operation for this. The published spec covers tags,
+          # immutable tags, groups and access tokens, and has nothing at all for a
+          # repository's description — so this path is the one every tool uses and none of
+          # them can point at a contract for. That is the whole reason for the warning
+          # rather than a failure, and for printing the body when it goes wrong.
+          code=$(curl -sS -o patch.json -w '%{http_code}' -X PATCH \
+                   -H 'Content-Type: application/json' \
+                   -H "Authorization: Bearer $bearer" \
+                   -d @body.json \
+                   "https://hub.docker.com/v2/repositories/$DOCKERHUB_USERNAME/${{ env.IMAGE_NAME }}/")
 
-          echo "Description updated from Web/DOCKERHUB.md"
+          if [ "$code" != "200" ]; then
+            echo "::warning::Docker Hub description PATCH returned $code — page left unchanged."
+            head -c 400 patch.json 2>/dev/null || true
+            exit 0
+          fi
+
+          echo "Description updated from Web/DOCKERHUB.md ($(wc -c < Web/DOCKERHUB.md) bytes)"
