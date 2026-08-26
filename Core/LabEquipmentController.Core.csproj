@@ -30,23 +30,25 @@
   <PropertyGroup>
     <PackageId>LabEquipmentController</PackageId>
     <!--
-      1.0.0, and spent deliberately. A version on nuget.org can never be reused or deleted,
-      so this number is worth spending once: it says the public API is settled, that what is
-      named here keeps being named here, and that anything which has to change after this
-      takes a major version rather than a quiet rename.
+      One version across the whole project. The desktop app, the CLI, this package, the
+      installer, the git tag and the container tags all say the same number, and they move
+      together whether or not each one strictly needed a bump.
 
-      The betas before it did the job they were for — no hyphenated suffix now, so this is
-      what an ordinary "dotnet add package LabEquipmentController" resolves to, and it shows
-      up in search. Everything after this is 1.0.x for fixes and 1.x for additions.
+      This was briefly not the case — 1.0.0 here against 1.1.0 everywhere else, on the
+      argument that a package version is a promise to a compiler while an app version is a
+      set of features a person can see. That argument is sound and it lost anyway, because
+      the cost is paid every time somebody compares the NuGet page to the release page and
+      has to work out whether they are looking at a deliberate split or a mistake. One
+      number is worth more than the precision.
 
-      This number does NOT track the application's. The desktop app and the CLI are on
-      1.1.0 while this is on 1.0.0, and that is the arrangement rather than an oversight:
-      an app release is a set of features a person can see, whereas this number is a promise
-      to code that compiles against it, and the two move for different reasons. publish-
-      nuget.yml is manual-only for exactly this — so that tagging the app v1.1.0 cannot
-      publish a library 1.1.0 that nobody decided on.
+      1.0.0 is already on nuget.org and stays there; versions cannot be withdrawn, only
+      delisted. Everything after this is 1.1.x for fixes and 1.x for additions.
+
+      publish-nuget.yml is still manual-only, and still for the original reason: a version
+      here can never be reused or deleted, so nothing should publish one without a person
+      deciding to.
     -->
-    <Version>1.0.0</Version>
+    <Version>1.1.0</Version>
     <Authors>EECSB</Authors>
     <Company>The EECS Blog</Company>
     <Product>Lab Equipment Controller</Product>

@@ -1,0 +1,135 @@
+# Build the desktop app's two shipping shapes and publish them as a GitHub Release.
+#
+# This did not exist for v1.0.0 or v1.1.0 — both of those had their assets built and
+# uploaded by hand, which is why tagging v1.1.0 published a container and left the Releases
+# page still showing v1.0.0 as latest. A tag should produce the release, not a reminder to
+# go and make one.
+#
+# Windows-only by necessity: the payload is WinForms.
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Existing tag to build a release for, e.g. v1.1.0'
+        required: true
+        type: string
+
+permissions:
+  contents: write   # creating a release and uploading assets
+
+jobs:
+  release:
+    runs-on: windows-latest
+    steps:
+      # On a tag push this is the tag; on a dispatch it is whatever was typed, so an
+      # existing tag can be turned into a release after the fact — which is exactly what
+      # v1.1.0 needs, having been tagged before this file existed.
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref }}
+
+      - uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: '10.0.x'
+
+      # The tag is the authority, and everything else must already agree with it. This is
+      # the guard that would have caught the library sitting on 1.0.0 while the app moved
+      # to 1.1.0: a mismatch is a mistake somebody has to notice, so let it be noticed here
+      # rather than on a package page a week later.
+      - name: Check every version matches the tag
+        shell: bash
+        run: |
+          set -euo pipefail
+          raw="${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}"
+          version="${raw#v}"
+          echo "Tag says: $version"
+
+          fail=0
+          check() {
+            local what="$1" found="$2"
+            if [ "$found" != "$version" ]; then
+              echo "::error::$what says '$found', tag says '$version'"
+              fail=1
+            else
+              echo "  ok  $what = $found"
+            fi
+          }
+
+          check "Desktop csproj" "$(sed -n 's|.*<Version>\(.*\)</Version>.*|\1|p' Desktop/LabEquipmentController.csproj | head -1)"
+          check "Cli csproj"     "$(sed -n 's|.*<Version>\(.*\)</Version>.*|\1|p' Cli/LabEquipmentController.Cli.csproj | head -1)"
+          check "Core csproj"    "$(sed -n 's|.*<Version>\(.*\)</Version>.*|\1|p' Core/LabEquipmentController.Core.csproj | head -1)"
+          check "installer .iss" "$(sed -n 's|^#define AppVersion *"\(.*\)".*|\1|p' Desktop/installer/LabEquipmentController.iss | head -1)"
+
+          [ "$fail" = "0" ] || exit 1
+          echo "VERSION=$version" >> "$GITHUB_ENV"
+
+      - name: Test
+        run: dotnet test Tests/LabEquipmentController.Tests.csproj -c Release
+
+      # Two shapes, and the difference is only whether the runtime travels with them.
+      - name: Publish the self-contained build
+        run: dotnet publish Desktop/LabEquipmentController.csproj -p:PublishProfile=win-x64
+
+      - name: Publish the framework-dependent payload for the installer
+        run: >
+          dotnet publish Desktop/LabEquipmentController.csproj -c Release -r win-x64
+          --self-contained false -p:PublishSingleFile=true
+          -p:PublishDir=bin\Release\publish\win-x64-fd\
+
+      - name: Zip the portable build
+        shell: pwsh
+        run: |
+          $out = "Desktop/bin/LabEquipmentController-v$env:VERSION-win-x64.zip"
+          Compress-Archive -Path Desktop/bin/Release/publish/win-x64/* -DestinationPath $out -Force
+          "portable: {0:N1} MB" -f ((Get-Item $out).Length / 1MB)
+
+      # The hosted Windows image normally carries Inno Setup, but "normally" is not a
+      # dependency worth having in a release path — if it is absent, fetch it rather than
+      # failing after the tests have already run.
+      - name: Build the installer
+        shell: pwsh
+        run: |
+          $iscc = @(
+            "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe",
+            "$env:ProgramFiles\Inno Setup 6\ISCC.exe"
+          ) | Where-Object { Test-Path $_ } | Select-Object -First 1
+
+          if (-not $iscc) {
+            Write-Host "Inno Setup not on the runner; installing it."
+            choco install innosetup --no-progress -y
+            $iscc = @(
+              "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe",
+              "$env:ProgramFiles\Inno Setup 6\ISCC.exe"
+            ) | Where-Object { Test-Path $_ } | Select-Object -First 1
+          }
+          if (-not $iscc) { throw "ISCC.exe not found after install" }
+
+          & $iscc Desktop\installer\LabEquipmentController.iss
+          if ($LASTEXITCODE -ne 0) { throw "ISCC failed with $LASTEXITCODE" }
+
+          $setup = "Desktop/bin/LabEquipmentController-v$env:VERSION-setup.exe"
+          if (-not (Test-Path $setup)) { throw "expected $setup" }
+          "installer: {0:N1} MB" -f ((Get-Item $setup).Length / 1MB)
+
+      # --verify-tag so a dispatch cannot invent a release for a tag that does not exist.
+      # Not --generate-notes: the history is squashed per release, so generated notes would
+      # be one line repeating the tag. The tag's own message is the note.
+      - name: Create the release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          notes=$(git tag -l --format='%(contents)' "v$VERSION")
+          [ -n "$notes" ] || notes="Lab Equipment Controller v$VERSION"
+
+          gh release create "v$VERSION" \
+            --title "Lab Equipment Controller v$VERSION" \
+            --notes "$notes" \
+            --verify-tag \
+            "Desktop/bin/LabEquipmentController-v$VERSION-setup.exe" \
+            "Desktop/bin/LabEquipmentController-v$VERSION-win-x64.zip"
