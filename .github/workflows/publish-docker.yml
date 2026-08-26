@@ -178,12 +178,11 @@ jobs:
         run: |
           set -uo pipefail
 
-          # /v2/auth/token, not the /v2/users/login this called for v1.1.0: Docker's own
-          # OpenAPI spec marks that one **deprecated** in favour of this, and it answered
-          # 403. The scheme below is Bearer, not JWT — the spec is explicit about that for
-          # both endpoints, and the old JWT spelling is the other half of what that 403
-          # could have been. jq builds the body, so nothing in the token needs escaping and
-          # nothing echoes it.
+          # /v2/auth/token, not the deprecated /v2/users/login, and Bearer rather than JWT —
+          # both per Docker's own OpenAPI spec. Neither was the actual problem, as it turned
+          # out; see the PATCH below.
+          #
+          # jq builds the body, so nothing in the token needs escaping and nothing echoes it.
           code=$(jq -n --arg i "$DOCKERHUB_USERNAME" --arg s "$DOCKERHUB_TOKEN" \
                     '{identifier: $i, secret: $s}' \
                  | curl -sS -o auth.json -w '%{http_code}' -X POST \
@@ -206,11 +205,25 @@ jobs:
           jq -Rs --arg short 'Discover and control SCPI lab instruments from a browser' \
              '{full_description: ., description: $short}' Web/DOCKERHUB.md > body.json
 
-          # There is no documented operation for this. The published spec covers tags,
-          # immutable tags, groups and access tokens, and has nothing at all for a
-          # repository's description — so this path is the one every tool uses and none of
-          # them can point at a contract for. That is the whole reason for the warning
-          # rather than a failure, and for printing the body when it goes wrong.
+          # This is expected to fail, and it is left in anyway. Read what it answers:
+          #
+          #     403 {"message":"access denied: insufficient scope"}
+          #
+          # The token authenticates fine — it gets past /v2/auth/token and is good enough to
+          # push five tags of a multi-architecture image seconds earlier. It is refused here
+          # because a **Read & Write personal access token cannot edit repository metadata**.
+          # That is a Docker Hub scope boundary, not a bug on this side, and no rewriting of
+          # this request gets around it. The well-known action for this hits the same wall,
+          # while also holding the token.
+          #
+          # There is also no documented operation to appeal to: the published OpenAPI spec
+          # covers tags, immutable tags, groups and access tokens, and has nothing at all for
+          # a repository's description.
+          #
+          # So the description is maintained by hand on the repository page — Web/DOCKERHUB.md
+          # is what to paste, into "Repository overview" — and this step stays as a warning
+          # that names the reason, and as the thing that starts working by itself if Docker
+          # ever scopes a token for it.
           code=$(curl -sS -o patch.json -w '%{http_code}' -X PATCH \
                    -H 'Content-Type: application/json' \
                    -H "Authorization: Bearer $bearer" \

@@ -44,6 +44,14 @@ runtime stage unpinned.
 starting the image and checking it serves both halves. Its header has the one-time Docker Hub
 setup, and why this one stores a token where the NuGet workflow stores nothing.
 
+**The Docker Hub page itself is maintained by hand**, and not for want of trying. Paste
+[DOCKERHUB.md](DOCKERHUB.md) into *Repository overview* on the repository's page; its first
+line is the short description. The workflow still attempts it on every publish and still
+fails with `403 access denied: insufficient scope` — a Read & Write access token can push a
+five-tag multi-architecture image and cannot change the sentence describing it, which is a
+Docker Hub scope boundary rather than something callable from here. The step warns and
+carries on, and will start working on its own if that ever changes.
+
 ## What it can do
 
 It reaches parity with the desktop app for everything that makes sense over a network:
