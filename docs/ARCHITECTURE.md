@@ -164,7 +164,7 @@ LabEquipmentController/
 │   ├── Settings/               UserSettings and where it is stored
 │   ├── Ai/                     Provider clients, extraction, script author
 │   └── CommandData/            The 36 curated catalogs (embedded resources)
-├── Tests/                      xUnit suite (1,807 tests) against a fake instrument, one
+├── Tests/                      xUnit suite (1,821 tests) against a fake instrument, one
 │   │                           folder per area: Ai, Catalogs, Capture, Transport,
 │   │                           Discovery, Scripting, Results, Settings, Cli, Web
 │   └── Bench/                  Tests that drive the real bench, off unless LEC_BENCH=1
@@ -412,7 +412,10 @@ Three features call a language model; none of them touches the curated catalogs:
   carried back so it does not come round again. A transcript rather than the provider's own
   multi-turn message array: three providers spell that array three ways, and this keeps the
   catalogs out of every historical turn. Nothing trims it; the window that holds the
-  conversation shows what it costs and offers a Clear.
+  conversation shows what it costs and offers a Clear. What it is told about the bench —
+  each instrument's alias, and the `DEVICE` line that binds it — comes from
+  `ScriptContext`, which both builds call, so the desktop and the web describe one bench one
+  way.
 - **`AiClient`** speaks three request shapes — Gemini's Interactions API, the Anthropic
   Messages API, and OpenAI-compatible `chat/completions` (OpenAI, OpenRouter, Groq,
   local servers) — selected per connection in `AiConnection`. Request building and reply
@@ -479,7 +482,7 @@ calling Core.
 
 Two suites, two languages, one philosophy: a guard that isn't mechanical will not hold.
 
-- **`Tests/` (xUnit, 1,807 tests)** runs against `FakeInstrumentClient` — no hardware.
+- **`Tests/` (xUnit, 1,821 tests)** runs against `FakeInstrumentClient` — no hardware.
   One folder per area — Ai, Catalogs, Capture, Transport, Discovery, Scripting, Results,
   Settings, Cli, Web — with the shared fake at the root; the namespaces stay flat, so
   every `--filter FullyQualifiedName~…` habit still selects what it always did.

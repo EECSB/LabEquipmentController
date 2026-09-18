@@ -948,6 +948,16 @@ language, and — when the user leaves the boxes ticked — the script currently
 and the tail of the last run's output. The output is what makes *"it failed with -113, fix
 it"* answerable: the failure exists only in that log.
 
+**Named the way it binds.** Each instrument goes across with the alias the script should use
+and, for a sequence, the `DEVICE` line that binds it under §9a, spelled out word for word: its
+model, or its serial number where another connected instrument is the same model. A model two
+instruments answer to binds neither, and a model told only `DEVICE <alias> : <model>` writes the
+model back. The alias is the instrument's kind — `gen`, `dmm`, `scope` — made unique on a bench
+with two of a kind; a name the script being revised already gives an instrument is kept, and so
+is a `DEVICE` line of it that binds. A single-instrument script has no alias, because its lines
+carry no prefix. Both builds describe the bench with the same code, and the web counts every
+open instrument when deciding what is a second of a model, not only the ticked ones.
+
 **Given the catalog, not asked to remember one.** A model writing SCPI unaided reaches for
 whatever dialect it has seen most, which is how `:SOURce1:FREQuency 1000` gets sent to a
 Siglent generator that has never heard of it. So the commands go in the prompt and the model

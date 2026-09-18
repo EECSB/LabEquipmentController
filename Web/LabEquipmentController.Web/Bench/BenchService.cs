@@ -294,6 +294,9 @@ public sealed class BenchService : IAsyncDisposable
 
     internal Session? Raw(string id) => _sessions.TryGetValue(id, out var s) ? s : null;
 
+    /// <summary>Every open session, as it is held rather than as the browser is shown it.</summary>
+    internal IReadOnlyList<Session> Raw() => _sessions.Values.ToList();
+
     /// <summary>
     /// What each DEVICE line of a script is bound to on this bench: the table over the editor.
     /// </summary>

@@ -114,6 +114,25 @@ public class ScriptAuthorTests
         Assert.Contains("scope — DS2202A", payload);
     }
 
+    /// <summary>
+    /// In a sequence each instrument comes with the DEVICE line that binds it, spelled out. Told
+    /// only "DEVICE &lt;alias&gt; : &lt;model&gt;", a model reading an *IDN? reply writes the model
+    /// back where a serial number was needed — and a model two meters answer to binds neither.
+    /// </summary>
+    [Fact]
+    public void A_sequence_instrument_comes_with_the_device_line_that_binds_it()
+    {
+        var meter = new ScriptContextInstrument(
+            "dmm2", "SDM36HCD801208", "Siglent Technologies,SDM3065X,SDM36HCD801208,3.02.01.13", null);
+
+        Assert.Contains("Declare it as: DEVICE dmm2 : SDM36HCD801208",
+            ScriptAuthor.BuildPayload("read the second meter", new[] { meter }, null, null));
+
+        // A single-instrument script has no DEVICE line to declare.
+        Assert.DoesNotContain("Declare it as",
+            ScriptAuthor.BuildPayload("read it", new[] { Gen() }, null, null));
+    }
+
     // ----------------------------------------------------------------------- conversation
 
     /// <summary>
@@ -348,6 +367,20 @@ public class ScriptAuthorTests
                 + "WITH gen\r\nC1:BSWV WVTP,SINE\r\nC1:OUTP ON\r\nEND\r\n"
                 + "scope: :MEASure:VPP? CHANnel1"),
             new[] { Gen("gen"), Scope("scope") });
+
+        Assert.Empty(written.Undocumented);
+    }
+
+    /// <summary>
+    /// Two instruments under one alias threw here, from ToDictionary — after the model had
+    /// answered and been paid for. The web named every meter "multimet", so that was every
+    /// sequence written for a bench with two of them.
+    /// </summary>
+    [Fact]
+    public void Two_instruments_under_one_alias_do_not_throw_the_answer_away()
+    {
+        AuthoredScript written = ScriptAuthor.Parse(
+            Reply("DEVICE gen : SDG2042X\r\ngen: C1:OUTP ON"), new[] { Gen("gen"), Gen("gen") });
 
         Assert.Empty(written.Undocumented);
     }

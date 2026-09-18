@@ -433,12 +433,9 @@ public sealed class ScriptForm : Form
     /// </summary>
     private void WriteWithAi()
     {
-        var instrument = new ScriptContextInstrument(
-            Alias: "",                       // one instrument, so lines carry no prefix
-            Model: InstrumentProfile.ParseIdentity(_identity).Model is { Length: > 0 } m
-                   ? m : (_instrument ?? "the connected instrument"),
-            Identity: _identity,
-            Reference: CommandReference.ForIdentity(_identity));
+        // One instrument, so no alias: its lines carry no prefix. Built in Core, as the web's is.
+        ScriptContextInstrument instrument =
+            ScriptContext.ForScript(_identity, _instrument ?? "the connected instrument");
 
         string? written = ScriptAiForm.Ask(
             this, new[] { instrument }, isSequence: false, _editor.Text, _output.Text);

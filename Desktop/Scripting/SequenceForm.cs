@@ -478,79 +478,20 @@ public sealed class SequenceForm : Form
     }
 
     /// <summary>
-    /// Every connected instrument, with the alias a sequence should call it by.
+    /// Every connected instrument, with the alias a sequence should call it by and the text
+    /// its DEVICE line binds by.
     ///
     /// An alias already in the editor wins, so asking for a change to a working sequence does
     /// not silently rename its devices. Otherwise one is made from the instrument's kind —
     /// "gen", "dmm", "scope" — which is what someone would have typed anyway, made unique
-    /// when the bench holds two of a kind.
+    /// when the bench holds two of a kind; and those two are declared by serial number, since
+    /// a model two instruments answer to binds neither. Worked out in Core, where the web's
+    /// script writer gets it from too.
     /// </summary>
     private IReadOnlyList<ScriptContextInstrument> BenchForAi()
-    {
-        // model → alias, from whatever the editor already declares
-        var declared = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-        foreach ((string alias, string model) in SequenceRunner.Requirements(_editor.Text))
-            declared.TryAdd(model, alias);
-
-        var used = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        var bench = new List<ScriptContextInstrument>();
-
-        foreach (InstrumentSession s in _sessions.Sessions)
-        {
-            if (!s.IsConnected) continue;
-
-            (_, string model) = InstrumentProfile.ParseIdentity(s.Identity);
-            if (model.Length == 0) model = s.Host;
-
-            string alias = declared.FirstOrDefault(
-                d => model.StartsWith(d.Key, StringComparison.OrdinalIgnoreCase)).Value
-                ?? AliasFor(InstrumentProfile.FamilyForIdentity(s.Identity));
-
-            // Two scopes on the bench would otherwise both be "scope", and the second
-            // DEVICE line would quietly overwrite the first.
-            string unique = alias;
-            for (int n = 2; !used.Add(unique); n++) unique = alias + n;
-
-            bench.Add(new ScriptContextInstrument(
-                unique, model, s.Identity, CommandReference.ForIdentity(s.Identity)));
-        }
-
-        return bench;
-    }
-
-    /// <summary>The short name an engineer would give this kind of instrument.</summary>
-    private static string AliasFor(InstrumentFamily family) => family switch
-    {
-        InstrumentFamily.SiglentGenerator or InstrumentFamily.ScpiGenerator => "gen",
-
-        InstrumentFamily.Multimeter or InstrumentFamily.RigolMultimeter
-            or InstrumentFamily.KeysightMultimeter or InstrumentFamily.KeithleyDmm
-            or InstrumentFamily.FlukeMultimeter => "dmm",
-
-        InstrumentFamily.PowerSupply or InstrumentFamily.KeysightPowerSupply
-            or InstrumentFamily.RohdePowerSupply or InstrumentFamily.ChromaPowerSupply
-            or InstrumentFamily.BkPowerSupply or InstrumentFamily.BkPowerSupply9130 => "psu",
-
-        InstrumentFamily.ElectronicLoad or InstrumentFamily.BkElectronicLoad
-            or InstrumentFamily.ChromaElectronicLoad or InstrumentFamily.ChromaModularLoad
-            or InstrumentFamily.RigolElectronicLoad => "load",
-
-        InstrumentFamily.SpectrumAnalyzer or InstrumentFamily.RigolSpectrumAnalyzer
-            or InstrumentFamily.RohdeSpectrumAnalyzer or InstrumentFamily.RohdeFslAnalyzer
-            or InstrumentFamily.RohdeFsvAnalyzer or InstrumentFamily.RohdeFswAnalyzer
-            or InstrumentFamily.RohdeFsuAnalyzer or InstrumentFamily.RohdeFspAnalyzer
-            or InstrumentFamily.RohdeFsqAnalyzer
-            or InstrumentFamily.RohdeFsiqAnalyzer => "sa",
-
-        InstrumentFamily.KeithleySmu => "smu",
-
-        InstrumentFamily.Oscilloscope or InstrumentFamily.SiglentScope
-            or InstrumentFamily.TektronixScope or InstrumentFamily.KeysightScope
-            or InstrumentFamily.RohdeScope or InstrumentFamily.GwInstekScope
-            or InstrumentFamily.GwInstekScopeB => "scope",
-
-        _ => "inst",
-    };
+        => ScriptContext.ForSequence(
+            _sessions.Sessions.Where(s => s.IsConnected).ToList(),
+            s => s.Identity, s => s.Host, _editor.Text);
 
     // ------------------------------------------------------------------------ running
 

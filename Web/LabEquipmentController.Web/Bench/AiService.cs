@@ -127,16 +127,7 @@ public sealed class AiService
     {
         if (!_settings.Configured) return new AiScriptReply("", [], Status().Reason);
 
-        var instruments = new List<ScriptContextInstrument>();
-        foreach (string id in req.SessionIds)
-        {
-            var s = _bench.Raw(id);
-            if (s is null) continue;
-            // The alias is what a sequence addresses the instrument by; the desktop app
-            // derives it from the model the same way.
-            string alias = new string(s.Profile.Name.Where(char.IsLetterOrDigit).Take(8).ToArray()).ToLowerInvariant();
-            instruments.Add(new ScriptContextInstrument(alias, s.Identity, s.Address, CommandReference.ForFamily(s.Family)));
-        }
+        IReadOnlyList<ScriptContextInstrument> instruments = Describe(req);
         if (instruments.Count == 0)
             return new AiScriptReply("", [], "Connect an instrument first — the model is only allowed the commands in its catalog.");
 
@@ -153,6 +144,32 @@ public sealed class AiService
             _log.LogWarning(ex, "Script authoring failed");
             return new AiScriptReply("", [], ex.Message);
         }
+    }
+
+    /// <summary>
+    /// The instruments a request may use, described as the desktop describes them — by the same
+    /// Core code (<see cref="ScriptContext"/>), so both builds tell the model the same things.
+    /// </summary>
+    /// <remarks>
+    /// This used to be done here, and differently: the alias was the first eight letters of the
+    /// profile name, so two meters were both "multimet"; the identity went where the model goes
+    /// and the address where the identity goes; and a single-instrument script was given an
+    /// alias its lines must not carry.
+    ///
+    /// For a sequence the whole bench goes in and the ticks say what is described, because a
+    /// meter left unticked is still a second meter of that model, and naming the ticked one by
+    /// model would bind neither. In address order, so which of two meters is dmm and which is
+    /// dmm2 does not depend on the order a dictionary hands them back in. Aliases are kept from
+    /// the script only when it is sent to be revised; the server sees no other copy of it.
+    /// </remarks>
+    private IReadOnlyList<ScriptContextInstrument> Describe(AiScriptRequest req)
+    {
+        var chosen = req.SessionIds.Select(_bench.Raw).OfType<BenchService.Session>().ToList();
+        if (!req.IsSequence)
+            return chosen.Select(s => ScriptContext.ForScript(s.Identity, s.Address)).ToList();
+
+        var bench = _bench.Raw().OrderBy(s => s.Address, StringComparer.OrdinalIgnoreCase).ToList();
+        return ScriptContext.ForSequence(bench, s => s.Identity, s => s.Host, req.CurrentScript, chosen);
     }
 
     /// <summary>

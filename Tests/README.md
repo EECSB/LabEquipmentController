@@ -1,7 +1,7 @@
 # Tests
 
 The xUnit suite. Everything the app does that is not pixels lives in [Core](../Core), and
-this is what holds it to its word — **1,807 tests against a fake instrument**, no hardware
+this is what holds it to its word — **1,821 tests against a fake instrument**, no hardware
 and no network:
 
 ```bash
@@ -15,7 +15,7 @@ The bench tests in [Bench/](Bench/README.md) are in the same project and **skipp
 
 | Folder | What it pins |
 |---|---|
-| `Ai/` | The three provider request shapes, the script author and its conversation, the connection book, datasheet-to-text |
+| `Ai/` | The three provider request shapes, the script author and its conversation, what it is told about the bench, the connection book, datasheet-to-text |
 | `Catalogs/` | The guards that make SPEC §10 mechanical: coverage, freshness against disk, misprints, descriptions, the syntax matcher, extraction recipes, guide lookup |
 | `Capture/` | Waveform dialects and their arithmetic, IEEE 488.2 blocks, multi-channel capture, the zoom view |
 | `Transport/` | Raw socket, message framing, serial line settings and addresses, the serializer, VISA resource strings, deadlines, session history |
@@ -24,7 +24,7 @@ The bench tests in [Bench/](Bench/README.md) are in the same project and **skipp
 | `Results/` | Recorded series, the plot's arithmetic, unit guessing |
 | `Settings/` | The settings round-trip, and that a window writing its own fields keeps everyone else's |
 | `Cli/` | `lec`'s grammar, output shapes and exit codes, and `lec seq` run end to end against fake instruments |
-| `Web/` | The server's API surface, a sequence run through its own session and run code, and the icon the browser build serves |
+| `Web/` | The server's API surface, a sequence run through its own session and run code, what its script writer sends, and the icon the browser build serves |
 | `Bench/` | The real instruments — off unless asked for. [Its own README](Bench/README.md) |
 
 `FakeInstrumentClient.cs` stays at the root, because every folder reaches for it.

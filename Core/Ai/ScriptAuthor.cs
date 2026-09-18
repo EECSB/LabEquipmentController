@@ -9,10 +9,17 @@ using System.Threading.Tasks;
 namespace LabEquipmentController;
 
 /// <summary>One instrument a script may address, and the commands it accepts.</summary>
+/// <remarks><see cref="ScriptContext"/> builds these, the same way for both builds.</remarks>
 /// <param name="Alias">
 /// How the script names it — "gen", "dmm". Empty for a single-instrument script, where
 /// lines carry no prefix.
 /// </param>
+/// <param name="Model">
+/// What a sequence's DEVICE line names it by: its model, or — when another instrument on the
+/// bench is the same model — its serial number, since a model two instruments answer to binds
+/// neither (SPEC §9a). Its address when it reports neither.
+/// </param>
+/// <param name="Identity">Its *IDN? reply.</param>
 public sealed record ScriptContextInstrument(
     string Alias, string Model, string Identity, CommandReference? Reference);
 
@@ -101,7 +108,8 @@ public sealed class ScriptAuthor
 
     private const string SequenceLanguage = """
         The script language, one instruction per line:
-          DEVICE <alias> : <model>   name an instrument. Must come before it is used
+          DEVICE <alias> : <model>   name an instrument, exactly as its "Declare it as" line
+                                     below says. Must come before it is used
           <alias>: <SCPI>            send this line to that instrument
           WITH <alias> ... END       send a whole block to it
           FOR <v> = <a> TO <b> STEP <n> ... END     sweep a value
@@ -115,6 +123,10 @@ public sealed class ScriptAuthor
 
         Every line carrying a command must say which instrument it is for, by prefix or by
         being inside a WITH block. A line that does not is an error, not a default.
+
+        Declare each instrument with the DEVICE line given for it, word for word. Where two
+        instruments are the same model that line names one by its serial number: a model two
+        instruments answer to binds neither, so do not change it back to the model.
         """;
 
     private static readonly string Rules = """
@@ -200,6 +212,9 @@ public sealed class ScriptAuthor
             sb.Append("### ");
             if (i.Alias.Length > 0) sb.Append(i.Alias).Append(" — ");
             sb.AppendLine(i.Model);
+            // Spelled out rather than left to "DEVICE <alias> : <model>": told only that, a model
+            // looking at an *IDN? reply writes the model back where a serial number was needed.
+            if (i.Alias.Length > 0) sb.AppendLine($"Declare it as: DEVICE {i.Alias} : {i.Model}");
             if (i.Identity.Length > 0) sb.AppendLine("*IDN? — " + i.Identity);
 
             if (i.Reference == null || i.Reference.Commands.Count == 0)
@@ -452,8 +467,11 @@ public sealed class ScriptAuthor
     public static IReadOnlyList<string> Undocumented(
         string script, IReadOnlyList<ScriptContextInstrument> instruments)
     {
-        var byAlias = instruments.ToDictionary(i => i.Alias, i => i.Reference,
-                                               StringComparer.OrdinalIgnoreCase);
+        // The first of any alias given twice, rather than ToDictionary's exception. That threw
+        // after the model had answered and been paid for — which is what two identical meters
+        // named alike did to every sequence the web asked for.
+        var byAlias = new Dictionary<string, CommandReference?>(StringComparer.OrdinalIgnoreCase);
+        foreach (ScriptContextInstrument i in instruments) byAlias.TryAdd(i.Alias, i.Reference);
         var found = new List<string>();
         var withStack = new Stack<string?>();
         string? blockTarget = null;

@@ -137,7 +137,7 @@ public static class SequenceBinding
     /// any: the model exactly, the model as a prefix, the serial number, the address. The flag
     /// says a model found them; the other two name one instrument in particular.
     /// </summary>
-    private static (List<T> Instruments, bool ByModel) Answering<T>(
+    internal static (List<T> Instruments, bool ByModel) Answering<T>(
         string text, IReadOnlyList<T> bench, Func<T, string> identity, Func<T, string> host)
     {
         string want = text.Trim();
@@ -174,14 +174,14 @@ public static class SequenceBinding
         return holders;
     }
 
-    private static string ModelOf(string? identity) => InstrumentProfile.ParseIdentity(identity).Model;
+    internal static string ModelOf(string? identity) => InstrumentProfile.ParseIdentity(identity).Model;
 
     /// <summary>The third field of "Manufacturer,Model,Serial,Firmware", or "".</summary>
-    private static string SerialOf(string? identity)
+    internal static string SerialOf(string? identity)
     {
         string[] parts = (identity ?? "").Split(',');
         return parts.Length > 2 ? parts[2].Trim() : "";
     }
 
-    private static bool Same(string? a, string? b) => string.Equals(a, b, StringComparison.OrdinalIgnoreCase);
+    internal static bool Same(string? a, string? b) => string.Equals(a, b, StringComparison.OrdinalIgnoreCase);
 }

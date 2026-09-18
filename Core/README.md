@@ -60,7 +60,7 @@ tests that pin it sit under the same heading.
 | `Scripting/` | Both runners, the language and its tokenizer, which instrument each `DEVICE` line binds to, the bundled examples, the reference text |
 | `Results/` | Recorded series, the plot's arithmetic, unit guessing from a column name |
 | `Settings/` | `UserSettings` and where it is stored |
-| `Ai/` | The three provider shapes, datasheet extraction, the script author, extracted-catalog storage |
+| `Ai/` | The three provider shapes, datasheet extraction, the script author and what it is told about the bench, extracted-catalog storage |
 | `CommandData/` | The 36 curated catalogs, embedded as `commands.<family>.json` |
 
 **Folders group; namespaces do not.** Every type here is in `LabEquipmentController`
