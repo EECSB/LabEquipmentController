@@ -504,6 +504,19 @@ public sealed class SequenceForm : Form
         IReadOnlyList<DeviceBinding<InstrumentSession>> bound =
             _sessions.BindSequence(SequenceRunner.Requirements(_editor.Text));
 
+        // Not with a part nothing plays, however the run was asked for. Run is greyed out while
+        // the strip is red, but F5 came straight here and ran what it could bind: a DEVICE line
+        // it could not stopped the run only on reaching it, after a "gen: C1:OUTP ON" above it
+        // had already switched a generator's output on. Checked here rather than in the key
+        // handler so every way in is the same, and against a fresh binding rather than the
+        // button, because the strip is only re-read once a second.
+        if (bound.FirstOrDefault(b => b.Instrument == null) is { } missing)
+        {
+            UpdateDevices();
+            _status.Text = $"Not run — {missing.Alias} → {missing.Model} ({missing.Reason}).";
+            return;
+        }
+
         var used = new List<InstrumentSession>();
         foreach (DeviceBinding<InstrumentSession> b in bound)
             if (b.Instrument is { } s && !used.Contains(s)) used.Add(s);

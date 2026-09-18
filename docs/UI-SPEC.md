@@ -1016,7 +1016,7 @@ starts locked, and the hub's `Driven` message keeps it fresh.
 | Click outside a **modal** | closes it — both ends of the press must land outside |
 | Click outside a **tool window** | nothing. It is a window, not a popup |
 | Drag a tool window's title bar | moves it, clamped so a grabbable strip stays on screen |
-| F5 in a script editor | runs |
+| F5 in a script editor | runs — exactly when `Run` would, never around it: while a `DEVICE` line has nothing to run on, the status line says which and why (`Not run — left → SDM3065X (2 connected).`) and nothing is sent |
 
 `Open in new tab` is a **link**, not a button calling `window.open`: nothing can pop-up-block
 it, and the browser's own conventions come free — Shift for a separate window, Ctrl for a
