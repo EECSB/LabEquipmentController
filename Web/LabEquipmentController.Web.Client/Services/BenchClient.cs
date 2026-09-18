@@ -207,10 +207,15 @@ public sealed class BenchClient(HttpClient http) : IAsyncDisposable
     public async Task<IReadOnlyList<ExampleDto>> SequenceExamplesAsync()
         => await http.GetFromJsonAsync<List<ExampleDto>>("api/examples/sequence") ?? [];
 
-    public async Task<IReadOnlyList<SequenceRequirement>> RequirementsAsync(string script)
+    /// <summary>
+    /// A script's DEVICE lines and what each is bound to on the bench right now, given what has
+    /// been picked by hand. The server works it out, by the rule the desktop's strip uses.
+    /// </summary>
+    public async Task<IReadOnlyList<SequenceRequirement>> RequirementsAsync(
+        string script, IReadOnlyDictionary<string, string> picks)
     {
         var response = await http.PostAsJsonAsync("api/sequence/requirements",
-            new SequenceRunRequest(script, new Dictionary<string, string>()));
+            new SequenceRunRequest(script, picks));
         return await response.Content.ReadFromJsonAsync<List<SequenceRequirement>>() ?? [];
     }
 

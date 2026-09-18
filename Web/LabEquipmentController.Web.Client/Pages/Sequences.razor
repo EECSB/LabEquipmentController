@@ -38,13 +38,15 @@
                 <tbody>
                     @foreach (var need in _requirements)
                     {
-                        <tr class="@(Bound(need.Alias) is null ? "unbound" : null)">
+                        <tr class="@(need.SessionId is null ? "unbound" : null)">
                             <td class="mono">@need.Alias</td>
                             <td class="mono">@need.Model</td>
                             <td>
-                                <select value="@Bound(need.Alias)" @onchange="e => Bind(need.Alias, e.Value?.ToString())"
-                                        title="Which open connection plays this part. The script names models, not addresses, so it still finds its instruments after DHCP has moved them.">
-                                    <option value="">— not connected —</option>
+                                <select value="@need.SessionId" @onchange="e => Bind(need.Alias, e.Value?.ToString())"
+                                        title="Which open connection plays this part. The script names models, not addresses, so it still finds its instruments after DHCP has moved them. Two of one model are not guessed between: pick which plays this part.">
+                                    @* SequenceForm's "(not connected)" and its two other reasons, said in
+                                       the picker: what the part is waiting for, where the answer goes. *@
+                                    <option value="">— @(need.Note ?? "not connected") —</option>
                                     @foreach (var s in _sessions)
                                     {
                                         <option value="@s.Id">@s.ProfileName — @s.Address</option>
@@ -100,7 +102,14 @@
     private IReadOnlyList<SessionDto> _sessions = [];
     private IReadOnlyList<ExampleDto> _examples = [];
     private IReadOnlyList<SequenceRequirement> _requirements = [];
-    private readonly Dictionary<string, string> _bindings = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// What has been chosen by hand in the table, alias to session id. Every other row is the
+    /// server's answer, worked out afresh each time — so a second meter of one model arriving
+    /// turns a line that asked for "the" meter red, as it does on the desktop.
+    /// </summary>
+    private readonly Dictionary<string, string> _picks = new(StringComparer.OrdinalIgnoreCase);
+
     private string _script = "";
     private string _status = "";
     private bool _running;
@@ -153,8 +162,6 @@
 
     private int _edit;
 
-    private string? Bound(string alias) => _bindings.TryGetValue(alias, out var v) ? v : null;
-
     /// <summary>
     /// What stands in the strip while the script names no instruments — SequenceForm's own
     /// words for the first of its three states. The other two are the table's now: an alias
@@ -169,12 +176,24 @@
     /// PRINT, DELAY and RECORD need no instrument, and a script carrying a command the runner
     /// will refuse is refused by name, which says more than a greyed-out button.
     /// </summary>
-    private bool AllBound => _requirements.All(r => Bound(r.Alias) is not null);
+    private bool AllBound => _requirements.All(r => r.SessionId is not null);
 
-    private void Bind(string alias, string? sessionId)
+    /// <summary>
+    /// A choice made in the table, and the table asked again with it.
+    ///
+    /// Choosing fixes what the table already shows as well: the rows playing a part go on playing
+    /// it, rather than the rule handing one row's instrument to another. Picking dmm's meter for
+    /// spare too means both of them, not dmm letting go of it.
+    /// </summary>
+    private async Task Bind(string alias, string? sessionId)
     {
-        if (string.IsNullOrEmpty(sessionId)) _bindings.Remove(alias);
-        else _bindings[alias] = sessionId;
+        foreach (var r in _requirements)
+            if (r.SessionId is { } id) _picks.TryAdd(r.Alias, id);
+
+        if (string.IsNullOrEmpty(sessionId)) _picks.Remove(alias);
+        else _picks[alias] = sessionId;
+
+        await Resolve();
     }
 
     /// <summary>The output as one block, for the AI window's "Include the last run's output".</summary>
@@ -222,23 +241,17 @@
     private async Task Resolve()
     {
         _sessions = await Bench.SessionsAsync();
-        _requirements = await Bench.RequirementsAsync(_script);
 
-        // Pre-bind anything whose model obviously matches a connected instrument; the user
-        // can override. Saves the common case of picking three from three.
-        foreach (var r in _requirements)
-        {
-            if (_bindings.ContainsKey(r.Alias)) continue;
-            var match = _sessions.FirstOrDefault(s =>
-                s.Identity.Contains(r.Model, StringComparison.OrdinalIgnoreCase)
-                || s.ProfileName.Contains(r.Model, StringComparison.OrdinalIgnoreCase));
-            if (match is not null) _bindings[r.Alias] = match.Id;
-        }
+        // A pick of an instrument that has gone is not one. Dropping it hands the part back to
+        // the rule, which finds it another or turns the row red and greys out Run — rather than
+        // naming an address nothing is on.
+        foreach (string alias in _picks.Keys.ToList())
+            if (!_sessions.Any(s => s.Id == _picks[alias])) _picks.Remove(alias);
 
-        // A binding to an instrument that has gone is not one. Dropping it is what turns the
-        // strip red and greys out Run, rather than naming an address nothing is on.
-        foreach (string alias in _bindings.Keys.ToList())
-            if (!_sessions.Any(s => s.Id == _bindings[alias])) _bindings.Remove(alias);
+        // Everything not picked is bound on the server, by the rule SequenceForm's strip is filled
+        // by: a model binds only when one instrument answers to it that no other alias has. So
+        // the common case of three from three still fills itself, and two of a kind are asked.
+        _requirements = await Bench.RequirementsAsync(_script, _picks);
     }
 
     private async Task Run()
@@ -248,7 +261,12 @@
 
         _status = "Running…";
         await Listen();
-        var summary = await Bench.RunSequenceAsync(_script, _bindings);
+
+        // Every part as the table shows it, the rule's answers and the picks alike.
+        var bindings = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var r in _requirements)
+            if (r.SessionId is { } id) bindings.TryAdd(r.Alias, id);
+        var summary = await Bench.RunSequenceAsync(_script, bindings);
         if (summary.Failed) { _status = "Script failed: " + summary.Error; return; }
 
         _runId = summary.RunId;

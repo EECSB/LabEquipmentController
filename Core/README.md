@@ -57,7 +57,7 @@ tests that pin it sit under the same heading.
 | `Discovery/` | The subnet sweep and host ranges, the serial-port list and the port sweep beside it, CSV export, and `*IDN?` → one of 37 families |
 | `Catalogs/` | Loading the embedded catalogs, the SCPI syntax matcher, finding a guide on disk |
 | `Capture/` | IEEE 488.2 blocks, the five waveform dialects and their arithmetic, multi-channel capture, the zoom view |
-| `Scripting/` | Both runners, the language and its tokenizer, the bundled examples, the reference text |
+| `Scripting/` | Both runners, the language and its tokenizer, which instrument each `DEVICE` line binds to, the bundled examples, the reference text |
 | `Results/` | Recorded series, the plot's arithmetic, unit guessing from a column name |
 | `Settings/` | `UserSettings` and where it is stored |
 | `Ai/` | The three provider shapes, datasheet extraction, the script author, extracted-catalog storage |

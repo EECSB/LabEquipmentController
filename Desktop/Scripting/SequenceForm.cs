@@ -349,7 +349,10 @@ public sealed class SequenceForm : Form
           + "DELAY ms, PRINT text, REPEAT n … END");
         _tips.SetToolTip(_devices,
             "Which connected instrument each DEVICE line resolves to. Updated as instruments "
-          + "are connected and disconnected in the main window.");
+          + "are connected and disconnected in the main window. Two instruments of one model "
+          + "are not guessed between — \"2 connected\" — so name each by the serial number "
+          + "its *IDN? reports, or by its address. One instrument is not given to a second "
+          + "alias: that line says which alias has it.");
         _tips.SetToolTip(_btnRun, "Run the script (F5). Every instrument it uses is locked "
                                 + "out of its own console while it runs.");
         _tips.SetToolTip(_btnStop, "Stop the running script. Results collected so far are kept.");
@@ -403,11 +406,13 @@ public sealed class SequenceForm : Form
 
         var parts = new List<string>();
         bool allFound = true;
-        foreach ((string alias, string model) in needs)
+        foreach (DeviceBinding<InstrumentSession> b in _sessions.BindSequence(needs))
         {
-            InstrumentSession? s = _sessions.FindForSequence(model);
-            if (s == null) { allFound = false; parts.Add($"{alias} → {model}  (not connected)"); }
-            else parts.Add($"{alias} → {model}  @ {s.Host}");
+            // The reason only — "(2 connected)" — and what to do about it in the tooltip. Said
+            // on every line, the remedy runs the strip past its height at the window's narrowest,
+            // and a label that does not fit draws nothing of what is left over.
+            if (b.Instrument is { } s) parts.Add($"{b.Alias} → {b.Model}  @ {s.Host}");
+            else { allFound = false; parts.Add($"{b.Alias} → {b.Model}  ({b.Reason})"); }
         }
 
         _devices.Text = string.Join("     ", parts);
@@ -553,12 +558,14 @@ public sealed class SequenceForm : Form
     {
         if (_runCts != null) return;
 
+        // Bound once, as the strip shows it at the moment Run is pressed, and the run drives
+        // exactly that.
+        IReadOnlyList<DeviceBinding<InstrumentSession>> bound =
+            _sessions.BindSequence(SequenceRunner.Requirements(_editor.Text));
+
         var used = new List<InstrumentSession>();
-        foreach ((_, string model) in SequenceRunner.Requirements(_editor.Text))
-        {
-            InstrumentSession? s = _sessions.FindForSequence(model);
-            if (s != null && !used.Contains(s)) used.Add(s);
-        }
+        foreach (DeviceBinding<InstrumentSession> b in bound)
+            if (b.Instrument is { } s && !used.Contains(s)) used.Add(s);
 
         _runCts = new CancellationTokenSource();
         SetRunning(true, used);
@@ -575,7 +582,10 @@ public sealed class SequenceForm : Form
 
             await SequenceRunner.RunAsync(
                 _editor.Text,
-                model => _sessions.FindForSequence(model)?.Client,
+                (alias, model) => bound.FirstOrDefault(b =>
+                        string.Equals(b.Alias, alias, StringComparison.OrdinalIgnoreCase)
+                     && string.Equals(b.Model, model, StringComparison.OrdinalIgnoreCase))
+                    ?.Instrument?.Client,
                 (text, kind) => OnUi(() => Append(text, kind)),
                 row => OnUi(() => _results.AddRow(row)),
                 _runCts.Token);

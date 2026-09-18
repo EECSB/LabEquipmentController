@@ -1,7 +1,7 @@
 # Tests
 
 The xUnit suite. Everything the app does that is not pixels lives in [Core](../Core), and
-this is what holds it to its word — **1,775 tests against a fake instrument**, no hardware
+this is what holds it to its word — **1,807 tests against a fake instrument**, no hardware
 and no network:
 
 ```bash
@@ -23,8 +23,8 @@ The bench tests in [Bench/](Bench/README.md) are in the same project and **skipp
 | `Scripting/` | Both runners, their threading, the language, the bundled examples |
 | `Results/` | Recorded series, the plot's arithmetic, unit guessing |
 | `Settings/` | The settings round-trip, and that a window writing its own fields keeps everyone else's |
-| `Cli/` | `lec`'s grammar, output shapes and exit codes |
-| `Web/` | The server's API surface, and the icon the browser build serves |
+| `Cli/` | `lec`'s grammar, output shapes and exit codes, and `lec seq` run end to end against fake instruments |
+| `Web/` | The server's API surface, a sequence run through its own session and run code, and the icon the browser build serves |
 | `Bench/` | The real instruments — off unless asked for. [Its own README](Bench/README.md) |
 
 `FakeInstrumentClient.cs` stays at the root, because every folder reaches for it.

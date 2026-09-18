@@ -19,7 +19,7 @@ package is that engine**, for driving instruments from your own code: no UI depe
 plain `net10.0`, so it runs on Windows, Linux and macOS.
 
 The transports, catalogs and runners are the same code the desktop app and CLI have been
-driving real instruments with, and the whole surface is covered by 1,775 tests.
+driving real instruments with, and the whole surface is covered by 1,807 tests.
 
 **The [repository README](https://github.com/EECSB/LabEquipmentController) is the fuller
 picture** — what the desktop app and the web build look like, screenshots of a real bench,

@@ -271,7 +271,16 @@ public static class Commands
 
     // ----------------------------------------------------------------------- seq
 
-    public static async Task<int> Sequence(ParsedCommand cmd, TextWriter stdout, TextWriter stderr, CancellationToken ct)
+    public static Task<int> Sequence(ParsedCommand cmd, TextWriter stdout, TextWriter stderr, CancellationToken ct)
+        => Sequence(cmd, stdout, stderr, (ep, timeout) => ep.CreateClient(timeout), ct);
+
+    /// <param name="open">
+    /// Makes the client for one <c>--device</c> address: the address's own transport from the
+    /// verb above, a fake instrument in a test — which is what lets a sequence be run through
+    /// this verb end to end with nothing on the other end of the wire.
+    /// </param>
+    internal static async Task<int> Sequence(ParsedCommand cmd, TextWriter stdout, TextWriter stderr,
+                                             Func<Endpoint, int, IInstrumentClient> open, CancellationToken ct)
     {
         if (cmd.Operands.Count < 1) return Fail(stderr, "Usage: lec seq <script-file> --device <alias>=<address> ...", Misused);
         string path = cmd.Operands[0];
@@ -311,14 +320,16 @@ public static class Commands
         {
             foreach (var (alias, ep) in bindings)
             {
-                var client = ep.CreateClient(timeout);
+                var client = open(ep, timeout);
                 clients[alias] = client;
                 if (!cmd.Has("quiet")) stderr.Write($"Connecting {alias} -> {ep}\n");
                 await client.ConnectAsync(ct);
             }
 
+            // By alias, because --device binds aliases. On a command line it is also the only
+            // way to say which of two meters of one model a line is for.
             await SequenceRunner.RunAsync(script,
-                alias => clients.TryGetValue(alias, out var c) ? c : null,
+                (alias, _) => clients.TryGetValue(alias, out var c) ? c : null,
                 (line, kind) =>
                 {
                     if (kind == ScriptOutputKind.Error) { failed = true; stderr.Write(line + "\n"); }

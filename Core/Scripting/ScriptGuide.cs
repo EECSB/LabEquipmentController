@@ -98,8 +98,14 @@ public static class ScriptGuide
             new("Naming the instruments",
                 "DEVICE gives an instrument a short name and says which model it is. The model "
               + "is matched against whatever is connected, so a saved script still finds its "
-              + "instruments after DHCP has moved them.",
-                "DEVICE gen : SDG2042X\nDEVICE scope : DS2202\n"),
+              + "instruments after DHCP has moved them. Two of one model are not guessed "
+              + "between: name one by the serial number its *IDN? reports, and the other line "
+              + "finds the one that is left.",
+                "DEVICE gen : SDG2042X\nDEVICE scope : DS2202\n"
+              + "\n"
+              + "# two meters of one model\n"
+              + "DEVICE left : SDM36HCD801207\n"
+              + "DEVICE right : SDM3065X\n"),
 
             new("Addressing a line",
                 "A command has to say which instrument it is for — by prefix, or by sitting "

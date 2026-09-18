@@ -396,10 +396,28 @@ Rules:
 - **A line with no target is refused when more than one instrument is declared.** Guessing
   would send a generator's command to a meter, which is the failure §10 exists to prevent.
   With exactly one declared instrument a prefix is unnecessary.
-- `DEVICE` binds by the **model from `*IDN?`**, matched exactly and then by prefix — an
-  SDS2354X answers `SDS2354X Plus`, and the short name should find it. An ambiguous prefix
-  resolves to nothing rather than to whichever instrument connected first. An address is
+- `DEVICE` names an instrument by the **model from `*IDN?`**, matched exactly and then by
+  prefix — an SDS2354X answers `SDS2354X Plus`, and the short name should find it. The
+  **serial number** from `*IDN?` names one instrument in particular, which is how a script
+  tells two of one model apart without an address that DHCP will move; an **address** is
   accepted too, for an instrument that will not identify itself.
+- **A line binds only when exactly one connected instrument answers to it.** Two meters of
+  one model, a prefix two models share, or one gateway address with two instruments behind it
+  resolve to nothing rather than to whichever instrument connected first. A model also passes
+  over an instrument another alias already has: a second alias asking for the one meter a
+  first alias has is left with nothing, rather than both reading one meter and reporting two.
+  Serial numbers, addresses and the web's picks go first and are taken at their word, and the
+  model lines follow in script order — so naming one of two identical meters is enough, and
+  the other line finds the one that is left. A line with nothing says why: *not connected*,
+  *2 connected*, *taken by `dmm`*.
+- **Both builds bind by that one rule** (Core's `SequenceBinding`). The desktop's strip shows
+  its answer, and its tooltip says to name each of two of one model by serial number or
+  address. The web's binding table is filled with it on the server and puts a picker against
+  each alias; a pick is taken at its word, the same instrument for two aliases included. The
+  CLI has no bench to bind against and binds each alias by hand: `lec seq --device gen=<address>`.
+- **A run looks up the alias it was bound.** The model is what the script asks for, not a
+  search key, so `DEVICE gen : SDG2042X` runs on whatever `gen` was bound to, and
+  `DEVICE left : SDM3065X` and `DEVICE right : SDM3065X` are two meters.
 - **Every `DEVICE` is resolved before the first command is sent.** A sweep that dies three
   lines in has already changed the instrument's state.
 - A sweep accepts engineering suffixes (`1k`, `2.5M`). `POINTS n LOG` spaces points per

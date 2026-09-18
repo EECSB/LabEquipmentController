@@ -238,9 +238,19 @@ public sealed record CatalogCommandDto(string Category, string Syntax, string De
 
 public sealed record ScriptRunRequest(string SessionId, string Script);
 
+/// <summary>
+/// A multi-instrument script and its bindings, alias to session id. To run it, every alias the
+/// script declares; to ask what it binds to, only what has been picked by hand in the table.
+/// </summary>
 public sealed record SequenceRunRequest(string Script, IReadOnlyDictionary<string, string> Bindings);
 
-public sealed record SequenceRequirement(string Alias, string Model);
+/// <summary>
+/// One DEVICE line of a script, and what it is bound to on the bench right now — a row of the
+/// table over the editor, worked out on the server by the rule the desktop's strip uses.
+/// </summary>
+/// <param name="SessionId">The session playing the part, or null.</param>
+/// <param name="Note">Why nothing is — "2 connected: pick one", "taken by dmm" — or null.</param>
+public sealed record SequenceRequirement(string Alias, string Model, string? SessionId = null, string? Note = null);
 
 public sealed record ScriptOutputLine(string Text, string Kind);
 

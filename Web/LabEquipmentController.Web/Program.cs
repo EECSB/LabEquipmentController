@@ -257,9 +257,8 @@ api.MapPost("/runs/sequence", (SequenceRunRequest req, RunService runs) => runs.
 api.MapPost("/runs/{runId}/stop", (string runId, RunService runs)
     => runs.Stop(runId) ? Results.NoContent() : Results.NotFound());
 
-api.MapPost("/sequence/requirements", (SequenceRunRequest req)
-    => SequenceRunner.Requirements(req.Script)
-        .Select(r => new SequenceRequirement(r.Alias, r.Model)).ToList());
+api.MapPost("/sequence/requirements", (SequenceRunRequest req, BenchService bench)
+    => bench.BindSequence(req.Script, req.Bindings));
 
 // The script language explained. Two languages, so a flag: the multi-instrument one by
 // default, which is what the desktop app's Help ▸ Script Language… opens.

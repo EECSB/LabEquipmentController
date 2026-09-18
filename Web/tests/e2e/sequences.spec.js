@@ -196,15 +196,104 @@ test.describe('the binding strip', () => {
         const tool = await openSequences(page);
         await setScript(page, `DEVICE dmm : SDM3065X\nDEVICE spare : SDM3065X`);
 
+        //The strip is re-read once typing pauses, so until then it still shows the script before this
+        //one - whose rows were unbound too, and would pass everything below for the wrong reason.
+        await expect(bindings(page).locator('tbody tr td:first-child')).toHaveText(['dmm', 'spare']);
+
         //Two aliases, one instrument: the resolver takes the first for the first line and leaves the
-        //second with nothing, which is the case a picker is for.
+        //second with nothing, which is the case a picker is for. Filled with the same meter, the run
+        //would read it twice and report two.
         const spare = binding(page, 'spare');
+        await expect(binding(page, 'dmm')).not.toHaveClass(/unbound/);
+        await expect(spare).toHaveClass(/unbound/);
+        await expect(spare.locator('select')).toHaveValue('');
+        await expect(spare.locator('select option:checked')).toHaveText(/taken by dmm/);
         await expect(tool.getByRole('button', RUN)).toBeDisabled();
 
+        //Given it on purpose, it is both of theirs: picking dmm's meter for spare is not dmm letting
+        //go of it.
         const id = await binding(page, 'dmm').locator('select').inputValue();
         await spare.locator('select').selectOption(id);
 
         await expect(spare).not.toHaveClass(/unbound/);
+        await expect(binding(page, 'dmm').locator('select')).toHaveValue(id);
+        await expect(tool.getByRole('button', RUN)).toBeEnabled();
+    });
+});
+
+test.describe('two instruments of one model', () => {
+    ///The second meter: the same model as the first, told apart by its serial number.
+    const SECOND = 'Siglent Technologies,SDM3065X,LEC-E2E-0002,1.00.00.00';
+
+    let second;
+
+    test.beforeEach(async ({ page }) => {
+        second = await startInstrument({ identity: SECOND });
+        await connect(page, second.address, { expectTabs: 2 });
+    });
+
+    test.afterEach(async () => {
+        await second.stop();
+    });
+
+    ///An option naming this address, and not another one it happens to be the start of: both are
+    ///127.0.0.1, and a port of four digits is inside one of five.
+    function at(address) {
+        return new RegExp(address.replace(/\./g, '\\.') + '$');
+    }
+
+    ///The session id the picker offers for an instrument, found by the address it shows.
+    async function sessionOf(page, alias, address) {
+        return binding(page, alias).locator('select option', { hasText: at(address) }).getAttribute('value');
+    }
+
+    ///
+    ///Which of two identical meters is wired to the left channel is not something the order they
+    ///were connected in can say, so neither row is filled: both wait, saying why. It used to fill both
+    ///with the first meter, and the run read that one twice. Say which is left, and right is the one
+    ///that is left over - and the run then drives exactly what the table shows.
+    ///
+    test('asks which is which, and runs on what it was told', async ({ page }) => {
+        const tool = await openSequences(page);
+        await setScript(page, [
+            'DEVICE left  : SDM3065X',
+            'DEVICE right : SDM3065X',
+            'left:  MEAS:VOLT:DC?',
+            'right: MEAS:CURR:DC?',
+        ].join('\n'));
+
+        await expect(bindings(page).locator('tbody tr td:first-child')).toHaveText(['left', 'right']);
+        for (const alias of ['left', 'right']) {
+            await expect(binding(page, alias)).toHaveClass(/unbound/);
+            await expect(binding(page, alias).locator('select option:checked')).toHaveText(/2 connected/);
+        }
+        await expect(tool.getByRole('button', RUN)).toBeDisabled();
+
+        await binding(page, 'left').locator('select')
+            .selectOption(await sessionOf(page, 'left', instrument.address));
+
+        await expect(binding(page, 'right').locator('select option:checked')).toHaveText(at(second.address));
+        await expect(tool.getByRole('button', RUN)).toBeEnabled();
+
+        const heard = instrument.received.length;
+        await tool.getByRole('button', RUN).click();
+        await expect(tool.locator('.split .console')).toContainText('--- done ---');
+
+        expect(instrument.received.slice(heard).filter((c) => c.startsWith('MEAS:'))).toEqual(['MEAS:VOLT:DC?']);
+        expect(second.asked(/^MEAS:/)).toEqual(['MEAS:CURR:DC?']);
+    });
+
+    ///
+    ///And a script can say it itself, with nothing picked: a serial number names one meter in
+    ///particular, and the line asking for the model finds the one that is left.
+    ///
+    test('finds one by serial number and the other by what is left', async ({ page }) => {
+        const tool = await openSequences(page);
+        await setScript(page, 'DEVICE left : LEC-E2E-0002\nDEVICE right : SDM3065X');
+
+        await expect(bindings(page).locator('tbody tr td:first-child')).toHaveText(['left', 'right']);
+        await expect(binding(page, 'left').locator('select option:checked')).toHaveText(at(second.address));
+        await expect(binding(page, 'right').locator('select option:checked')).toHaveText(at(instrument.address));
         await expect(tool.getByRole('button', RUN)).toBeEnabled();
     });
 });

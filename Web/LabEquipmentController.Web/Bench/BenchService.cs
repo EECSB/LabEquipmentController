@@ -294,6 +294,32 @@ public sealed class BenchService : IAsyncDisposable
 
     internal Session? Raw(string id) => _sessions.TryGetValue(id, out var s) ? s : null;
 
+    /// <summary>
+    /// What each DEVICE line of a script is bound to on this bench: the table over the editor.
+    /// </summary>
+    /// <remarks>
+    /// Worked out here, by the rule the desktop's device strip is filled by
+    /// (<see cref="SequenceBinding"/>), so the two builds cannot bind one script two ways. The
+    /// browser half holds no instrument logic by design, and a copy of the rule there would be
+    /// one rule and one guess. What the page has picked by hand comes up with the script and is
+    /// taken as given; a pick of a session that has since closed is not a pick of anything.
+    /// </remarks>
+    public IReadOnlyList<SequenceRequirement> BindSequence(string script, IReadOnlyDictionary<string, string>? picks)
+    {
+        var picked = new Dictionary<string, Session>(StringComparer.OrdinalIgnoreCase);
+        foreach (var (alias, id) in picks ?? new Dictionary<string, string>())
+            if (_sessions.TryGetValue(id, out var s)) picked[alias] = s;
+
+        return SequenceBinding.Bind(SequenceRunner.Requirements(script), _sessions.Values.ToList(),
+                                    s => s.Identity, s => s.Host, picked)
+            .Select(b => new SequenceRequirement(b.Alias, b.Model, b.Instrument?.Id, Note(b)))
+            .ToList();
+    }
+
+    /// <summary>Why a row has nothing, and here, what to do about it: the table has a picker.</summary>
+    private static string? Note(DeviceBinding<Session> b)
+        => b.State == DeviceBindingState.Ambiguous ? b.Reason + ": pick one" : b.Reason;
+
     // ----------------------------------------------------------------- driving a link
 
     /// <summary>True while a script or a readout is driving this session.</summary>
@@ -352,6 +378,21 @@ public sealed class BenchService : IAsyncDisposable
     public async Task<SessionDto> ConnectAsync(ConnectRequest req, CancellationToken ct)
     {
         InstrumentAddress target = ParseAddress(req.Address);
+        return await OpenAsync(target, () => target.CreateClient(req.TimeoutMs), ct);
+    }
+
+    /// <summary>
+    /// Open a session on <paramref name="target"/>, over a client from <paramref name="create"/>.
+    /// </summary>
+    /// <remarks>
+    /// <see cref="ConnectAsync"/> hands this the address's own transport. A test hands it a fake
+    /// instrument, which is how a run is driven through this class and <see cref="RunService"/>
+    /// end to end with no bench behind them. A factory rather than a client because it is only
+    /// called once the address is known to be free: nothing is made, let alone dialled, for an
+    /// instrument that already has a session.
+    /// </remarks>
+    internal async Task<SessionDto> OpenAsync(InstrumentAddress target, Func<IInstrumentClient> create, CancellationToken ct)
+    {
         string address = Endpoint(target);
 
         // One session per instrument. Reconnecting to something already open would put a
@@ -367,7 +408,7 @@ public sealed class BenchService : IAsyncDisposable
             string.Equals(s.Address, address, StringComparison.OrdinalIgnoreCase));
         if (existing is not null) return Describe(existing);
 
-        var client = new SerializedInstrumentClient(target.CreateClient(req.TimeoutMs));
+        var client = new SerializedInstrumentClient(create());
 
         try
         {

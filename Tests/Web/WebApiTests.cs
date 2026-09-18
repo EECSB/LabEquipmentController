@@ -185,6 +185,13 @@ public class WebApiTests : IClassFixture<WebFactory>
         Assert.NotNull(required);
         Assert.Equal(2, required!.Count);
         Assert.Contains(required, r => r.Alias == "gen" && r.Model == "SDG2042X");
+
+        // And what each is bound to, which on an empty bench is nothing, said as the table says it.
+        Assert.All(required, r =>
+        {
+            Assert.Null(r.SessionId);
+            Assert.Equal("not connected", r.Note);
+        });
     }
 
     [Fact]

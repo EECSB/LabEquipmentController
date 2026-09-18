@@ -153,35 +153,29 @@ public sealed class SessionRegistry
     /// <summary>
     /// The session a sequence's <c>DEVICE gen : SDG2042X</c> line refers to, or null.
     ///
-    /// Matched against the model from *IDN? first, then the address, so a sequence can name
-    /// either. Model is the useful one — these instruments are on DHCP and their addresses
-    /// move between sessions, while "SDG2042X" is written on the front of the box.
+    /// Matched against the model from *IDN? first, then the serial number, then the address,
+    /// so a sequence can name any of them. Model is the useful one — these instruments are on
+    /// DHCP and their addresses move between sessions, while "SDG2042X" is written on the front
+    /// of the box. The serial is for the bench with two of one model on it.
     ///
     /// The model match is a prefix, because vendors qualify the same instrument differently
     /// in *IDN? than on its label: an SDS2354X answers "SDS2354X Plus". Writing the short
     /// name in a script should find the longer one. Exact matches are preferred so that a
-    /// bench holding both an SDM3055 and an SDM3055X cannot be resolved by luck.
+    /// bench holding both an SDM3055 and an SDM3055X cannot be resolved by luck — and two
+    /// sessions that answer to the same name, exactly or by prefix, resolve to nothing rather
+    /// than to whichever connected first. One line bound alone, by <see cref="SequenceBinding"/>.
     /// </summary>
     public InstrumentSession? FindForSequence(string? nameOrAddress)
     {
         if (string.IsNullOrWhiteSpace(nameOrAddress)) return null;
-        string want = nameOrAddress.Trim();
-
-        foreach (InstrumentSession s in _sessions)
-            if (string.Equals(ModelOf(s), want, StringComparison.OrdinalIgnoreCase)) return s;
-
-        InstrumentSession? prefix = null;
-        foreach (InstrumentSession s in _sessions)
-        {
-            if (!ModelOf(s).StartsWith(want, StringComparison.OrdinalIgnoreCase)) continue;
-            if (prefix != null) return null;   // ambiguous — refuse rather than pick one
-            prefix = s;
-        }
-        if (prefix != null) return prefix;
-
-        return FindByHost(want);
+        return BindSequence([("", nameOrAddress.Trim())])[0].Instrument;
     }
 
-    private static string ModelOf(InstrumentSession s)
-        => InstrumentProfile.ParseIdentity(s.Identity).Model;
+    /// <summary>
+    /// Every DEVICE line of a sequence, bound to the sessions here by <see cref="SequenceBinding"/>:
+    /// what the desktop's device strip shows, and what a run then drives.
+    /// </summary>
+    public IReadOnlyList<DeviceBinding<InstrumentSession>> BindSequence(
+        IReadOnlyList<(string Alias, string Model)> needs)
+        => SequenceBinding.Bind(needs, _sessions, s => s.Identity, s => s.Host);
 }

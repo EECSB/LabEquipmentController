@@ -26,12 +26,19 @@ public sealed record SequenceRow(IReadOnlyList<string> Values);
 ///
 /// The language is the single-instrument one plus five things:
 ///
-///   DEVICE gen : SDG2042X       bind an alias to a connected instrument, by model
+///   DEVICE gen : SDG2042X       bind an alias to a connected instrument
 ///   gen: C1:OUTP ON             send this line to that instrument
 ///   WITH gen … END              ...or set the target for a whole block
 ///   FOR f = 100 TO 10000 …      sweep a value, linearly or logarithmically
 ///   dmm: MEAS:VOLT:AC? -> v     capture a reply, then use it as $v
 ///   RECORD $f, $v               append a row of results, saved as CSV
+///
+/// Which instrument a DEVICE line gets is the front end's to say. <see cref="SequenceBinding"/>
+/// works it out for a whole script from what is connected — the desktop's strip and the web's
+/// binding table both show its answer — and the RunAsync overload that resolves by alias then
+/// runs on it, as it runs on the CLI's <c>--device</c> bindings. The overload that is handed
+/// only the model resolves each line as it comes, alone, which cannot tell two instruments of
+/// one model apart.
 ///
 /// A sweep is why this exists: stepping a generator and reading a meter at each step is
 /// interleaved, one instrument after the other inside a loop, which is not something a
@@ -80,17 +87,67 @@ public static class SequenceRunner
     }
 
     /// <summary>
-    /// Run a sequence.
+    /// Run a sequence, finding each DEVICE line's instrument by the model it names.
     /// </summary>
+    /// <remarks>
+    /// Each line is resolved alone, as the run reaches it, so two lines asking for one model
+    /// are one question with one answer. A front end with a bench to bind against wants
+    /// <see cref="SequenceBinding"/> and the overload that resolves by alias instead, which is
+    /// how the desktop and the web run; the CLI's <c>--device</c> bindings use that overload too.
+    /// </remarks>
     /// <param name="resolve">
     /// Finds the connection for a model named in a DEVICE line, or null if it is not
     /// connected. Kept as a callback so Core stays clear of the session list, and so a test
     /// can bind a fake instrument to any name it likes.
     /// </param>
     /// <param name="record">Called for each RECORD row.</param>
-    public static async Task RunAsync(
+    public static Task RunAsync(
         string script,
         Func<string, IInstrumentClient?> resolve,
+        Action<string, ScriptOutputKind> output,
+        Action<SequenceRow> record,
+        CancellationToken ct)
+        => RunCoreAsync(script, (_, model) => resolve(model), NotConnected, output, record, ct);
+
+    /// <summary>
+    /// Run a sequence whose aliases have been bound, finding each DEVICE line's instrument by
+    /// its alias.
+    /// </summary>
+    /// <remarks>
+    /// For a front end that has already said which instrument plays which part: bound by
+    /// <see cref="SequenceBinding"/>, as the desktop and the web do, or given by hand, as
+    /// <c>lec seq --device gen=192.168.1.5</c> is. The alias is what tells two instruments of
+    /// one model apart — <c>DEVICE left : SDM3065X</c> and <c>DEVICE right : SDM3065X</c> are two
+    /// meters. The model is passed too, for a caller that wants to check a binding against it.
+    /// </remarks>
+    /// <param name="resolve">
+    /// Given a DEVICE line's alias and then its model — <c>("gen", "SDG2042X")</c> — returns the
+    /// connection bound to it, or null if nothing is.
+    /// </param>
+    /// <param name="record">Called for each RECORD row.</param>
+    public static Task RunAsync(
+        string script,
+        Func<string, string, IInstrumentClient?> resolve,
+        Action<string, ScriptOutputKind> output,
+        Action<SequenceRow> record,
+        CancellationToken ct)
+        => RunCoreAsync(script, resolve, NotBound, output, record, ct);
+
+    /// <summary>Why a DEVICE line looked up by model found nothing.</summary>
+    private static string NotConnected(string alias, string model)
+        => $"no connected instrument matches \"{model}\". "
+         + "Connect it first, or edit the DEVICE line to the model you have.";
+
+    /// <summary>...and one looked up by alias.</summary>
+    private static string NotBound(string alias, string model)
+        => $"no instrument is bound to \"{alias}\" ({model}).";
+
+    /// <param name="resolve">A DEVICE line's alias and model to its connection, or null.</param>
+    /// <param name="unresolved">The alias and model of a line that resolved to nothing, to why.</param>
+    private static async Task RunCoreAsync(
+        string script,
+        Func<string, string, IInstrumentClient?> resolve,
+        Func<string, string, string> unresolved,
         Action<string, ScriptOutputKind> output,
         Action<SequenceRow> record,
         CancellationToken ct)
@@ -129,12 +186,10 @@ public static class SequenceRunner
                     return;
                 }
 
-                IInstrumentClient? client = resolve(model);
+                IInstrumentClient? client = resolve(alias, model);
                 if (client == null)
                 {
-                    output($"Line {lineNo}: no connected instrument matches \"{model}\". "
-                         + "Connect it first, or edit the DEVICE line to the model you have.",
-                           ScriptOutputKind.Error);
+                    output($"Line {lineNo}: {unresolved(alias, model)}", ScriptOutputKind.Error);
                     return;
                 }
 

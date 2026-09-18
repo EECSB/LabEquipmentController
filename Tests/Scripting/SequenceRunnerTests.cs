@@ -488,4 +488,374 @@ public class SequenceDeviceResolutionTests
     public void An_unknown_model_resolves_to_nothing()
         => Assert.Null(Bench(("1.1.1.1", "Siglent Technologies,SDG2042X,X,1.0"))
                        .FindForSequence("DS2202"));
+
+    /// <summary>
+    /// An exact tie is as ambiguous as a prefix one. It went to whichever connected first, so a
+    /// script reading two meters read one of them twice and reported it as two.
+    /// </summary>
+    [Fact]
+    public void Two_instruments_of_one_model_resolve_to_nothing()
+    {
+        SessionRegistry bench = Bench(
+            ("192.168.1.7", "Siglent Technologies,SDM3065X,SDM000A,1.0"),
+            ("192.168.1.8", "Siglent Technologies,SDM3065X,SDM000B,1.0"));
+
+        Assert.Null(bench.FindForSequence("SDM3065X"));
+        Assert.Null(bench.FindForSequence("SDM306"));
+    }
+
+    /// <summary>
+    /// ...which is what the serial number is for. It is on the box and in *IDN?, and unlike the
+    /// address it does not move when DHCP does.
+    /// </summary>
+    [Fact]
+    public void A_serial_number_names_one_of_two_of_a_kind()
+    {
+        SessionRegistry bench = Bench(
+            ("192.168.1.7", "Siglent Technologies,SDM3065X,SDM000A,1.0"),
+            ("192.168.1.8", "Siglent Technologies,SDM3065X,SDM000B,1.0"));
+
+        Assert.Equal("192.168.1.8", bench.FindForSequence("SDM000B")?.Host);
+        Assert.Equal("192.168.1.7", bench.FindForSequence("sdm000a")?.Host);
+    }
+
+    /// <summary>
+    /// The desktop's whole path, as SequenceForm runs it: the script bound against the session
+    /// list once, then run by alias on exactly that. Two meters of one model, one named by
+    /// serial number, and the other line finding the one that is left.
+    /// </summary>
+    [Fact]
+    public async Task A_run_the_desktop_way_drives_what_its_strip_shows()
+    {
+        SessionRegistry bench = Bench(
+            ("192.168.1.5", "Siglent Technologies,SDG2042X,SDG000,1.0"),
+            ("192.168.1.7", "Siglent Technologies,SDM3065X,SDM000A,1.0"),
+            ("192.168.1.8", "Siglent Technologies,SDM3065X,SDM000B,1.0"));
+        var gen = (FakeInstrumentClient)bench.FindByHost("192.168.1.5")!.Client;
+        var meterA = (FakeInstrumentClient)bench.FindByHost("192.168.1.7")!.Client;
+        var meterB = (FakeInstrumentClient)bench.FindByHost("192.168.1.8")!.Client;
+        var errors = new List<string>();
+
+        const string script = """
+            DEVICE gen   : SDG2042X
+            DEVICE right : SDM3065X
+            DEVICE left  : SDM000B
+            gen:   C1:OUTP ON
+            left:  MEASure:VOLTage:DC?
+            right: MEASure:CURRent:DC?
+            """;
+
+        var bound = bench.BindSequence(SequenceRunner.Requirements(script));
+        Assert.All(bound, b => Assert.Equal(DeviceBindingState.Bound, b.State));
+
+        await SequenceRunner.RunAsync(
+            script,
+            (alias, model) => bound.FirstOrDefault(b =>
+                    string.Equals(b.Alias, alias, StringComparison.OrdinalIgnoreCase)
+                 && string.Equals(b.Model, model, StringComparison.OrdinalIgnoreCase))
+                ?.Instrument?.Client,
+            (text, kind) => { if (kind == ScriptOutputKind.Error) errors.Add(text); },
+            _ => { },
+            CancellationToken.None);
+
+        Assert.Empty(errors);
+        Assert.Equal(["SEND:C1:OUTP ON"], gen.Log);
+        Assert.Equal(["QUERY:MEASure:VOLTage:DC?"], meterB.Log);
+        Assert.Equal(["QUERY:MEASure:CURRent:DC?"], meterA.Log);
+    }
+}
+
+/// <summary>
+/// The rule a whole script is bound by, in both builds (SPEC §9a): a model binds only when
+/// exactly one connected instrument answers to it that no other alias already has, and
+/// anything that is not bound says why.
+/// </summary>
+public class SequenceBindingTests
+{
+    private sealed record Box(string Host, string Idn);
+
+    private static readonly Box Gen = new("192.168.1.5", "Siglent Technologies,SDG2042X,SDG000,1.0");
+    private static readonly Box MeterA = new("192.168.1.7", "Siglent Technologies,SDM3065X,SDM000A,1.0");
+    private static readonly Box MeterB = new("192.168.1.8", "Siglent Technologies,SDM3065X,SDM000B,1.0");
+
+    private static IReadOnlyList<DeviceBinding<Box>> Bind(
+        string script, IReadOnlyList<Box> bench, Dictionary<string, Box>? picked = null)
+        => SequenceBinding.Bind(SequenceRunner.Requirements(script), bench, b => b.Idn, b => b.Host, picked);
+
+    [Fact]
+    public void Each_model_binds_to_the_one_instrument_that_answers_to_it()
+    {
+        var bound = Bind("DEVICE gen : SDG2042X\nDEVICE dmm : SDM3065X", [Gen, MeterA]);
+
+        Assert.Equal([Gen, MeterA], bound.Select(b => b.Instrument));
+        Assert.All(bound, b => Assert.Null(b.Reason));
+    }
+
+    [Fact]
+    public void Two_instruments_of_one_model_are_not_guessed_between()
+    {
+        var bound = Bind("DEVICE left : SDM3065X\nDEVICE right : SDM3065X", [MeterA, MeterB]);
+
+        Assert.All(bound, b =>
+        {
+            Assert.Null(b.Instrument);
+            Assert.Equal(DeviceBindingState.Ambiguous, b.State);
+            Assert.Equal("2 connected", b.Reason);
+        });
+    }
+
+    /// <summary>
+    /// A script that needs one meter is no less ambiguous on a bench with two. It got the one
+    /// that connected first, which is not a fact about which one is wired to the circuit.
+    /// </summary>
+    [Fact]
+    public void One_line_is_as_ambiguous_as_two()
+        => Assert.Equal(DeviceBindingState.Ambiguous,
+                        Assert.Single(Bind("DEVICE dmm : SDM3065X", [MeterA, MeterB])).State);
+
+    /// <summary>
+    /// One meter, two parts asking for it. The first line gets it, and the second says who has
+    /// it rather than sharing it: bound to both, the script reads one meter twice.
+    /// </summary>
+    [Fact]
+    public void A_second_alias_is_not_given_the_instrument_the_first_has()
+    {
+        var bound = Bind("DEVICE dmm : SDM3065X\nDEVICE spare : SDM3065X", [MeterA]);
+
+        Assert.Same(MeterA, bound[0].Instrument);
+        Assert.Null(bound[1].Instrument);
+        Assert.Equal(DeviceBindingState.Taken, bound[1].State);
+        Assert.Equal("taken by dmm", bound[1].Reason);
+    }
+
+    /// <summary>
+    /// Everything in the way is named, in the order the script declares it: "taken by left,
+    /// right", not in whatever order the bench happens to list the meters.
+    /// </summary>
+    [Fact]
+    public void A_line_with_nothing_left_names_every_alias_in_its_way()
+    {
+        var spare = Bind("DEVICE left : SDM000B\nDEVICE right : SDM3065X\nDEVICE spare : SDM3065X",
+                         [MeterA, MeterB])[2];
+
+        Assert.Equal(DeviceBindingState.Taken, spare.State);
+        Assert.Equal("taken by left, right", spare.Reason);
+    }
+
+    /// <summary>The same alias declared twice is one part, not two competing for the meter.</summary>
+    [Fact]
+    public void An_alias_declared_twice_is_one_part()
+        => Assert.All(Bind("DEVICE dmm : SDM3065X\nDEVICE dmm : SDM3065X", [MeterA]),
+                      b => Assert.Same(MeterA, b.Instrument));
+
+    /// <summary>
+    /// Naming one of two identical meters is enough. A serial number is taken first, wherever
+    /// its line sits in the script, and the model line after it finds the one that is left.
+    /// </summary>
+    [Theory]
+    [InlineData("DEVICE left : SDM000B\nDEVICE right : SDM3065X")]
+    [InlineData("DEVICE right : SDM3065X\nDEVICE left : SDM000B")]
+    [InlineData("DEVICE right : SDM3065X\nDEVICE left : 192.168.1.8")]
+    public void Naming_one_of_two_leaves_the_other_to_the_model(string script)
+    {
+        var bound = Bind(script, [MeterA, MeterB]).ToDictionary(b => b.Alias, b => b.Instrument);
+
+        Assert.Same(MeterB, bound["left"]);
+        Assert.Same(MeterA, bound["right"]);
+    }
+
+    /// <summary>
+    /// The order they connected in is not an input. Every answer above is the same with the
+    /// bench listed the other way round — which is what "not guessed" means.
+    /// </summary>
+    [Theory]
+    [InlineData("DEVICE left : SDM3065X\nDEVICE right : SDM3065X")]
+    [InlineData("DEVICE right : SDM3065X\nDEVICE left : SDM000B")]
+    [InlineData("DEVICE dmm : SDM3065X")]
+    public void Which_instrument_connected_first_makes_no_difference(string script)
+        => Assert.Equal(
+            Bind(script, [MeterA, MeterB]).Select(b => (b.Instrument, b.State)),
+            Bind(script, [MeterB, MeterA]).Select(b => (b.Instrument, b.State)));
+
+    /// <summary>
+    /// A pick is taken at its word and the rest bind around it: say which meter is left, and
+    /// right is the other one.
+    /// </summary>
+    [Fact]
+    public void A_pick_is_taken_first_and_the_rest_bind_around_it()
+    {
+        var picked = new Dictionary<string, Box>(StringComparer.OrdinalIgnoreCase) { ["LEFT"] = MeterB };
+        var bound = Bind("DEVICE left : SDM3065X\nDEVICE right : SDM3065X", [MeterA, MeterB], picked);
+
+        Assert.Same(MeterB, bound[0].Instrument);
+        Assert.Same(MeterA, bound[1].Instrument);
+    }
+
+    /// <summary>
+    /// ...including one instrument for two parts. Chosen by hand that is a decision, where
+    /// handed out by the rule it was a guess.
+    /// </summary>
+    [Fact]
+    public void A_pick_may_give_one_instrument_two_parts()
+    {
+        var picked = new Dictionary<string, Box>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["dmm"] = MeterA,
+            ["spare"] = MeterA,
+        };
+
+        Assert.All(Bind("DEVICE dmm : SDM3065X\nDEVICE spare : SDM3065X", [MeterA], picked),
+                   b => Assert.Same(MeterA, b.Instrument));
+    }
+
+    [Fact]
+    public void A_prefix_two_models_share_is_ambiguous_and_an_exact_name_is_not()
+    {
+        Box sdm3055 = new("1.1.1.1", "Siglent Technologies,SDM3055,X1,1.0");
+        Box sdm3055x = new("1.1.1.2", "Siglent Technologies,SDM3055X,X2,1.0");
+
+        var bound = Bind("DEVICE a : SDM305\nDEVICE b : SDM3055", [sdm3055, sdm3055x]);
+
+        Assert.Equal(DeviceBindingState.Ambiguous, bound[0].State);
+        Assert.Same(sdm3055, bound[1].Instrument);
+    }
+
+    /// <summary>
+    /// One address can front several instruments — a GPIB or serial gateway, told apart by port
+    /// or device name. Written as a bare host it answers for all of them, and is refused too.
+    /// </summary>
+    [Fact]
+    public void An_address_two_instruments_share_is_ambiguous_too()
+    {
+        Box first = new("192.168.1.20", "");
+        Box second = new("192.168.1.20", "");
+
+        var only = Assert.Single(Bind("DEVICE x : 192.168.1.20", [first, second]));
+        Assert.Equal(DeviceBindingState.Ambiguous, only.State);
+    }
+
+    [Fact]
+    public void A_line_nothing_answers_to_is_not_connected()
+    {
+        var only = Assert.Single(Bind("DEVICE scope : DS2202", [Gen, MeterA]));
+
+        Assert.Equal(DeviceBindingState.NotConnected, only.State);
+        Assert.Equal("not connected", only.Reason);
+    }
+}
+
+/// <summary>
+/// DEVICE lines resolved by alias: the overload for a front end that lets each alias be bound
+/// to an instrument, which the web's binding table and <c>lec seq --device</c> both do.
+/// </summary>
+public class SequenceAliasBindingTests
+{
+    private sealed class Bench
+    {
+        public readonly Dictionary<string, FakeInstrumentClient> Bound =
+            new(StringComparer.OrdinalIgnoreCase);
+
+        public readonly List<(string Alias, string Model)> Asked = new();
+        public readonly List<string> Errors = new();
+
+        public FakeInstrumentClient Bind(string alias)
+            => Bound[alias] = new FakeInstrumentClient { Host = alias };
+
+        public Task RunAsync(string script)
+            => SequenceRunner.RunAsync(
+                script,
+                (alias, model) =>
+                {
+                    Asked.Add((alias, model));
+                    return Bound.TryGetValue(alias, out var c) ? c : null;
+                },
+                (text, kind) => { if (kind == ScriptOutputKind.Error) Errors.Add(text); },
+                _ => { },
+                CancellationToken.None);
+    }
+
+    [Fact]
+    public async Task Each_line_goes_to_the_instrument_bound_to_its_alias()
+    {
+        var bench = new Bench();
+        var gen = bench.Bind("gen");
+        var dmm = bench.Bind("dmm");
+
+        await bench.RunAsync("""
+            DEVICE gen : SDG2042X
+            DEVICE dmm : SDM3065X
+            gen: C1:OUTP ON
+            dmm: MEASure:VOLTage:DC?
+            """);
+
+        Assert.Empty(bench.Errors);
+        Assert.Equal(["SEND:C1:OUTP ON"], gen.Log);
+        Assert.Equal(["QUERY:MEASure:VOLTage:DC?"], dmm.Log);
+    }
+
+    /// <summary>The model travels with the alias, for a caller that wants to check a binding against it.</summary>
+    [Fact]
+    public async Task The_resolver_is_asked_by_alias_and_told_the_model()
+    {
+        var bench = new Bench();
+        bench.Bind("gen");
+        bench.Bind("dmm");
+
+        await bench.RunAsync("""
+            DEVICE gen : SDG2042X
+            DEVICE dmm : SDM3065X
+            """);
+
+        Assert.Equal([("gen", "SDG2042X"), ("dmm", "SDM3065X")], bench.Asked);
+    }
+
+    /// <summary>
+    /// What resolving by alias is for. Asked by model, both lines are the same question and
+    /// get the same answer — one meter read twice and reported as two.
+    /// </summary>
+    [Fact]
+    public async Task Two_instruments_of_one_model_stay_two_instruments()
+    {
+        var bench = new Bench();
+        var left = bench.Bind("left");
+        var right = bench.Bind("right");
+
+        await bench.RunAsync("""
+            DEVICE left  : SDM3065X
+            DEVICE right : SDM3065X
+            left:  MEASure:VOLTage:DC?
+            right: MEASure:CURRent:DC?
+            WITH right
+                MEASure:RESistance?
+            END
+            """);
+
+        Assert.Empty(bench.Errors);
+        Assert.Equal(["QUERY:MEASure:VOLTage:DC?"], left.Log);
+        Assert.Equal(["QUERY:MEASure:CURRent:DC?", "QUERY:MEASure:RESistance?"], right.Log);
+    }
+
+    /// <summary>
+    /// A missing binding is reported as one: the alias with nothing behind it, and the model it
+    /// was for. "No connected instrument matches SDM3065X" would send someone looking for a
+    /// meter that is connected and answering, when what is missing is which one plays the part.
+    /// </summary>
+    [Fact]
+    public async Task An_alias_bound_to_nothing_stops_the_run_and_is_named()
+    {
+        var bench = new Bench();
+        var left = bench.Bind("left");
+
+        await bench.RunAsync("""
+            DEVICE left  : SDM3065X
+            DEVICE right : SDM3065X
+            left: MEASure:VOLTage:DC?
+            """);
+
+        string error = Assert.Single(bench.Errors);
+        Assert.Contains("\"right\"", error);
+        Assert.Contains("SDM3065X", error);
+        Assert.DoesNotContain("no connected instrument matches", error);
+        Assert.Empty(left.Log);   // nothing ran, not even on the instrument that was there
+    }
 }

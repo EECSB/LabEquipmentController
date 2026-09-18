@@ -89,11 +89,14 @@ public sealed class RunService
                 "This script needs an instrument for: " +
                 string.Join(", ", missing.Select(m => $"{m.Alias} ({m.Model})")) + ".");
 
+        // Resolved by alias, because that is what the page bound: each row of its table is an
+        // alias and the session playing it. Looked up by model instead, an alias not spelled
+        // like its model finds nothing, and two meters of one model are one meter.
         var columns = SequenceRunner.Columns(req.Script);
         string runId = Guid.NewGuid().ToString("N");
         Launch(runId, columns, async (output, record, ct) =>
             await SequenceRunner.RunAsync(req.Script,
-                alias => clients.TryGetValue(alias, out var c) ? c : null,
+                (alias, _) => clients.TryGetValue(alias, out var c) ? c : null,
                 output, record, ct),
             [.. req.Bindings.Values]);
         return new RunSummary(runId, columns, false, null);
