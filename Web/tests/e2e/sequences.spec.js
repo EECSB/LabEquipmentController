@@ -405,10 +405,38 @@ test.describe('Ctrl+S', () => {
     });
 });
 
-test.describe('shutting it while a script runs', () => {
+test.describe('while a script runs', () => {
     ///Long enough that only a stop ends it inside the test: it holds the meter for a hundred seconds.
     const LONG = 'DEVICE dmm : SDM3065X\ndmm: MEAS:VOLT:DC?\nDELAY 100000';
     const QUESTION = 'A script is still running. Stop it and close?';
+
+    ///
+    ///Open in a tab is greyed, with the reason. The tab opens on an editor of its own, so the move
+    ///left the run behind, holding the meter with nothing to watch it or to stop it from. A control
+    ///that cannot do its job is present and greyed, with the reason in its tooltip, and this one is
+    ///a link again when the run ends.
+    ///
+    test('the window does not move into a tab', async ({ page }) => {
+        const tool = await openSequences(page);
+        const head = tool.locator('> .tool-head');
+        const out = head.locator('a.btn', { hasText: 'Open in a tab' });
+        const held = head.getByRole('button', { name: 'Open in a tab' });
+        await expect(out).toBeVisible();
+
+        await setScript(page, LONG);
+        await expect(bindings(page).locator('tbody tr td:first-child')).toHaveText(['dmm']);
+        await tool.getByRole('button', RUN).click();
+        await expect(quick(page, 'DC V')).toBeDisabled();
+
+        await expect(held).toBeDisabled();
+        await expect(held).toHaveAttribute('title', /Not while a script is running in this window/);
+        await expect(out).toHaveCount(0);
+
+        await tool.getByRole('button', { name: 'Stop', exact: true }).click();
+        await expect(quick(page, 'DC V')).toBeEnabled({ timeout: 10000 });
+        await expect(out).toBeVisible();
+        await expect(held).toHaveCount(0);
+    });
 
     ///
     ///SequenceForm asks first. No leaves the window up and the run going; Yes stops the run and

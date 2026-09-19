@@ -20,15 +20,27 @@
     <ToolWindow @key="window" @ref="_windows[window]"
                 Fill="@(window == Window.Sequences)"
                 Title="@TitleOf(window)" OnClosed="() => Close(window)">
-        <Head>
+        <Head Context="shown">
             @* And the window goes with it. "Open in a tab" moves this window into a tab rather
                than making a second copy of it — which is what detaching a console does, and what
                leaving the dialog open behind the new tab would contradict. Closing the tab puts
-               it back here; see lec.windows.claimTool. *@
-            <a class="btn" href="@AddressOf(window)" target="@TabOf(window)" @onclick="() => SentOut(window)"
-               title="Move this into a browser tab of its own, so it can sit beside the work instead of over it. Closing that tab brings it back here. Shift-click for a separate window.">
-                <Icon Name="detach" /> Open in a tab
-            </a>
+               it back here; see lec.windows.claimTool.
+
+               Not while what is in it holds it here: a script running in the multi-instrument
+               editor, which the tab would open without. The run went on holding its instruments,
+               with nothing left to watch it or to stop it from. Greyed then, with the reason, as a
+               control that cannot do its job is (UI-SPEC §7), and a link again when the run ends. *@
+            @if (shown.Held is { } why)
+            {
+                <button disabled title="@why"><Icon Name="detach" /> Open in a tab</button>
+            }
+            else
+            {
+                <a class="btn" href="@AddressOf(window)" target="@TabOf(window)" @onclick="() => SentOut(window)"
+                   title="Move this into a browser tab of its own, so it can sit beside the work instead of over it. Closing that tab brings it back here. Shift-click for a separate window.">
+                    <Icon Name="detach" /> Open in a tab
+                </a>
+            }
         </Head>
         <ChildContent>
             @* Built only while the window is open, so each opening starts fresh rather than

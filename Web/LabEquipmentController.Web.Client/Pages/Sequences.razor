@@ -278,6 +278,7 @@
     {
         if (_running || _starting) return;
         _starting = true;
+        Hold();
         try
         {
             await Resolve();
@@ -310,11 +311,23 @@
         finally
         {
             _starting = false;
+            Hold();
         }
     }
 
     /// <summary>True from the moment Run is pressed until the run has started or been refused.</summary>
     private bool _starting;
+
+    /// <summary>
+    /// Keep the window out of a browser tab while a script runs in it, or is being started. The
+    /// tab opens on an editor of its own, so the run would stay behind with nothing to watch it
+    /// or to stop it from. SequenceForm is a window already and has nothing to move.
+    /// </summary>
+    private void Hold() => Window?.Hold(_running || _starting ? RunHoldsTheWindow : null);
+
+    private const string RunHoldsTheWindow =
+        "Not while a script is running in this window. The run cannot move with the window, and "
+      + "the tab would open without it. Stop it, or let it finish, first.";
 
     private async Task Stop()
     {
@@ -361,6 +374,7 @@
         {
             if (id != _runId) return;
             _running = false;
+            Hold();
             if (error is not null) _output.Add(new ScriptOutputLine(error, "Error"));
             _output.Add(new ScriptOutputLine(failed ? "--- stopped ---" : "--- done ---", "Info"));
             _status = failed ? "Stopped." : "Run complete.";

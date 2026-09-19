@@ -23,7 +23,7 @@
             <span class="muted">@Subtitle</span>
         }
         <span class="spacer"></span>
-        @Head
+        @Head?.Invoke(this)
         <button class="shut" @onclick="CloseAsync" aria-label="Close"><Icon Name="close" /></button>
     </div>
 
@@ -44,8 +44,11 @@
     /// </summary>
     [Parameter] public string? Subtitle { get; set; }
 
-    /// <summary>Anything the head carries besides the name — a link out to a tab of its own.</summary>
-    [Parameter] public RenderFragment? Head { get; set; }
+    /// <summary>
+    /// Anything the head carries besides the name — a link out to a tab of its own. Handed the
+    /// window, so it can say whether the window is <see cref="Held"/>.
+    /// </summary>
+    [Parameter] public RenderFragment<ToolWindow>? Head { get; set; }
 
     [Parameter] public RenderFragment? ChildContent { get; set; }
 
@@ -85,6 +88,21 @@
     /// FormClosing.
     /// </summary>
     public Func<Task<bool>>? BeforeClose { get; set; }
+
+    /// <summary>
+    /// Why the window cannot move into a browser tab right now, or null when it can. What is in
+    /// the window says so, through <see cref="Hold"/>: a script editor with a run going, because
+    /// the run cannot go with it.
+    /// </summary>
+    public string? Held { get; private set; }
+
+    /// <summary>Keep the window where it is, and say why; or, with null, let it go again.</summary>
+    public void Hold(string? why)
+    {
+        if (Held == why) return;
+        Held = why;
+        _ = InvokeAsync(StateHasChanged);
+    }
 
     private ElementReference _el;
     private DotNetObjectReference<ToolWindow>? _self;
