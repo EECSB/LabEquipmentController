@@ -49,6 +49,31 @@ function strip(page) {
     return page.locator('dialog.tool[open] .group.editor > .devices');
 }
 
+///The line along the foot of the window: what the last thing to happen was.
+function status(page) {
+    return page.locator('dialog.tool[open] .row.runstatus .muted');
+}
+
+///The output pane, where a run says it has finished.
+function output(page) {
+    return page.locator('dialog.tool[open] .split .console');
+}
+
+///
+///An F5 made in the page rather than typed, sent to `selector` or, with none, to the page itself.
+///Answers whether anything took it.
+///
+///For the places where F5 has to be left to the browser. A real key there is a real reload,
+///which would take the window this spec is asking about away with it.
+///
+async function dispatchF5(page, selector) {
+    return page.evaluate((sel) => {
+        const e = new KeyboardEvent('keydown', { key: 'F5', bubbles: true, cancelable: true });
+        (sel ? document.querySelector(sel) : document.body).dispatchEvent(e);
+        return e.defaultPrevented;
+    }, selector ?? null);
+}
+
 const RUN = { name: 'Run', exact: true };
 
 test.beforeEach(async ({ page, request }) => {
@@ -221,6 +246,152 @@ test.describe('the binding strip', () => {
     });
 });
 
+test.describe('F5', () => {
+    ///What the instrument has been asked to measure since `heard`.
+    function measured(heard) {
+        return instrument.received.slice(heard).filter((c) => c.startsWith('MEAS:'));
+    }
+
+    ///
+    ///It runs the script, which is what the Run button says on hover. It used to reload the page,
+    ///which shut the window and took the script being written with it.
+    ///
+    test('runs the script, as Run does', async ({ page }) => {
+        await openSequences(page);
+        await setScript(page, 'DEVICE dmm : SDM3065X\ndmm: MEAS:VOLT:DC?');
+        await expect(bindings(page).locator('tbody tr td:first-child')).toHaveText(['dmm']);
+
+        const heard = instrument.received.length;
+        await page.keyboard.press('F5');
+
+        await expect(output(page)).toContainText('--- done ---');
+        expect(measured(heard)).toEqual(['MEAS:VOLT:DC?']);
+    });
+
+    ///
+    ///Only when Run would. A DEVICE line with nothing behind it greys Run out, and F5 does not get
+    ///round that: the status line says which line and why, and nothing is sent. That includes the
+    ///command above the missing line, which is what the desktop's F5 once sent.
+    ///
+    test('is no way around a greyed-out Run', async ({ page }) => {
+        const tool = await openSequences(page);
+        await setScript(page, 'DEVICE dmm : SDM3065X\ndmm: MEAS:VOLT:DC?\nDEVICE scope : DS2202\nscope: *IDN?');
+        await expect(bindings(page).locator('tbody tr td:first-child')).toHaveText(['dmm', 'scope']);
+        await expect(tool.getByRole('button', RUN)).toBeDisabled();
+
+        const heard = instrument.received.length;
+        await page.keyboard.press('F5');
+        await expect(status(page)).toHaveText('Not run — scope → DS2202 (not connected).');
+
+        //To be sure nothing is still on its way, the same script without the missing part, which does
+        //run. Had the first press sent its line, there would be two.
+        await setScript(page, 'DEVICE dmm : SDM3065X\ndmm: MEAS:VOLT:DC?');
+        await page.keyboard.press('F5');
+        await expect(output(page)).toContainText('--- done ---');
+        expect(measured(heard)).toEqual(['MEAS:VOLT:DC?']);
+    });
+
+    ///
+    ///With nothing focused, the key belongs to the window last pressed in. Two ordinary things leave
+    ///the focus on nothing. Run, pressed with the mouse, greys out as the run starts. And a window
+    ///opened over the editor closes: the reference shut by its ✕, or the AI window once its script
+    ///is used. F5 after either is the editor's. On the bench it stays the browser's: the bench is
+    ///not an editor, and a reload does not disconnect it.
+    ///
+    test('with nothing focused, belongs to the window last pressed in', async ({ page }) => {
+        const tool = await openSequences(page);
+        //Long enough for Run to stay grey past a frame. A run over before the next frame hands Run
+        //back before the browser has taken the focus off it, which is a different case, and an
+        //easier one: the focus is still in the window.
+        await setScript(page, 'DEVICE dmm : SDM3065X\ndmm: MEAS:VOLT:DC?\nDELAY 1000');
+        await expect(bindings(page).locator('tbody tr td:first-child')).toHaveText(['dmm']);
+        const heard = instrument.received.length;
+        const nothingFocused = () => page.evaluate(() => document.activeElement === document.body);
+
+        await tool.getByRole('button', RUN).click();
+        await expect(tool.getByRole('button', RUN)).toBeDisabled();
+        await expect.poll(nothingFocused).toBe(true);
+        await expect(output(page)).toContainText('--- done ---');
+
+        await page.keyboard.press('F5');
+        await expect.poll(() => measured(heard)).toHaveLength(2);
+        await expect(output(page)).toContainText('--- done ---');
+
+        await tool.getByRole('button', { name: /^Snippets/ }).click();
+        await tool.getByRole('button', { name: /What all of this means/ }).click();
+        const over = page.locator('dialog.tool[open] dialog.tool[open]');
+        await expect(over).toBeVisible();
+        await over.locator('> .tool-head .shut').click();
+        await expect(over).toHaveCount(0);
+        expect(await nothingFocused()).toBe(true);
+
+        await page.keyboard.press('F5');
+        await expect.poll(() => measured(heard)).toHaveLength(3);
+        await expect(output(page)).toContainText('--- done ---');
+
+        //The bench: a control of its own with the focus, and then nothing with the focus after a press
+        //in the margin the window leaves round itself. Dispatched rather than typed, because an F5 left
+        //to the browser is a real reload.
+        expect(await dispatchF5(page, '#addr')).toBe(false);
+        await page.mouse.click(6, 500);
+        expect(await nothingFocused()).toBe(true);
+        expect(await dispatchF5(page)).toBe(false);
+        expect(measured(heard)).toHaveLength(3);
+    });
+
+    ///
+    ///Once, however it is pressed. Held down, F5 repeats. Pressed again mid-run, it is a second
+    ///press. Run double-clicked is two presses before the first has heard back from the server. The
+    ///desktop takes its token before anything else happens, so a second press finds it taken and
+    ///returns. Here the double-click had been two runs, interleaved on one meter.
+    ///
+    test('is one run however it is pressed', async ({ page }) => {
+        const tool = await openSequences(page);
+        await setScript(page, 'DEVICE dmm : SDM3065X\ndmm: MEAS:VOLT:DC?\nDELAY 1500');
+        await expect(bindings(page).locator('tbody tr td:first-child')).toHaveText(['dmm']);
+
+        const heard = instrument.received.length;
+        await page.keyboard.down('F5');
+        await page.keyboard.down('F5');      // the second is a repeat, as a held key's are
+        await page.keyboard.up('F5');
+
+        await expect(tool.getByRole('button', { name: 'Stop', exact: true })).toBeEnabled();
+        await page.keyboard.press('F5');
+
+        await expect(output(page)).toContainText('--- done ---');
+        await expect(output(page).locator('div', { hasText: '--- done ---' })).toHaveCount(1);
+        expect(measured(heard)).toEqual(['MEAS:VOLT:DC?']);
+
+        await tool.getByRole('button', RUN).dblclick();
+        await expect(tool.getByRole('button', { name: 'Stop', exact: true })).toBeEnabled();
+        await expect(output(page)).toContainText('--- done ---');
+        expect(measured(heard)).toEqual(['MEAS:VOLT:DC?', 'MEAS:VOLT:DC?']);
+    });
+
+    ///
+    ///And not in a window opened over the editor. The reference and the AI window are opened from it
+    ///and sit inside it on the page, but they are windows of their own, and F5 there is not a Run.
+    ///
+    test('is not the editor\'s in a window opened over it', async ({ page }) => {
+        const tool = await openSequences(page);
+        await setScript(page, 'DEVICE dmm : SDM3065X\ndmm: MEAS:VOLT:DC?');
+        await expect(bindings(page).locator('tbody tr td:first-child')).toHaveText(['dmm']);
+
+        await tool.getByRole('button', { name: /^Snippets/ }).click();
+        await tool.getByRole('button', { name: /What all of this means/ }).click();
+        const over = 'dialog.tool[open] dialog.tool[open]';
+        await expect(page.locator(over)).toBeVisible();
+
+        const heard = instrument.received.length;
+        expect(await dispatchF5(page, `${over} > .tool-head`)).toBe(false);
+
+        //The editor's own window still takes it, and runs once: the press in the reference sent nothing.
+        expect(await dispatchF5(page, 'dialog.tool[open] .row.scripttools')).toBe(true);
+        await expect(output(page)).toContainText('--- done ---');
+        expect(measured(heard)).toEqual(['MEAS:VOLT:DC?']);
+    });
+});
+
 test.describe('two instruments of one model', () => {
     ///The second meter: the same model as the first, told apart by its serial number.
     const SECOND = 'Siglent Technologies,SDM3065X,LEC-E2E-0002,1.00.00.00';
@@ -268,6 +439,14 @@ test.describe('two instruments of one model', () => {
             await expect(binding(page, alias).locator('select option:checked')).toHaveText(/2 connected/);
         }
         await expect(tool.getByRole('button', RUN)).toBeDisabled();
+
+        //F5 is not a way round it either. The status line gives the picker's own reason, and names
+        //the first line that has no instrument.
+        const before = instrument.received.length;
+        await page.keyboard.press('F5');
+        await expect(status(page)).toHaveText('Not run — left → SDM3065X (2 connected: pick one).');
+        expect(instrument.received.slice(before).filter((c) => c.startsWith('MEAS:'))).toEqual([]);
+        expect(second.asked(/^MEAS:/)).toEqual([]);
 
         await binding(page, 'left').locator('select')
             .selectOption(await sessionOf(page, 'left', instrument.address));

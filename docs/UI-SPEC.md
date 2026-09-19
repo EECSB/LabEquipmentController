@@ -1016,12 +1016,28 @@ starts locked, and the hub's `Driven` message keeps it fresh.
 | Click outside a **modal** | closes it — both ends of the press must land outside |
 | Click outside a **tool window** | nothing. It is a window, not a popup |
 | Drag a tool window's title bar | moves it, clamped so a grabbable strip stays on screen |
-| F5 in a script editor | runs — exactly when `Run` would, never around it: while a `DEVICE` line has nothing to run on, the status line says which and why (`Not run — left → SDM3065X (2 connected).`) and nothing is sent |
+| F5 in a script editor | runs — exactly when `Run` would, never around it: while a `DEVICE` line has nothing to run on, the status line says which and why, in the strip's own words (`Not run — left → SDM3065X (2 connected).`), and nothing is sent. Pressed again mid-run, it is not a second run |
 
 `Open in new tab` is a **link**, not a button calling `window.open`: nothing can pop-up-block
 it, and the browser's own conventions come free — Shift for a separate window, Ctrl for a
 background tab, middle-click for a tab. Its target is named after the session, so pressing it
 twice returns to the console already open instead of starting a second.
+
+**F5 on the web.** A browser's F5 is its reload key as well. A reload shuts a tool window, and
+the script being written in it is lost. So the web takes the key only inside a script editor's
+window. The desktop takes it anywhere in `ScriptForm` or `SequenceForm`, and here the window is
+the tool window, or the tab when the editor is open in one. Everywhere else the key is left to
+the browser: on the bench, which a reload does not disconnect (`index.html` says why), and in
+every window that is not an editor, including the reference and the AI window opened from one.
+`Ctrl+F5` and `Ctrl+R` are never taken, so a reload is always one keystroke away. Held down, F5
+is one press, as holding a button down is one click. A key goes to the window that has the
+focus. When nothing has it (`Run` greys out under the pointer as the run starts, and a
+window closing under the focus leaves it on nothing), the key goes to the window last pressed
+in, or to the window that one was open over if it has closed. The reason on the status line is
+the picker's, so on the web it carries the remedy too: `(2 connected: pick one)`. Behind the key,
+`Run` binds afresh before it starts, as `SequenceForm.RunAsync` does, because the table is only
+as new as the last pause in typing. And `Run` is one run however it is pressed. Before this, a
+double-click started two.
 
 ---
 

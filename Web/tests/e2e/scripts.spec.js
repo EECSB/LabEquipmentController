@@ -325,6 +325,35 @@ test.describe('running a script', () => {
     });
 
     ///
+    ///F5 runs it, as ScriptForm's does and as the button says on hover. It used to reload the page,
+    ///which shut the window and took the script with it.
+    ///
+    ///And once, however it is pressed. Held down, F5 repeats. Pressed again mid-run, it is a second
+    ///press. Run double-clicked is two presses before the first has heard back from the server, and
+    ///that had been two runs.
+    ///
+    test('F5 runs it, and every way in is one run', async ({ page }) => {
+        const tool = await openEditor(page);
+        await expect(tool.getByRole('button', { name: /^Run$/ })).toHaveAttribute('title', 'Run the script (F5).');
+
+        await setScript(page, 'MEASure:VOLTage:DC?\nDELAY 1500\nPRINT done');
+        await page.keyboard.down('F5');
+        await page.keyboard.down('F5');      // the second is a repeat, as a held key's are
+        await page.keyboard.up('F5');
+
+        await expect(tool.getByRole('button', { name: /^Stop$/ })).toBeEnabled();
+        await page.keyboard.press('F5');
+
+        await expect(status(page)).toHaveText('Run complete.', { timeout: 20000 });
+        expect(instrument.asked(/MEASure:VOLTage:DC\?/)).toHaveLength(1);
+
+        await tool.getByRole('button', { name: /^Run$/ }).dblclick();
+        await expect(tool.getByRole('button', { name: /^Stop$/ })).toBeEnabled();
+        await expect(status(page)).toHaveText('Run complete.', { timeout: 20000 });
+        expect(instrument.asked(/MEASure:VOLTage:DC\?/)).toHaveLength(2);
+    });
+
+    ///
     ///RECORD builds the table, under the heading COLUMNS gave it.
     ///
     ///In the same pane the console uses, because it is the same control on the desktop: ResultsPanel,

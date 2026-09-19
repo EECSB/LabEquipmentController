@@ -287,6 +287,60 @@
         });
     }
 
+    ///
+    ///**F5 runs**, in whichever script editor's window it is pressed in: ScriptForm and SequenceForm
+    ///take it anywhere in the window, and both Run buttons say so on hover.
+    ///
+    ///A browser's F5 is its reload, too, and here that is worse than a key doing nothing. It shuts the
+    ///window and the script being written goes with it. So the key is taken inside an editor's window
+    ///and left to the browser everywhere else: on the bench, which a reload does not disconnect, and in
+    ///every window that is not an editor, including the AI window and the reference, which sit inside
+    ///the editor that opened them. Ctrl+F5 is never taken, so there is still a reload from anywhere.
+    ///
+    ///It goes to the page's Run, as the button does, and the page decides whether anything runs. A
+    ///second check here would be two checks, and two checks are how F5 on the desktop came to run a
+    ///script whose Run button was greyed out.
+    ///
+    document.addEventListener('keydown', function (e) {
+        if (e.key !== 'F5' || e.ctrlKey || e.shiftKey || e.altKey || e.metaKey) return;
+
+        const where = windowFor(e);
+        for (const [host, held] of editors) {
+            if (!host.isConnected || windowOf(host) !== where) continue;
+
+            e.preventDefault();
+            //Held down, it is one press, as holding a button down is one click.
+            if (!e.repeat) held.ref.invokeMethodAsync('RunKey');
+            return;
+        }
+    }, true);
+
+    ///The window a node is in: the innermost dialog around it, or null for the page under them all.
+    function windowOf(node) {
+        return node && node.closest ? node.closest('dialog') : null;
+    }
+
+    ///
+    ///The windows around the last press, innermost first.
+    ///
+    ///A key belongs to the window with the focus, except when nothing has it. Run, pressed with the
+    ///mouse, greys out as the run starts and the focus falls back to the page, and so does a click on
+    ///the log. A key pressed then belongs to the window last pressed in. If that one has closed since
+    ///(the AI window does, when its script is used), the key goes to the window it was open over.
+    ///
+    let pressed = [];
+
+    document.addEventListener('mousedown', function (e) {
+        pressed = [];
+        for (let w = windowOf(e.target); w; w = windowOf(w.parentElement)) pressed.push(w);
+    }, true);
+
+    function windowFor(e) {
+        const t = e.target;
+        if (t && t !== document.body && t !== document.documentElement) return windowOf(t);
+        return pressed.find((w) => w.isConnected && w.open) || null;
+    }
+
     ///Core's kinds, in Monaco's vocabulary.
     function kindOf(kind) {
         switch (kind) {

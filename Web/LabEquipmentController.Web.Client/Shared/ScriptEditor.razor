@@ -72,7 +72,7 @@
     <span class="gap"></span>
 
     <button class="primary" @onclick="OnRun" disabled="@(Running || !CanRun)"
-            title="@(IsSequence ? "Run the script (F5). Every instrument it uses is locked to it while it runs." : "Run the script against this instrument.")"><Icon Name="start" /> Run</button>
+            title="@(IsSequence ? "Run the script (F5). Every instrument it uses is locked to it while it runs." : "Run the script (F5).")"><Icon Name="start" /> Run</button>
     <button @onclick="OnStop" disabled="@(!Running)"
             title="Stop the running script. Results collected so far are kept."><Icon Name="stop" /> Stop</button>
 </div>
@@ -202,6 +202,18 @@
         _typed = text;
         await ScriptChanged.InvokeAsync(text);
     }
+
+    /// <summary>
+    /// F5, pressed anywhere in this editor's window. The interop works out which window that
+    /// is (see wwwroot/js/monaco.js).
+    ///
+    /// It goes straight to the page's Run, the handler the button calls, and nothing is checked
+    /// here. Whether a script can run is the page's question, and it is asked there at the moment
+    /// of running. The desktop's F5 once went around a check the button made, and started a script
+    /// whose Run was greyed out.
+    /// </summary>
+    [JSInvokable]
+    public Task RunKey() => OnRun.InvokeAsync();
 
     /// <summary>
     /// The last thing typed, so a value set from C# can be told apart from one the person wrote.

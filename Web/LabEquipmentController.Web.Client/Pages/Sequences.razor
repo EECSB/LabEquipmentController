@@ -254,26 +254,62 @@
         _requirements = await Bench.RequirementsAsync(_script, _picks);
     }
 
+    /// <summary>
+    /// Run it, if every part it names has an instrument. The button comes here, and so does F5.
+    /// </summary>
+    /// <remarks>
+    /// The binding is worked out again at the moment of running, and the run drives exactly what
+    /// that says. The button follows the table, and the table is only as new as the last pause
+    /// in typing or the last change on the bench, so the button cannot be the check.
+    /// SequenceForm checks at this point too. Its F5 once went around a greyed-out Run, and a
+    /// DEVICE line with nothing behind it stopped the run only when the run reached it, after a
+    /// line above it had already switched a generator's output on.
+    ///
+    /// And it runs once. F5 held down, or Run pressed twice before the first press has heard
+    /// back, is one run. The flag is set before the first await, the way SequenceForm takes its
+    /// token.
+    /// </remarks>
     private async Task Run()
     {
-        _output.Clear();
-        _rows.Clear();
+        if (_running || _starting) return;
+        _starting = true;
+        try
+        {
+            await Resolve();
+            var bound = _requirements;
 
-        _status = "Running…";
-        await Listen();
+            if (bound.FirstOrDefault(r => r.SessionId is null) is { } missing)
+            {
+                _status = $"Not run — {missing.Alias} → {missing.Model} ({missing.Note ?? "not connected"}).";
+                return;
+            }
 
-        // Every part as the table shows it, the rule's answers and the picks alike.
-        var bindings = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-        foreach (var r in _requirements)
-            if (r.SessionId is { } id) bindings.TryAdd(r.Alias, id);
-        var summary = await Bench.RunSequenceAsync(_script, bindings);
-        if (summary.Failed) { _status = "Script failed: " + summary.Error; return; }
+            _output.Clear();
+            _rows.Clear();
 
-        _runId = summary.RunId;
-        _columns = summary.Columns;
-        _running = true;
-        await _hub!.InvokeAsync("Watch", _runId);
+            _status = "Running…";
+            await Listen();
+
+            // Every part as the table shows it, the rule's answers and the picks alike.
+            var bindings = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var r in bound)
+                if (r.SessionId is { } id) bindings.TryAdd(r.Alias, id);
+            var summary = await Bench.RunSequenceAsync(_script, bindings);
+            if (summary.Failed) { _status = "Script failed: " + summary.Error; return; }
+
+            _runId = summary.RunId;
+            _columns = summary.Columns;
+            _running = true;
+            await _hub!.InvokeAsync("Watch", _runId);
+        }
+        finally
+        {
+            _starting = false;
+        }
     }
+
+    /// <summary>True from the moment Run is pressed until the run has started or been refused.</summary>
+    private bool _starting;
 
     private async Task Stop()
     {

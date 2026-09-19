@@ -83,26 +83,43 @@
         _examples = s is null ? [] : await Bench.ScriptExamplesAsync(s.Family);
     }
 
+    /// <summary>The button comes here, and so does F5.</summary>
+    /// <remarks>
+    /// It runs once. F5 held down, or Run pressed twice before the first press has heard back,
+    /// is one run. The flag is set before the first await, the way ScriptForm takes its token.
+    /// Without it, the second press went through before the first run had set <c>_running</c>.
+    /// </remarks>
     private async Task Run()
     {
-        if (_sessionId is null) return;
-        _output.Clear();
-        _rows.Clear();
-        _status = "Running…";
-
-        await Listen();
-        var summary = await Bench.RunScriptAsync(_sessionId, _script);
-        if (summary.Failed)
+        if (_running || _starting || _sessionId is null) return;
+        _starting = true;
+        try
         {
-            _output.Add(new ScriptOutputLine(summary.Error ?? "Could not start.", "Error"));
-            _status = "Run failed.";
-            return;
+            _output.Clear();
+            _rows.Clear();
+            _status = "Running…";
+
+            await Listen();
+            var summary = await Bench.RunScriptAsync(_sessionId, _script);
+            if (summary.Failed)
+            {
+                _output.Add(new ScriptOutputLine(summary.Error ?? "Could not start.", "Error"));
+                _status = "Run failed.";
+                return;
+            }
+            _runId = summary.RunId;
+            _columns = summary.Columns;
+            _running = true;
+            await _hub!.InvokeAsync("Watch", _runId);
         }
-        _runId = summary.RunId;
-        _columns = summary.Columns;
-        _running = true;
-        await _hub!.InvokeAsync("Watch", _runId);
+        finally
+        {
+            _starting = false;
+        }
     }
+
+    /// <summary>True from the moment Run is pressed until the run has started or failed to.</summary>
+    private bool _starting;
 
     private async Task Stop()
     {
