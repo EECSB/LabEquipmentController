@@ -11,6 +11,7 @@
 //answer behind a Check devices button and printed it in a card of its own below the editor - a press to
 //be told something the window already knew, on a toolbar the desktop's does not have.
 //
+const fs = require('fs');
 const { test, expect } = require('./fixtures');
 const { freshBench, connect, boxOf, setScript, scriptText, editorReady } = require('./helpers');
 const { startInstrument } = require('./instrument');
@@ -389,6 +390,30 @@ test.describe('F5', () => {
         expect(await dispatchF5(page, 'dialog.tool[open] .row.scripttools')).toBe(true);
         await expect(output(page)).toContainText('--- done ---');
         expect(measured(heard)).toEqual(['MEAS:VOLT:DC?']);
+    });
+});
+
+test.describe('Ctrl+S', () => {
+    ///
+    ///It saves the multi-instrument script as well, as SequenceForm's does, under this window's own
+    ///name for one. Cmd+S does the same, since that is the save key on a Mac.
+    ///
+    test('saves the script, and so does Cmd+S', async ({ page }) => {
+        await openSequences(page);
+        const saved = [];
+        page.on('download', (d) => saved.push(d));
+
+        const script = 'DEVICE dmm : SDM3065X\ndmm: MEAS:VOLT:DC?';
+        await setScript(page, script);
+        await page.keyboard.press('Control+s');
+
+        await expect(status(page)).toHaveText('Saved sequence.txt');
+        await expect.poll(() => saved.length).toBe(1);
+        expect(saved[0].suggestedFilename()).toBe('sequence.txt');
+        expect(fs.readFileSync(await saved[0].path(), 'utf8').replace(/\r\n/g, '\n')).toBe(script);
+
+        await page.keyboard.press('Meta+s');
+        await expect.poll(() => saved.length).toBe(2);
     });
 });
 

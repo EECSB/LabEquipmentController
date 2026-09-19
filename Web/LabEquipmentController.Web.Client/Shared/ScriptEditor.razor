@@ -216,6 +216,13 @@
     public Task RunKey() => OnRun.InvokeAsync();
 
     /// <summary>
+    /// Ctrl+S, pressed anywhere in this editor's window, found the way F5 is. It does what Save
+    /// does, and Save makes its own check.
+    /// </summary>
+    [JSInvokable]
+    public Task SaveKey() => Save(rename: false);
+
+    /// <summary>
     /// The last thing typed, so a value set from C# can be told apart from one the person wrote.
     /// </summary>
     private string _typed = "";
@@ -251,6 +258,10 @@
     /// </param>
     private async Task Save(bool rename)
     {
+        // Nothing to save, which is why both buttons are greyed then. Ctrl+S comes here too, and
+        // would otherwise download an empty file where the button does nothing.
+        if (Script.Length == 0) return;
+
         string suggested = _name.Length > 0 ? _name : (IsSequence ? "sequence.txt" : "script.txt");
         string? name = rename
             ? await JS.InvokeAsync<string?>("prompt", "Save the script as:", suggested)

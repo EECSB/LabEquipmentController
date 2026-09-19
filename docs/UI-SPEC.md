@@ -1017,21 +1017,24 @@ starts locked, and the hub's `Driven` message keeps it fresh.
 | Click outside a **tool window** | nothing. It is a window, not a popup |
 | Drag a tool window's title bar | moves it, clamped so a grabbable strip stays on screen |
 | F5 in a script editor | runs — exactly when `Run` would, never around it: while a `DEVICE` line has nothing to run on, the status line says which and why, in the strip's own words (`Not run — left → SDM3065X (2 connected).`), and nothing is sent. Pressed again mid-run, it is not a second run |
+| Ctrl+S in a script editor | saves — exactly when `Save` would, under the name the script already has. On the web the save is a download, nothing is saved while the editor is empty, and Cmd+S on a Mac is taken as Ctrl+S |
 
 `Open in new tab` is a **link**, not a button calling `window.open`: nothing can pop-up-block
 it, and the browser's own conventions come free — Shift for a separate window, Ctrl for a
 background tab, middle-click for a tab. Its target is named after the session, so pressing it
 twice returns to the console already open instead of starting a second.
 
-**F5 on the web.** A browser's F5 is its reload key as well. A reload shuts a tool window, and
-the script being written in it is lost. So the web takes the key only inside a script editor's
-window. The desktop takes it anywhere in `ScriptForm` or `SequenceForm`, and here the window is
-the tool window, or the tab when the editor is open in one. Everywhere else the key is left to
-the browser: on the bench, which a reload does not disconnect (`index.html` says why), and in
-every window that is not an editor, including the reference and the AI window opened from one.
-`Ctrl+F5` and `Ctrl+R` are never taken, so a reload is always one keystroke away. Held down, F5
-is one press, as holding a button down is one click. A key goes to the window that has the
-focus. When nothing has it (`Run` greys out under the pointer as the run starts, and a
+**F5 and Ctrl+S on the web.** A browser has its own use for both keys. F5 reloads, and a
+reload shuts a tool window and loses the script being written in it. Ctrl+S saves the page,
+which is this app's HTML rather than the script. So the web takes the keys only inside a script
+editor's window. The desktop takes them anywhere in `ScriptForm` or `SequenceForm`, and here
+the window is the tool window, or the tab when the editor is open in one. Everywhere else the
+keys are left to the browser: on the bench, which a reload does not disconnect (`index.html`
+says why), and in every window that is not an editor, including the reference and the AI window
+opened from one. `Ctrl+F5` and `Ctrl+R` are never taken, so a reload is always one keystroke
+away. Held down, either key is one press, as holding a button down is one click. A held Ctrl+S
+would otherwise be a download for every repeat. A key goes to the window that has the focus.
+When nothing has it (`Run` greys out under the pointer as the run starts, and a
 window closing under the focus leaves it on nothing), the key goes to the window last pressed
 in, or to the window that one was open over if it has closed. The reason on the status line is
 the picker's, so on the web it carries the remedy too: `(2 connected: pick one)`. Behind the key,
@@ -1114,6 +1117,12 @@ Found while writing the tests, and recorded rather than quietly kept:
   editor is no longer one of these: both builds open it on `SequenceExamples.All[0]`, which is
   also what leaves `Revise the current script` with something to revise — the desktop ticks that
   switch when there is a script, and on the desktop there always is one.
+
+- **Save with nothing to save.** The web greys `Save` and `Save As…` while the editor is empty,
+  and Ctrl+S saves nothing then. `ScriptForm` and `SequenceForm` leave Save live and write an
+  empty file. Found while wiring Ctrl+S, which follows the web's button rather than deciding for
+  itself. The rule is older than the key, and `scripts.spec.js` holds it ("Save goes dead when
+  the editor is emptied"). Whichever way it is settled, the key goes with the button.
 
 The other one found that way — the console not locking during a run — is closed: §7 describes
 what both builds now do, and `Web/tests/e2e/lock.spec.js` holds it there.

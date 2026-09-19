@@ -9,6 +9,7 @@
 //desktop's toolbar, that Run and Stop trade places, that the output and the recorded rows land where
 //they should - and not the language, which is Core's and has its own xUnit suite.
 //
+const fs = require('fs');
 const { test, expect } = require('./fixtures');
 const { freshBench, connect, pane, boxOf, setScript, scriptText, scriptTokens } = require('./helpers');
 const { startInstrument } = require('./instrument');
@@ -133,6 +134,47 @@ test.describe('the toolbar', () => {
 
         await setScript(page, 'PRINT hello');
         await expect(tool.getByRole('button', { name: /^Save$/ })).toBeEnabled();
+    });
+
+    ///
+    ///Ctrl+S saves, as the Save button says on hover and as ScriptForm's does. Here that is a
+    ///download under the name the script already has. It used to be the browser's key, which saved
+    ///the page (this app's HTML) rather than the script.
+    ///
+    ///Only when Save would. With the editor emptied both buttons are greyed and the key saves
+    ///nothing. Held down, it is one save and not a download per repeat. On the bench behind the
+    ///window, it is still the browser's.
+    ///
+    test('Ctrl+S saves the script, when Save would', async ({ page }) => {
+        const tool = await openEditor(page);
+        const saved = [];
+        page.on('download', (d) => saved.push(d));
+
+        //New leaves the focus on its own button, in the window.
+        await tool.getByRole('button', { name: /^New$/ }).click();
+        await page.keyboard.press('Control+s');
+
+        await setScript(page, SCRIPT);
+        await page.keyboard.down('Control');
+        await page.keyboard.down('s');
+        await page.keyboard.down('s');       // the second is a repeat, as a held key's are
+        await page.keyboard.up('s');
+        await page.keyboard.up('Control');
+
+        await expect(status(page)).toHaveText('Saved script.txt');
+        await expect.poll(() => saved.length).toBe(1);
+        expect(saved[0].suggestedFilename()).toBe('script.txt');
+        const text = fs.readFileSync(await saved[0].path(), 'utf8');
+        expect(text.replace(/\r\n/g, '\n')).toBe(SCRIPT);
+
+        //Dispatched rather than typed: a Ctrl+S left to the browser saves the page, for real.
+        const bench = await page.evaluate(() => {
+            const e = new KeyboardEvent('keydown', { key: 's', ctrlKey: true, bubbles: true, cancelable: true });
+            document.querySelector('#addr').dispatchEvent(e);
+            return e.defaultPrevented;
+        });
+        expect(bench).toBe(false);
+        expect(saved).toHaveLength(1);
     });
 
     ///

@@ -288,29 +288,39 @@
     }
 
     ///
-    ///**F5 runs**, in whichever script editor's window it is pressed in: ScriptForm and SequenceForm
-    ///take it anywhere in the window, and both Run buttons say so on hover.
+    ///The editor's two keys, taken in whichever script editor's window they are pressed in:
+    ///**F5 runs** and **Ctrl+S saves**. ScriptForm and SequenceForm take both anywhere in the
+    ///window, and the Run and Save buttons say so on hover.
     ///
-    ///A browser's F5 is its reload, too, and here that is worse than a key doing nothing. It shuts the
-    ///window and the script being written goes with it. So the key is taken inside an editor's window
-    ///and left to the browser everywhere else: on the bench, which a reload does not disconnect, and in
-    ///every window that is not an editor, including the AI window and the reference, which sit inside
-    ///the editor that opened them. Ctrl+F5 is never taken, so there is still a reload from anywhere.
+    ///A browser has its own use for each, and here both are worse than a key doing nothing. F5
+    ///reloads, which shuts the window and the script being written goes with it. Ctrl+S saves the
+    ///page, which is this app's HTML and not the script. So the keys are taken inside an editor's
+    ///window and left to the browser everywhere else: on the bench, which a reload does not
+    ///disconnect, and in every window that is not an editor, including the AI window and the
+    ///reference, which sit inside the editor that opened them. Ctrl+F5 is never taken, so there is
+    ///still a reload from anywhere. On a Mac, Cmd+S is the save key, so it is taken as Ctrl+S is.
     ///
-    ///It goes to the page's Run, as the button does, and the page decides whether anything runs. A
+    ///Each goes to the handler its button calls, and the page decides whether anything happens. A
     ///second check here would be two checks, and two checks are how F5 on the desktop came to run a
     ///script whose Run button was greyed out.
     ///
+    const keys = [
+        { method: 'RunKey', is: (e) => e.key === 'F5' && !e.ctrlKey && !e.shiftKey && !e.altKey && !e.metaKey },
+        { method: 'SaveKey', is: (e) => (e.key === 's' || e.key === 'S') && (e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey }
+    ];
+
     document.addEventListener('keydown', function (e) {
-        if (e.key !== 'F5' || e.ctrlKey || e.shiftKey || e.altKey || e.metaKey) return;
+        const key = keys.find((k) => k.is(e));
+        if (!key) return;
 
         const where = windowFor(e);
         for (const [host, held] of editors) {
             if (!host.isConnected || windowOf(host) !== where) continue;
 
             e.preventDefault();
-            //Held down, it is one press, as holding a button down is one click.
-            if (!e.repeat) held.ref.invokeMethodAsync('RunKey');
+            //Held down, it is one press, as holding a button down is one click. A held Ctrl+S would
+            //otherwise be a download for every repeat.
+            if (!e.repeat) held.ref.invokeMethodAsync(key.method);
             return;
         }
     }, true);
@@ -324,9 +334,11 @@
     ///The windows around the last press, innermost first.
     ///
     ///A key belongs to the window with the focus, except when nothing has it. Run, pressed with the
-    ///mouse, greys out as the run starts and the focus falls back to the page, and so does a click on
-    ///the log. A key pressed then belongs to the window last pressed in. If that one has closed since
-    ///(the AI window does, when its script is used), the key goes to the window it was open over.
+    ///mouse, greys out as the run starts and the focus falls back to the page, and a window closing
+    ///under the focus leaves it there too. A click on the log does not: the browser gives the focus to
+    ///the window. A key pressed with nothing focused belongs to the window last pressed in. If that
+    ///one has closed since (the AI window does, when its script is used), the key goes to the window
+    ///it was open over.
     ///
     let pressed = [];
 
