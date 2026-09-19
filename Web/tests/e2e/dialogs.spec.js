@@ -489,29 +489,44 @@ test.describe('Esc with one thing open inside another', () => {
     ///The reference opened from the multi-instrument editor's Snippets menu shuts, and the editor stays
     ///up with its script. On the desktop ScriptReferenceForm closes itself and nothing else.
     ///
+    ///It leaves the focus on Snippets, where the desktop leaves it: a drop-down never takes the focus
+    ///from its button, and a dialog that shuts gives the focus back. So the next Esc shuts the editor,
+    ///with nothing pressed in between. The focus had gone with the menu item the reference was opened
+    ///from, onto the page, where no window hears a key.
+    ///
     test('shuts the reference and leaves the editor it was opened from', async ({ page }) => {
         const tool = await openSequences(page);
-        await tool.getByRole('button', { name: /^Snippets/ }).click();
-        await tool.getByRole('button', { name: /What all of this means/ }).click();
+        const snippets = tool.getByRole('button', { name: /^Snippets/ });
         const over = page.locator('dialog.tool[open] dialog.tool[open]');
-        await expect(over).toBeVisible();
-        expect(await inNested(page)).toBe(true);
+        const openReference = async () => {
+            await snippets.click();
+            await tool.getByRole('button', { name: /What all of this means/ }).click();
+            await expect(over).toBeVisible();
+            expect(await inNested(page)).toBe(true);
+        };
 
+        //By its ✕ first, which is the other way it shuts.
+        await openReference();
+        await over.locator('> .tool-head .shut').click();
+        await expect(over).toHaveCount(0);
+        await expect(snippets).toBeFocused();
+
+        await openReference();
         await page.keyboard.press('Escape');
 
         await expect(over).toHaveCount(0);
         await expect(page.locator('dialog.tool[open]')).toHaveCount(1);
         await expect(page.locator('dialog.tool[open] > .tool-head')).toContainText('Multi-Instrument Scripts');
         expect(await scriptText(page)).toBe(SCRIPT);
+        await expect(snippets).toBeFocused();
 
-        //And the editor's own window still answers the key, once it is pressed in there.
-        await page.locator('dialog.tool[open] .split .console').click();
         await page.keyboard.press('Escape');
         await expect(page.locator('dialog.tool[open]')).toHaveCount(0);
     });
 
     ///
-    ///The same for the AI window over a console's Script Editor, which draws it the same way.
+    ///The same for the AI window over a console's Script Editor, which draws it the same way. The focus
+    ///goes back to Script with AI, which opened it, and the next Esc shuts the editor.
     ///
     test('shuts the AI window and leaves the Script Editor', async ({ page, request }) => {
         await withKey(request, async () => {
@@ -532,6 +547,40 @@ test.describe('Esc with one thing open inside another', () => {
             await expect(page.locator('dialog.tool[open]')).toHaveCount(1);
             await expect(page.locator('dialog.tool[open] > .tool-head')).toContainText('Script Editor');
             expect(await scriptText(page)).toBe(SCRIPT);
+            await expect(page.locator('dialog.tool[open]').getByRole('button', { name: /Script with AI/ }))
+                .toBeFocused();
+
+            await page.keyboard.press('Escape');
+            await expect(page.locator('dialog.tool[open]')).toHaveCount(0);
+        });
+    });
+
+    ///
+    ///And when its script is used, the AI window shuts with the button that was pressed in it. The
+    ///desktop leaves the caret at the start of what was written and the focus in the editor
+    ///(Select(0, 0), then Focus()), and so does this: Enter opens a line above the script, and the
+    ///next Esc shuts the editor. The focus had gone with the button.
+    ///
+    test('gives the editor the focus when the AI window\'s script is used', async ({ page, request }) => {
+        await withStubModel(request, async () => {
+            await connect(page, instrument.address);
+            await consoleButton(page, /Scripts/).click();
+            await setScript(page, SCRIPT);    // which leaves the caret at its end
+
+            await page.locator('dialog.tool[open]').getByRole('button', { name: /Script with AI/ }).click();
+            const writer = page.locator('dialog.tool[open] dialog.tool[open]');
+            await expect(writer.locator('.chat')).toBeVisible();
+            await ask(page, 'anything', 1);
+            await writer.getByRole('button', { name: /Use This Script/ }).click();
+
+            await expect(writer).toHaveCount(0);
+            await expect.poll(() => page.evaluate(() => !!document.activeElement.closest('.code.monaco')))
+                .toBe(true);
+            await page.keyboard.press('Enter');
+            expect(await scriptText(page)).toBe('\n# turn 1\n*IDN?');
+
+            await page.keyboard.press('Escape');
+            await expect(page.locator('dialog.tool[open]')).toHaveCount(0);
         });
     });
 
@@ -539,9 +588,13 @@ test.describe('Esc with one thing open inside another', () => {
     ///A menu open in the window takes the key before the window does, and the next Esc shuts the
     ///window. The desktop's Snippets is a drop-down, and a drop-down eats its own Esc.
     ///
+    ///It leaves the focus on its button, too, when the focus was on one of its items. The item goes
+    ///with the menu, and the focus had gone with it, so the next Esc reached no window.
+    ///
     test('shuts a menu before the window it is in', async ({ page }) => {
         const tool = await openSequences(page);
-        await tool.getByRole('button', { name: /^Snippets/ }).click();
+        const snippets = tool.getByRole('button', { name: /^Snippets/ });
+        await snippets.click();
         const menu = tool.locator('.menu[aria-label="Snippets"]');
         await expect(menu).toBeVisible();
 
@@ -549,6 +602,14 @@ test.describe('Esc with one thing open inside another', () => {
         await expect(menu).toHaveCount(0);
         await expect(page.locator('dialog.tool[open]')).toHaveCount(1);
         expect(await scriptText(page)).toBe(SCRIPT);
+
+        //Again, from its first item, reached with Tab.
+        await snippets.click();
+        await page.keyboard.press('Tab');
+        await expect(menu.getByRole('button').first()).toBeFocused();
+        await page.keyboard.press('Escape');
+        await expect(menu).toHaveCount(0);
+        await expect(snippets).toBeFocused();
 
         await page.keyboard.press('Escape');
         await expect(page.locator('dialog.tool[open]')).toHaveCount(0);

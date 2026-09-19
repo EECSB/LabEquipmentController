@@ -334,11 +334,11 @@
     ///The windows around the last press, innermost first.
     ///
     ///A key belongs to the window with the focus, except when nothing has it. Run, pressed with the
-    ///mouse, greys out as the run starts and the focus falls back to the page, and a window closing
-    ///under the focus leaves it there too. A click on the log does not: the browser gives the focus to
-    ///the window. A key pressed with nothing focused belongs to the window last pressed in. If that
-    ///one has closed since (the AI window does, when its script is used), the key goes to the window
-    ///it was open over.
+    ///mouse, greys out as the run starts and the focus falls back to the page. A click on the log does
+    ///not do that: the browser gives the focus to the window. Nor does a window that shuts: a dialog
+    ///hands the focus back to whatever had it when it opened, and the editor takes it when the AI
+    ///window's script is used. A key pressed with nothing focused belongs to the window last pressed
+    ///in, or, if that one has closed since, to the window it was open over.
     ///
     let pressed = [];
 
@@ -506,6 +506,17 @@
 
             const selection = held.editor.getSelection();
             held.editor.executeEdits('lec', [{ range: selection, text: text, forceMoveMarkers: true }]);
+            held.editor.focus();
+        },
+
+        ///The caret to the start and the focus into the editor, where the desktop leaves them when a
+        ///script arrives from the AI window: SequenceForm and ScriptForm both Select(0, 0) and Focus().
+        focusStart: function (el) {
+            const held = editors.get(el);
+            if (!held) return;
+
+            held.editor.setPosition({ lineNumber: 1, column: 1 });
+            held.editor.revealLine(1);
             held.editor.focus();
         },
 

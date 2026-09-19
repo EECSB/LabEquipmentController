@@ -293,11 +293,11 @@ test.describe('F5', () => {
     });
 
     ///
-    ///With nothing focused, the key belongs to the window last pressed in. Two ordinary things leave
-    ///the focus on nothing. Run, pressed with the mouse, greys out as the run starts. And a window
-    ///opened over the editor closes: the reference shut by its ✕, or the AI window once its script
-    ///is used. F5 after either is the editor's. On the bench it stays the browser's: the bench is
-    ///not an editor, and a reload does not disconnect it.
+    ///With nothing focused, the key belongs to the window last pressed in. Run, pressed with the
+    ///mouse, leaves the focus on nothing: it greys out as the run starts. F5 after that is the
+    ///editor's. On the bench it stays the browser's: the bench is not an editor, and a reload does
+    ///not disconnect it. A window opened over the editor is not another way to lose the focus: it
+    ///gives the focus back as it shuts (dialogs.spec.js).
     ///
     test('with nothing focused, belongs to the window last pressed in', async ({ page }) => {
         const tool = await openSequences(page);
@@ -318,18 +318,6 @@ test.describe('F5', () => {
         await expect.poll(() => measured(heard)).toHaveLength(2);
         await expect(output(page)).toContainText('--- done ---');
 
-        await tool.getByRole('button', { name: /^Snippets/ }).click();
-        await tool.getByRole('button', { name: /What all of this means/ }).click();
-        const over = page.locator('dialog.tool[open] dialog.tool[open]');
-        await expect(over).toBeVisible();
-        await over.locator('> .tool-head .shut').click();
-        await expect(over).toHaveCount(0);
-        expect(await nothingFocused()).toBe(true);
-
-        await page.keyboard.press('F5');
-        await expect.poll(() => measured(heard)).toHaveLength(3);
-        await expect(output(page)).toContainText('--- done ---');
-
         //The bench: a control of its own with the focus, and then nothing with the focus after a press
         //in the margin the window leaves round itself. Dispatched rather than typed, because an F5 left
         //to the browser is a real reload.
@@ -337,7 +325,7 @@ test.describe('F5', () => {
         await page.mouse.click(6, 500);
         expect(await nothingFocused()).toBe(true);
         expect(await dispatchF5(page)).toBe(false);
-        expect(measured(heard)).toHaveLength(3);
+        expect(measured(heard)).toHaveLength(2);
     });
 
     ///

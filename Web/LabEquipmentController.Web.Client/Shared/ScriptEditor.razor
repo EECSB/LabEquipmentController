@@ -40,7 +40,7 @@
     @* Every word the language has, and one press to put it in the editor — the language
        reference in the place where it is needed. *@
     <div class="settings" @onkeydown="OnMenuKey">
-        <button class="@(_snippets ? "on" : "")" @onclick="() => _snippets = !_snippets"
+        <button @ref="_snippetsButton" class="@(_snippets ? "on" : "")" @onclick="() => _snippets = !_snippets"
                 aria-expanded="@(_snippets ? "true" : "false")"
                 title="Every word the language has, with a note on what each is for. Pressing one writes it into the editor."><Icon Name="new" /> Snippets ▾</button>
         @if (_snippets)
@@ -156,7 +156,14 @@
 
     private ElementReference _editor;
     private ElementReference _file;
+    private ElementReference _snippetsButton;
     private bool _referenceOpen;
+
+    /// <summary>
+    /// A script has just come from the AI window: the caret goes to its start and the focus into
+    /// the editor, once the render that puts it there is done.
+    /// </summary>
+    private bool _focusStart;
 
     private IReadOnlyList<SnippetDto> _snippetList = [];
     private bool _snippets;
@@ -187,6 +194,12 @@
         }
 
         await JS.InvokeVoidAsync("lec.monaco.set", _editor, Script);
+
+        if (_focusStart)
+        {
+            _focusStart = false;
+            await JS.InvokeVoidAsync("lec.monaco.focusStart", _editor);
+        }
     }
 
     /// <summary>Whether the page is in its dark theme, so the editor opens in the same one.</summary>
@@ -299,9 +312,15 @@
     /// for. It opened a browser tab, which is the wrong shape for it twice over: it took you out
     /// of the editor to read about the thing you were editing, and it left a tab behind. The
     /// desktop opens ScriptReferenceForm over the editor, and so does this.
+    ///
+    /// Snippets takes the focus back from the menu item first. The item goes with the menu, and
+    /// the reference gives the focus back to whatever had it when it opened, so without this it
+    /// had nothing to give it back to. The desktop's drop-down never takes the focus from the
+    /// button it dropped from, so that is where its reference leaves it too.
     /// </summary>
-    private void OpenReference()
+    private async Task OpenReference()
     {
+        await _snippetsButton.FocusAsync();
         _snippets = false;
         _referenceOpen = true;
     }
@@ -313,21 +332,34 @@
         _downOutside = false;
     }
 
-    private void OnMenuKey(KeyboardEventArgs e)
+    /// <summary>
+    /// Esc shuts the menu and leaves the focus on Snippets, as the desktop's drop-down does. From
+    /// an item, the focus would otherwise go with the menu, and the next Esc would reach no window.
+    /// With the menu shut, the key is the window's, which has already closed itself.
+    /// </summary>
+    private async Task OnMenuKey(KeyboardEventArgs e)
     {
-        if (e.Key == "Escape") _snippets = false;
+        if (e.Key != "Escape" || !_snippets) return;
+        await _snippetsButton.FocusAsync();
+        _snippets = false;
     }
 
     // ---------------------------------------------------------------------- the model
 
     private void OpenAi() => _aiOpen = true;
 
+    /// <summary>
+    /// The script the model wrote, into the editor, with the caret at its start and the focus
+    /// there, as SequenceForm and ScriptForm leave them (Select(0, 0), then Focus()). The AI
+    /// window goes with the button that was pressed in it, and the focus would have gone too.
+    /// </summary>
     private async Task UseScript(string script)
     {
         await ScriptChanged.InvokeAsync(script);
         await Say("Script written by AI — read it before running it.");
         await OnScriptReplaced.InvokeAsync();
         _aiOpen = false;
+        _focusStart = true;
     }
 
     private sealed record FilePayload(string name, string base64);

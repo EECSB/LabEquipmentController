@@ -1012,7 +1012,7 @@ starts locked, and the hub's `Driven` message keeps it fresh.
 | `✕` on a tab | disconnects and closes |
 | Enter in the command box | sends |
 | Up / Down in the command box | command history for this instrument |
-| Esc in any dialog | closes it, and nothing else: only the innermost thing it was pressed in. A window opened from inside another (the reference or the AI window over a script editor) closes on its own and leaves the editor, with its script, where it was. A menu or a completion list open in the window takes the key before the window does |
+| Esc in any dialog | closes it, and nothing else: only the innermost thing it was pressed in. A window opened from inside another (the reference or the AI window over a script editor) closes on its own and leaves the editor, with its script, where it was. A menu or a completion list open in the window takes the key before the window does. The focus goes back where the desktop puts it, so the next Esc closes the editor: to `Snippets ▾` when the reference or the menu shuts, to `Script with AI…` when the AI window does, and into the editor, at the start of the script, when that window's script is used |
 | Click outside a **modal** | closes it — both ends of the press must land outside |
 | Click outside a **tool window** | nothing. It is a window, not a popup |
 | Drag a tool window's title bar | moves it, clamped so a grabbable strip stays on screen |
@@ -1034,13 +1034,12 @@ says why), and in every window that is not an editor, including the reference an
 opened from one. `Ctrl+F5` and `Ctrl+R` are never taken, so a reload is always one keystroke
 away. Held down, either key is one press, as holding a button down is one click. A held Ctrl+S
 would otherwise be a download for every repeat. A key goes to the window that has the focus.
-When nothing has it (`Run` greys out under the pointer as the run starts, and a
-window closing under the focus leaves it on nothing), the key goes to the window last pressed
-in, or to the window that one was open over if it has closed. The reason on the status line is
-the picker's, so on the web it carries the remedy too: `(2 connected: pick one)`. Behind the key,
-`Run` binds afresh before it starts, as `SequenceForm.RunAsync` does, because the table is only
-as new as the last pause in typing. And `Run` is one run however it is pressed. Before this, a
-double-click started two.
+When nothing has it (`Run` greys out under the pointer as the run starts), the key goes to the
+window last pressed in, or to the window that one was open over if it has closed. The reason on
+the status line is the picker's, so on the web it carries the remedy too:
+`(2 connected: pick one)`. Behind the key, `Run` binds afresh before it starts, as
+`SequenceForm.RunAsync` does, because the table is only as new as the last pause in typing. And
+`Run` is one run however it is pressed. Before this, a double-click started two.
 
 ---
 
