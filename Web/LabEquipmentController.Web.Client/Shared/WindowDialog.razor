@@ -36,7 +36,7 @@
             }
             else
             {
-                <a class="btn" href="@AddressOf(window)" target="@TabOf(window)" @onclick="() => SentOut(window)"
+                <a class="btn" href="@LinkOf(window)" target="@TabOf(window)" @onclick="() => SentOut(window)"
                    title="Move this into a browser tab of its own, so it can sit beside the work instead of over it. Closing that tab brings it back here. Shift-click for a separate window.">
                     <Icon Name="detach" /> Open in a tab
                 </a>
@@ -45,7 +45,8 @@
         <ChildContent>
             @* Built only while the window is open, so each opening starts fresh rather than
                showing what was left behind — and so a catalog of 24,000 commands is not sitting
-               in the render tree of every page that happens to have the gear on it. *@
+               in the render tree of every page that happens to have the gear on it. A window
+               coming back from its tab is not an opening: the editor brings what the tab held. *@
             @switch (window)
             {
                 case Window.Catalog:
@@ -57,7 +58,7 @@
                     break;
 
                 case Window.Sequences:
-                    <Sequences Embedded="true" />
+                    <Sequences Embedded="true" @ref="_sequences" Returning="@_returning.Contains(window)" />
                     break;
             }
         </ChildContent>
@@ -87,6 +88,24 @@
         Window.Sequences => "sequences",
         _ => "script-language",
     };
+
+    /// <summary>
+    /// Where Open in a tab goes: the window's address, and for the multi-instrument editor a word
+    /// saying that this is the window moving rather than a page being opened, so the tab takes up
+    /// the script it carried (see Sequences). In the address because the tab may be a separate
+    /// window, by Shift-click, with nothing else to tell it where it came from.
+    /// </summary>
+    private static string LinkOf(Window window)
+        => window == Window.Sequences ? AddressOf(window) + "?moved=1" : AddressOf(window);
+
+    /// <summary>The multi-instrument editor, while its window is open here: it packs what moves with it.</summary>
+    private Sequences? _sequences;
+
+    /// <summary>
+    /// Windows coming back from a tab that has closed, rather than being opened: the editor takes
+    /// up what its tab held. Cleared when the window shuts, so the next opening is a new window.
+    /// </summary>
+    private readonly HashSet<Window> _returning = [];
 
     /// <summary>Named, so pressing the link twice returns to the tab already open.</summary>
     private static string TabOf(Window window) => window switch
@@ -125,6 +144,10 @@
     /// </summary>
     private async Task SentOut(Window what)
     {
+        // What is in it goes too. The tab opened on an editor of its own, and the script being
+        // written went with the dialog that closed here.
+        if (what == Window.Sequences && _sequences is not null) await _sequences.SendOutAsync();
+
         _out[what] = false;
         Close(what);
         await Watching();
@@ -161,6 +184,7 @@
         foreach (var window in home)
         {
             _out.Remove(window);
+            _returning.Add(window);
             await Show(window);
         }
 
@@ -200,6 +224,7 @@
     {
         _open.Remove(what);
         _windows.Remove(what);
+        _returning.Remove(what);
         StateHasChanged();
     }
 }

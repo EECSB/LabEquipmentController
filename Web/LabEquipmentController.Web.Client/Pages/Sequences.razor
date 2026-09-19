@@ -2,6 +2,7 @@
 @implements IAsyncDisposable
 @inject BenchClient Bench
 @inject IJSRuntime JS
+@inject NavigationManager Nav
 
 @* No heading and no lede, in either shape. SequenceForm opens on its toolbar and its editor, and
    that is what this opens on too.
@@ -102,6 +103,12 @@
     /// <summary>The window this is open in, when it is in one rather than in a tab of its own.</summary>
     [CascadingParameter] public ToolWindow? Window { get; set; }
 
+    /// <summary>
+    /// The window coming back from a browser tab that has closed, rather than being opened: what
+    /// the tab held comes back with it. WindowDialog says so.
+    /// </summary>
+    [Parameter] public bool Returning { get; set; }
+
     private IReadOnlyList<SessionDto> _sessions = [];
     private IReadOnlyList<ExampleDto> _examples = [];
     private IReadOnlyList<SequenceRequirement> _requirements = [];
@@ -136,6 +143,10 @@
         // and on the desktop there always is one.
         if (_examples.Count > 0) _script = _examples[0].Script;
 
+        // Unless this is the window moved rather than opened, into a tab or back from one: then it
+        // opens on what was being written in it.
+        if (Moved || Returning) await Unpack();
+
         // The bench changes while this page is open — instruments are connected and
         // disconnected from the console — and a strip reporting on a bench that has moved on
         // is worse than no strip. SequenceForm re-reads it on a one-second timer for the same
@@ -156,6 +167,7 @@
     private async Task Typed(string text)
     {
         _script = text;
+        await Keep();
 
         int mine = ++_edit;
         await Task.Delay(350);
@@ -198,7 +210,64 @@
         if (string.IsNullOrEmpty(sessionId)) _picks.Remove(alias);
         else _picks[alias] = sessionId;
 
+        await Keep();
         await Resolve();
+    }
+
+    // ------------------------------------------------------------ moving into a tab and back
+
+    /// <summary>
+    /// This is the window moved into a tab of its own by Open in a tab, which says so in the
+    /// address (WindowDialog). Opened any other way, a page is a new window, and a new
+    /// SequenceForm opens on the first example.
+    /// </summary>
+    private bool Moved => !Embedded
+        && Nav.ToBaseRelativePath(Nav.Uri).Contains("moved=1", StringComparison.Ordinal);
+
+    /// <summary>Where it is kept on the way, under the address of the page it moves to.</summary>
+    private const string Route = "sequences";
+
+    /// <summary>What moves with the window: the script, and the parts picked for it by hand.</summary>
+    private sealed record Carried(string Script, Dictionary<string, string> Picks);
+
+    private string Pack()
+        => System.Text.Json.JsonSerializer.Serialize(
+            new Carried(_script, new Dictionary<string, string>(_picks)));
+
+    /// <summary>
+    /// Moving into a tab: leave what this holds where the tab will find it. WindowDialog calls it
+    /// as Open in a tab is pressed, before the window closes here. The tab had opened on the first
+    /// example, and the script being written went with the dialog.
+    /// </summary>
+    public async Task SendOutAsync() => await JS.InvokeVoidAsync("lec.windows.carry", Route, Pack());
+
+    /// <summary>
+    /// In the tab, what it holds is kept current as it changes: a tab that is being closed cannot
+    /// hand anything back, so what the window takes home is whatever was kept last.
+    /// </summary>
+    private async Task Keep()
+    {
+        if (Moved) await JS.InvokeVoidAsync("lec.windows.carry", Route, Pack());
+    }
+
+    /// <summary>
+    /// What was carried, into the tab or home from it. Home, the tab has gone and what it held
+    /// is this window's now, so it is taken out of storage; a tab leaves it there and keeps it
+    /// current, which also means a reload of the tab keeps the script.
+    /// </summary>
+    private async Task Unpack()
+    {
+        string? packed = await JS.InvokeAsync<string?>("lec.windows.carried", Route);
+        if (Returning) await JS.InvokeVoidAsync("lec.windows.drop", Route);
+        if (packed is null) return;
+
+        Carried? carried;
+        try { carried = System.Text.Json.JsonSerializer.Deserialize<Carried>(packed); }
+        catch (System.Text.Json.JsonException) { return; }   // not something this build wrote
+        if (carried?.Script is null) return;
+
+        _script = carried.Script;
+        foreach (var (alias, id) in carried.Picks ?? []) _picks[alias] = id;
     }
 
     /// <summary>The output as one block, for the AI window's "Include the last run's output".</summary>
@@ -320,8 +389,8 @@
 
     /// <summary>
     /// Keep the window out of a browser tab while a script runs in it, or is being started. The
-    /// tab opens on an editor of its own, so the run would stay behind with nothing to watch it
-    /// or to stop it from. SequenceForm is a window already and has nothing to move.
+    /// script goes with the window, but a run cannot, so it would stay behind with nothing to
+    /// watch it or to stop it from. SequenceForm is a window already and has nothing to move.
     /// </summary>
     private void Hold() => Window?.Hold(_running || _starting ? RunHoldsTheWindow : null);
 

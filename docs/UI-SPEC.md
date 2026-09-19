@@ -225,9 +225,16 @@ library, the language reference, the multi-instrument editor — close on the be
 opens, and **come back when that tab is closed**. A window that moved and a window that
 multiplied look the same until you close one of them, and a window that simply vanished leaves
 you working out which menu it came from. It is the round trip a detached console already makes.
-**Not while a script runs** in the multi-instrument editor: the tab opens on an editor of its
-own, so the run would stay behind, holding its instruments with nothing to watch it or to stop it
-from. `Open in a tab` is greyed until the run ends, with that reason in its tooltip (§7).
+
+**What is being written goes with it**, both ways: the multi-instrument editor's script and the
+parts picked for it by hand arrive in the tab, and come back with the window when the tab is
+closed. It is kept rather than sent, in `localStorage`, because a tab that is closing cannot send
+anything (below): the tab keeps it current as it changes, and the window takes it home. The log
+and the table start empty, as a detached console's log does. Opened any other way, the editor is
+a new window on the first example, as a new `SequenceForm` is. **Not while a script runs** in
+it: a run cannot go with the window, so it would stay behind, holding its instruments with
+nothing to watch it or to stop it from. `Open in a tab` is greyed until the run ends, with that
+reason in its tooltip (§7).
 
 How it is known is a **roll-call**, not a farewell: the bench asks who is out there whenever it is
 looked at, and on a timer while anything is out — two windows side by side raise no focus event in
@@ -1137,12 +1144,6 @@ Found while writing the tests, and recorded rather than quietly kept:
   `Save changes to the current script?` on the way out, and hides rather than closes, so opening
   it again finds the script, the log and the results; the web asks nothing and opens afresh.
   Found while porting the two `FormClosing`s, and the desktop's to settle first.
-
-- **`Open in a tab` takes the window, not what is in it.** The multi-instrument editor's tab
-  opens as a new window does, on the first example, with an empty log and table, so a script
-  being written in the dialog stays behind and is gone with it; closing the tab brings the window
-  back the same way, fresh. Web only, with no desktop side to settle: `SequenceForm` is a window
-  already and never moves. A run can no longer be left behind like that (§2), but the script can.
 
 The other one found that way — the console not locking during a run — is closed: §7 describes
 what both builds now do, and `Web/tests/e2e/lock.spec.js` holds it there.

@@ -13,7 +13,7 @@
 //
 const fs = require('fs');
 const { test, expect } = require('./fixtures');
-const { freshBench, connect, boxOf, quick, setScript, scriptText, editorReady } = require('./helpers');
+const { freshBench, connect, boxOf, quick, setScript, scriptText, editorReady, BOOT_MS } = require('./helpers');
 const { startInstrument } = require('./instrument');
 
 let instrument;
@@ -402,6 +402,65 @@ test.describe('Ctrl+S', () => {
 
         await page.keyboard.press('Meta+s');
         await expect.poll(() => saved.length).toBe(2);
+    });
+});
+
+test.describe('Open in a tab', () => {
+    ///Two parts of one model and one meter: the rule gives it to the first and leaves the second for a
+    ///pick, so a pick that made the trip can be told from the rule's own answer.
+    const PICKED = 'DEVICE dmm : SDM3065X\nDEVICE spare : SDM3065X\ndmm: *IDN?\nspare: *IDN?';
+    const WRITTEN = PICKED + '\nPRINT "written in the tab"';
+
+    ///The script in `where`, with Monaco's line endings (CRLF on Windows) read as the \n it was written with.
+    const textIn = async (where) => (await scriptText(where)).replace(/\r\n/g, '\n');
+
+    ///
+    ///The window moves with what is being written in it: the script, and the parts picked for it by
+    ///hand. The tab had opened on the first example, as a new window does, and the script went with
+    ///the dialog that closed. Closing the tab brings the window back with what the tab held, kept as
+    ///it changed because a tab that is closing cannot hand anything over. Opened afresh after that,
+    ///it is a new window again, on the first example, as a new SequenceForm is.
+    ///
+    test('takes the script and its picks, and brings them back', async ({ page, context }) => {
+        const tool = await openSequences(page);
+        await setScript(page, PICKED);
+        await expect(bindings(page).locator('tbody tr td:first-child')).toHaveText(['dmm', 'spare']);
+        const id = await binding(page, 'dmm').locator('select').inputValue();
+        await binding(page, 'spare').locator('select').selectOption(id);
+        await expect(binding(page, 'spare')).not.toHaveClass(/unbound/);
+
+        const [tab] = await Promise.all([
+            context.waitForEvent('page'),
+            tool.locator('> .tool-head a.btn').click(),
+        ]);
+        try {
+            await expect(page.locator('dialog.tool[open]')).toHaveCount(0);
+            await expect(tab.locator('.code.monaco')).toBeVisible({ timeout: BOOT_MS });
+            expect(await textIn(tab)).toBe(PICKED);
+            const spare = tab.locator('.group.editor > .bindings tbody tr')
+                .filter({ has: tab.locator('td:text-is("spare")') });
+            await expect(spare).not.toHaveClass(/unbound/);
+            await expect(spare.locator('select')).toHaveValue(id);
+
+            await setScript(tab, WRITTEN);
+            await expect.poll(() => page.evaluate(() => localStorage.getItem('lec.carried.sequences')))
+                .toContain('written in the tab');
+        } finally {
+            await tab.close();
+        }
+
+        //Coming back to the bench is what notices the tab has gone.
+        await page.bringToFront();
+        await expect(page.locator('dialog.tool[open] > .tool-head'))
+            .toContainText('Multi-Instrument Scripts', { timeout: 20000 });
+        await editorReady(page);
+        await expect.poll(() => textIn(page)).toBe(WRITTEN);
+        await expect(binding(page, 'spare')).not.toHaveClass(/unbound/);
+
+        await page.locator('dialog.tool[open] > .tool-head .shut').click();
+        await expect(page.locator('dialog.tool[open]')).toHaveCount(0);
+        await openSequences(page);
+        await expect.poll(() => textIn(page)).toMatch(/^# Frequency response/);
     });
 });
 

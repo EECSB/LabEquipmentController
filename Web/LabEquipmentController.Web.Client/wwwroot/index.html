@@ -853,6 +853,16 @@
                     say({ type: 'tool', which });
                 },
 
+                // What a window takes with it when it moves: the multi-instrument editor's script
+                // and the parts picked for it. The dialog leaves it here as its tab opens, the tab
+                // keeps it current while it is open, and the window takes it back when the tab has
+                // gone. Kept rather than sent, because a tab that is closing cannot send anything
+                // (see claimTool), and in localStorage because every tab of this address shares it.
+                // A browser that refuses storage moves the window without it, as before.
+                carry: (which, what) => { try { localStorage.setItem('lec.carried.' + which, what); } catch { } },
+                carried: (which) => { try { return localStorage.getItem('lec.carried.' + which); } catch { return null; } },
+                drop: (which) => { try { localStorage.removeItem('lec.carried.' + which); } catch { } },
+
                 // Ask a console to come home, then check that it did. A window that has
                 // already gone will not answer either message, and the roll-call is what
                 // notices that rather than leaving the tab dimmed for a window with nobody in.
