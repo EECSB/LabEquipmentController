@@ -396,9 +396,10 @@
                 // from the z-index the stylesheet gives them and hands out the next one on every
                 // press. Non-modal dialogs are not in the top layer, so plain z-index decides.
                 z: 30,
-                // The optional second argument is told when the dialog is dismissed, so a
-                // component does not go on believing its dialog is open — and holding on to
-                // whatever was inside it — after the user has shut it.
+                // The optional second argument is asked to shut the dialog when Esc is pressed
+                // in it, so a component does not go on believing its dialog is open — and holding
+                // on to whatever was inside it — after the user has shut it, and so that what is
+                // inside can keep it open.
                 //
                 // Every way out is handled here rather than left to the element's own close
                 // event. A <dialog> is meant to close itself on Esc and announce it, and most
@@ -427,11 +428,18 @@
                         // Anything pressed inside brings the window forward. In the capture phase,
                         // so a control that stops the event still raises the window it is in.
                         if (!modal) el.addEventListener('mousedown', raise, true);
+                        // A tool window is shut from .NET, as its ✕ is, so that what is in it can
+                        // say no first: SequenceForm asks before it stops a running script to
+                        // close. A modal box has nothing to ask, and shuts here.
                         const shut = () => {
-                            if (el.open) el.close();
+                            if (!el.open) return;
                             const back = el.__lecRef;
-                            if (back) back.invokeMethodAsync('DialogClosed');
+                            if (back) back.invokeMethodAsync('CloseRequested');
+                            else el.close();
                         };
+                        // For an Esc pressed with nothing focused, which reaches no window's own
+                        // listener. See windowFor below.
+                        el.__lecShut = shut;
                         // Click outside to dismiss. The backdrop is not an element, so a
                         // press on it lands on the dialog itself; anything inside hits a
                         // child.
@@ -625,6 +633,46 @@
                 close: (el) => { if (el && el.open) el.close(); }
             }
         });
+
+        // Which window a key belongs to, for the keys a window takes wherever in it they are
+        // pressed: Esc here, and F5 and Ctrl+S in a script editor (js/monaco.js).
+        //
+        // The window with the focus, except when nothing has it. Run, pressed with the mouse,
+        // greys out as the run starts and the focus falls back to the page. A click on the log
+        // does not do that: the browser gives the focus to the window. Nor does a window that
+        // shuts: a dialog hands the focus back to whatever had it when it opened, and a script
+        // used from the AI window leaves it in the editor. A key pressed with nothing focused
+        // belongs to the window last pressed in, or, if that one has closed since, to the window
+        // it was open over.
+        (() => {
+            const windowOf = (node) => (node && node.closest ? node.closest('dialog') : null);
+
+            // The windows around the last press, innermost first.
+            let pressed = [];
+            document.addEventListener('mousedown', (e) => {
+                pressed = [];
+                for (let w = windowOf(e.target); w; w = windowOf(w.parentElement)) pressed.push(w);
+            }, true);
+
+            window.lec.dialog.windowOf = windowOf;
+            window.lec.dialog.windowFor = (e) => {
+                const t = e.target;
+                if (t && t !== document.body && t !== document.documentElement) return windowOf(t);
+                return pressed.find((w) => w.isConnected && w.open) || null;
+            };
+
+            // Esc with nothing focused. Each window hears the Esc pressed in it (see open), and one
+            // pressed on the page reached none of them: after Run had greyed out under the pointer,
+            // Esc did nothing at all, where on the desktop the window is still the active one and
+            // SequenceForm asks whether to stop the run. It goes where F5 goes.
+            document.addEventListener('keydown', (e) => {
+                if (e.key !== 'Escape') return;
+                const t = e.target;
+                if (t && t !== document.body && t !== document.documentElement) return;
+                const w = window.lec.dialog.windowFor(e);
+                if (w && w.__lecShut) w.__lecShut();
+            });
+        })();
 
         // A detached console lives in its own browser tab or window. The desktop app can
         // reparent the control itself; a web page cannot, so the console is rebuilt over

@@ -67,11 +67,16 @@
     /// <summary>The instrument to run against. The console that opened this supplies it.</summary>
     [Parameter, EditorRequired] public string? Session { get; set; }
 
+    /// <summary>The window this is open in.</summary>
+    [CascadingParameter] public ToolWindow? Window { get; set; }
+
     /// <summary>The output as one block, for the AI window's "Include the last run's output".</summary>
     private string OutputText => string.Join('\n', _output.Select(o => o.Text));
 
     protected override async Task OnInitializedAsync()
     {
+        if (Window is not null) Window.BeforeClose = MayClose;
+
         _sessions = await Bench.SessionsAsync();
         _sessionId = Session ?? _sessions.FirstOrDefault()?.Id;
         await LoadExamples();
@@ -124,6 +129,19 @@
     private async Task Stop()
     {
         if (_runId is not null) await Bench.StopAsync(_runId);
+    }
+
+    /// <summary>
+    /// Asked before the window shuts, by its ✕ or by Esc: ScriptForm's FormClosing, which stops a
+    /// running script and does not ask (<c>_runCts?.Cancel()</c>). The window had closed and left
+    /// the run going, with the console locked to it and no window left to stop it from.
+    /// </summary>
+    private async Task<bool> MayClose()
+    {
+        // A run being started is a run, as ScriptForm's token is taken before anything else.
+        while (_starting) await Task.Delay(20);
+        if (_running) await Stop();
+        return true;
     }
 
     private void ClearLog() => _output.Clear();

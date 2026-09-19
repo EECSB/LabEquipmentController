@@ -27,7 +27,8 @@
         <button class="shut" @onclick="CloseAsync" aria-label="Close"><Icon Name="close" /></button>
     </div>
 
-    <div class="tool-body @(Fill ? "fill" : null)">@ChildContent</div>
+    @* The window, handed to whatever is in it: that is how a script editor keeps it open. *@
+    <div class="tool-body @(Fill ? "fill" : null)"><CascadingValue Value="this" IsFixed="true">@ChildContent</CascadingValue></div>
 
     @* The corner you size it by. Drawn rather than left to resize: both — see .sizer. *@
     <div class="sizer" title="Drag to resize this window."><Icon Name="sizer" /></div>
@@ -72,10 +73,18 @@
         : null;
 
     /// <summary>
-    /// The window has gone: by the ✕, by Esc, or by the browser closing it. The parent is
-    /// expected to drop it from whatever list it renders from, which is what disposes this.
+    /// The window has gone, by the ✕ or by Esc. The parent is expected to drop it from whatever
+    /// list it renders from, which is what disposes this.
     /// </summary>
     [Parameter] public EventCallback OnClosed { get; set; }
+
+    /// <summary>
+    /// Asked before the window shuts, by the ✕ or by Esc, and false keeps it open. Set by what is
+    /// in the window, which is the only thing that knows what shutting it would lose: a script
+    /// editor with a run going. SequenceForm and ScriptForm answer the same question in
+    /// FormClosing.
+    /// </summary>
+    public Func<Task<bool>>? BeforeClose { get; set; }
 
     private ElementReference _el;
     private DotNetObjectReference<ToolWindow>? _self;
@@ -94,19 +103,36 @@
     /// <summary>Bring this window in front of the others, without rebuilding what is in it.</summary>
     public Task RaiseAsync() => JS.InvokeVoidAsync("lec.dialog.raise", _el).AsTask();
 
-    /// <summary>Esc, or anything else the browser closes it by. Told from the JS side.</summary>
+    /// <summary>
+    /// Esc, pressed in the window or, with nothing focused, after a press in it. The JS side
+    /// leaves the closing to this, so that <see cref="BeforeClose"/> is asked first.
+    /// </summary>
     [JSInvokable]
-    public Task DialogClosed() => OnClosed.InvokeAsync();
+    public Task CloseRequested() => CloseAsync();
 
     /// <summary>
-    /// The ✕. Says so itself rather than waiting to be told: closing an element does not raise
-    /// anything this side, so a window shut this way would stay mounted behind nothing.
+    /// The ✕, and Esc. Asks <see cref="BeforeClose"/>, then shuts the element and says so: closing
+    /// an element raises nothing this side, so a window shut without saying so would stay mounted
+    /// behind nothing.
     /// </summary>
     private async Task CloseAsync()
     {
-        await JS.InvokeVoidAsync("lec.dialog.close", _el);
-        await OnClosed.InvokeAsync();
+        // One at a time. A second Esc while the first is still being answered is the same request.
+        if (_closing) return;
+        _closing = true;
+        try
+        {
+            if (BeforeClose is not null && !await BeforeClose()) return;
+            await JS.InvokeVoidAsync("lec.dialog.close", _el);
+            await OnClosed.InvokeAsync();
+        }
+        finally
+        {
+            _closing = false;
+        }
     }
+
+    private bool _closing;
 
     public void Dispose() => _self?.Dispose();
 }

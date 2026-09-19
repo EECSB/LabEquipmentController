@@ -13,7 +13,7 @@
 //
 const fs = require('fs');
 const { test, expect } = require('./fixtures');
-const { freshBench, connect, boxOf, setScript, scriptText, editorReady } = require('./helpers');
+const { freshBench, connect, boxOf, quick, setScript, scriptText, editorReady } = require('./helpers');
 const { startInstrument } = require('./instrument');
 
 let instrument;
@@ -402,6 +402,55 @@ test.describe('Ctrl+S', () => {
 
         await page.keyboard.press('Meta+s');
         await expect.poll(() => saved.length).toBe(2);
+    });
+});
+
+test.describe('shutting it while a script runs', () => {
+    ///Long enough that only a stop ends it inside the test: it holds the meter for a hundred seconds.
+    const LONG = 'DEVICE dmm : SDM3065X\ndmm: MEAS:VOLT:DC?\nDELAY 100000';
+    const QUESTION = 'A script is still running. Stop it and close?';
+
+    ///
+    ///SequenceForm asks first. No leaves the window up and the run going; Yes stops the run and
+    ///closes. The window had closed without asking, and the run went on holding the meter, with
+    ///nothing left to watch it or to stop it from.
+    ///
+    ///Esc gets there with the focus gone from Run as it greyed out under the pointer. The key goes to
+    ///the window last pressed in, as F5 does, where it had reached no window at all. After a press on
+    ///the bench it is nobody's.
+    ///
+    test('asks first, and stops the run only when told to', async ({ page }) => {
+        const tool = await openSequences(page);
+        await setScript(page, LONG);
+        await expect(bindings(page).locator('tbody tr td:first-child')).toHaveText(['dmm']);
+
+        const asked = [];
+        let yes = false;
+        page.on('dialog', (d) => { asked.push(d.message()); return yes ? d.accept() : d.dismiss(); });
+        const nothingFocused = () => page.evaluate(() => document.activeElement === document.body);
+
+        await tool.getByRole('button', RUN).click();
+        await expect(quick(page, 'DC V')).toBeDisabled();
+        await expect.poll(nothingFocused).toBe(true);
+
+        //No: the window stays, and so does the run.
+        await page.keyboard.press('Escape');
+        await expect.poll(() => asked).toEqual([QUESTION]);
+        await expect(tool).toHaveCount(1);
+        await expect(tool.getByRole('button', { name: 'Stop', exact: true })).toBeEnabled();
+        await expect(quick(page, 'DC V')).toBeDisabled();
+
+        //A press on the bench, and the next Esc is not the window's.
+        await page.mouse.click(6, 500);
+        expect(await nothingFocused()).toBe(true);
+        await page.keyboard.press('Escape');
+
+        //Yes, by the ✕ this time: the window goes, and the run with it.
+        yes = true;
+        await tool.locator('> .tool-head .shut').click();
+        await expect(tool).toHaveCount(0);
+        await expect(quick(page, 'DC V')).toBeEnabled({ timeout: 10000 });
+        expect(asked).toEqual([QUESTION, QUESTION]);
     });
 });
 

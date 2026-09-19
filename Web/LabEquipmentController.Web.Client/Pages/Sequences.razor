@@ -99,6 +99,9 @@
     /// title bar names it, so the heading would be saying it twice.</summary>
     [Parameter] public bool Embedded { get; set; }
 
+    /// <summary>The window this is open in, when it is in one rather than in a tab of its own.</summary>
+    [CascadingParameter] public ToolWindow? Window { get; set; }
+
     private IReadOnlyList<SessionDto> _sessions = [];
     private IReadOnlyList<ExampleDto> _examples = [];
     private IReadOnlyList<SequenceRequirement> _requirements = [];
@@ -122,6 +125,8 @@
 
     protected override async Task OnInitializedAsync()
     {
+        if (Window is not null) Window.BeforeClose = MayClose;
+
         _examples = await Bench.SequenceExamplesAsync();
 
         // Open on the first example, as SequenceForm does — `_editor.Text =
@@ -314,6 +319,26 @@
     private async Task Stop()
     {
         if (_runId is not null) await Bench.StopAsync(_runId);
+    }
+
+    /// <summary>
+    /// Asked before the window shuts, by its ✕ or by Esc: SequenceForm's FormClosing. A script
+    /// still running is stopped only if the person says so, because "a half-finished sweep can
+    /// leave a generator driving the circuit. Stopping is the caller's decision, not something to
+    /// do behind their back." No keeps the window up and the run going. The window had closed
+    /// without asking, and the run went on with nothing left to watch it or to stop it from.
+    /// </summary>
+    private async Task<bool> MayClose()
+    {
+        // A run being started is a run. SequenceForm takes its token before anything else, so its
+        // FormClosing sees one from the first moment. Here the server's answer is waited for.
+        while (_starting) await Task.Delay(20);
+        if (!_running) return true;
+
+        if (!await JS.InvokeAsync<bool>("confirm", "A script is still running. Stop it and close?"))
+            return false;
+        await Stop();
+        return true;
     }
 
     private async Task Listen()

@@ -134,6 +134,33 @@ test.describe('while a script is running', () => {
         await tool.getByRole('button', { name: /^Stop$/ }).click();
         await expect(quick(page, 'DC V')).toBeEnabled({ timeout: 20000 });
     });
+
+    ///
+    ///Shutting the Script Editor stops its run, as ScriptForm's FormClosing does, and asks nothing:
+    ///the desktop asks there only about unsaved changes, which the web does not track. The window had
+    ///closed and left the run going, with this console locked to it and no window left to stop it
+    ///from. A hundred seconds of DELAY, so only a stop unlocks the console inside the test.
+    ///
+    ///Esc gets there with the focus gone from Run as it greyed out under the pointer: the key goes to
+    ///the window last pressed in, as F5 does.
+    ///
+    test('shutting the Script Editor stops the run, and asks nothing', async ({ page }) => {
+        const asked = [];
+        page.on('dialog', (d) => { asked.push(d.message()); return d.dismiss(); });
+
+        await pane(page).getByRole('button', { name: /Scripts/ }).click();
+        const tool = page.locator('dialog.tool[open]');
+        await setScript(page, 'PRINT tick\nDELAY 100000');
+        await tool.getByRole('button', { name: /^Run$/ }).click();
+        await expect(quick(page, 'DC V')).toBeDisabled();
+        await expect.poll(() => page.evaluate(() => document.activeElement === document.body)).toBe(true);
+
+        await page.keyboard.press('Escape');
+
+        await expect(tool).toHaveCount(0);
+        await expect(quick(page, 'DC V')).toBeEnabled({ timeout: 10000 });
+        expect(asked).toEqual([]);
+    });
 });
 
 test.describe('while a readout is polling', () => {

@@ -1012,7 +1012,8 @@ starts locked, and the hub's `Driven` message keeps it fresh.
 | `✕` on a tab | disconnects and closes |
 | Enter in the command box | sends |
 | Up / Down in the command box | command history for this instrument |
-| Esc in any dialog | closes it, and nothing else: only the innermost thing it was pressed in. A window opened from inside another (the reference or the AI window over a script editor) closes on its own and leaves the editor, with its script, where it was. A menu or a completion list open in the window takes the key before the window does. The focus goes back where the desktop puts it, so the next Esc closes the editor: to `Snippets ▾` when the reference or the menu shuts, to `Script with AI…` when the AI window does, and into the editor, at the start of the script, when that window's script is used |
+| Esc in any dialog | closes it, and nothing else: only the innermost thing it was pressed in. A window opened from inside another (the reference or the AI window over a script editor) closes on its own and leaves the editor, with its script, where it was. A menu or a completion list open in the window takes the key before the window does. The focus goes back where the desktop puts it, so the next Esc closes the editor: to `Snippets ▾` when the reference or the menu shuts, to `Script with AI…` when the AI window does, and into the editor, at the start of the script, when that window's script is used. With nothing focused (`Run` greys out under the pointer as the run starts), Esc goes to the window last pressed in, as F5 does |
+| Esc or `✕` on a script editor while its script runs | what the desktop's window does as it closes. `Multi-Instrument Scripts` asks `A script is still running. Stop it and close?`: Yes stops the run and closes, No leaves the window up and the run going (`SequenceForm`). The `Script Editor` stops the run and closes, and asks nothing (`ScriptForm`) |
 | Click outside a **modal** | closes it — both ends of the press must land outside |
 | Click outside a **tool window** | nothing. It is a window, not a popup |
 | Drag a tool window's title bar | moves it, clamped so a grabbable strip stays on screen |
@@ -1035,7 +1036,8 @@ opened from one. `Ctrl+F5` and `Ctrl+R` are never taken, so a reload is always o
 away. Held down, either key is one press, as holding a button down is one click. A held Ctrl+S
 would otherwise be a download for every repeat. A key goes to the window that has the focus.
 When nothing has it (`Run` greys out under the pointer as the run starts), the key goes to the
-window last pressed in, or to the window that one was open over if it has closed. The reason on
+window last pressed in, or to the window that one was open over if it has closed. Esc goes the
+same way, in every window (`lec.dialog.windowFor`, in `index.html`). The reason on
 the status line is the picker's, so on the web it carries the remedy too:
 `(2 connected: pick one)`. Behind the key, `Run` binds afresh before it starts, as
 `SequenceForm.RunAsync` does, because the table is only as new as the last pause in typing. And
@@ -1122,6 +1124,17 @@ Found while writing the tests, and recorded rather than quietly kept:
   empty file. Found while wiring Ctrl+S, which follows the web's button rather than deciding for
   itself. The rule is older than the key, and `scripts.spec.js` holds it ("Save goes dead when
   the editor is emptied"). Whichever way it is settled, the key goes with the button.
+
+- **Closing the Script Editor.** `ScriptForm` has no Esc: in its editor the key hides the
+  completion list or leaves a snippet's placeholders, and that is all. The web closes it on Esc,
+  as it closes every window, which is `SequenceForm`'s rule ("Esc closes it, like every other
+  window in the app"). So an Esc mid-run on the web does what `ScriptForm`'s `✕` does and stops
+  the run without asking, where on the desktop the key does nothing. `ScriptForm` also asks
+  `Save changes to the current script?` on the way out, and hides rather than closes, so opening
+  it again finds the script, the log and the results; the web asks nothing and opens afresh.
+  Found while porting the two `FormClosing`s, and the desktop's to settle first. One more, with
+  no desktop side to it: `Open in a tab` moves `Multi-Instrument Scripts` out without asking, and
+  a run going in it carries on with nothing watching it.
 
 The other one found that way — the console not locking during a run — is closed: §7 describes
 what both builds now do, and `Web/tests/e2e/lock.spec.js` holds it there.

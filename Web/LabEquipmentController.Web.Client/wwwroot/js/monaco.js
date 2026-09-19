@@ -309,13 +309,16 @@
         { method: 'SaveKey', is: (e) => (e.key === 's' || e.key === 'S') && (e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey }
     ];
 
+    //Which window a key was pressed in is lec.dialog.windowFor's to say (index.html), because Esc asks
+    //it too: the window with the focus, or with nothing focused, the one last pressed in.
     document.addEventListener('keydown', function (e) {
         const key = keys.find((k) => k.is(e));
         if (!key) return;
 
-        const where = windowFor(e);
+        const dialogs = window.lec.dialog;
+        const where = dialogs.windowFor(e);
         for (const [host, held] of editors) {
-            if (!host.isConnected || windowOf(host) !== where) continue;
+            if (!host.isConnected || dialogs.windowOf(host) !== where) continue;
 
             e.preventDefault();
             //Held down, it is one press, as holding a button down is one click. A held Ctrl+S would
@@ -324,34 +327,6 @@
             return;
         }
     }, true);
-
-    ///The window a node is in: the innermost dialog around it, or null for the page under them all.
-    function windowOf(node) {
-        return node && node.closest ? node.closest('dialog') : null;
-    }
-
-    ///
-    ///The windows around the last press, innermost first.
-    ///
-    ///A key belongs to the window with the focus, except when nothing has it. Run, pressed with the
-    ///mouse, greys out as the run starts and the focus falls back to the page. A click on the log does
-    ///not do that: the browser gives the focus to the window. Nor does a window that shuts: a dialog
-    ///hands the focus back to whatever had it when it opened, and the editor takes it when the AI
-    ///window's script is used. A key pressed with nothing focused belongs to the window last pressed
-    ///in, or, if that one has closed since, to the window it was open over.
-    ///
-    let pressed = [];
-
-    document.addEventListener('mousedown', function (e) {
-        pressed = [];
-        for (let w = windowOf(e.target); w; w = windowOf(w.parentElement)) pressed.push(w);
-    }, true);
-
-    function windowFor(e) {
-        const t = e.target;
-        if (t && t !== document.body && t !== document.documentElement) return windowOf(t);
-        return pressed.find((w) => w.isConnected && w.open) || null;
-    }
 
     ///Core's kinds, in Monaco's vocabulary.
     function kindOf(kind) {
