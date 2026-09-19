@@ -8,7 +8,7 @@
 //
 const { test, expect } = require('./fixtures');
 const { freshBench, connect, pane, quick, openSettings, closeDialog, boxOf,
-        consoleButton, editorReady, settle, styleOf, scriptText } = require('./helpers');
+        consoleButton, editorReady, settle, styleOf, scriptText, setScript } = require('./helpers');
 const { startInstrument } = require('./instrument');
 const http = require('node:http');
 
@@ -222,6 +222,16 @@ test.describe('the AI connection box', () => {
         await expect(sheet.getByRole('button', { name: 'Apply' })).toBeVisible();
 
         expect(await isModal(page, 'dialog.sheet[open]')).toBe(true);
+    });
+
+    ///
+    ///Esc shuts it, as it shuts the About box. A modal is one window, whichever of its fields has the focus.
+    ///
+    test('closes on Escape', async ({ page }) => {
+        const menu = await openSettings(page);
+        await menu.getByRole('button', { name: /AI settings/ }).click();
+        await expect(page.locator('dialog.sheet[open]')).toBeVisible();
+        await closeDialog(page);
     });
 });
 
@@ -453,6 +463,115 @@ test.describe('a tool window', () => {
         await page.locator('dialog.tool[open]').click({ position: { x: 10, y: 10 } });
         await page.keyboard.press('Escape');
         await expect(page.locator('dialog.tool[open]')).toBeHidden();
+    });
+});
+
+//
+//Esc where one thing is open inside another. It belongs to the innermost of them: the window it was
+//pressed in, or the menu or list open in that window, and nothing further out. A window opened from
+//another sits inside it on the page (the script editor draws its reference and its AI window inside
+//itself), so the key bubbled on and shut both, and the script in the outer one went with it.
+//
+test.describe('Esc with one thing open inside another', () => {
+    const SCRIPT = 'PRINT "still here"';
+
+    ///Whether the focus is in a window that is itself inside another.
+    const inNested = (page) => page.evaluate(() => !!document.activeElement.closest('dialog.tool dialog.tool'));
+
+    async function openSequences(page) {
+        await page.getByRole('button', { name: /Multi-Instrument Scripts/ }).click();
+        await editorReady(page);
+        await setScript(page, SCRIPT);
+        return page.locator('dialog.tool[open]');
+    }
+
+    ///
+    ///The reference opened from the multi-instrument editor's Snippets menu shuts, and the editor stays
+    ///up with its script. On the desktop ScriptReferenceForm closes itself and nothing else.
+    ///
+    test('shuts the reference and leaves the editor it was opened from', async ({ page }) => {
+        const tool = await openSequences(page);
+        await tool.getByRole('button', { name: /^Snippets/ }).click();
+        await tool.getByRole('button', { name: /What all of this means/ }).click();
+        const over = page.locator('dialog.tool[open] dialog.tool[open]');
+        await expect(over).toBeVisible();
+        expect(await inNested(page)).toBe(true);
+
+        await page.keyboard.press('Escape');
+
+        await expect(over).toHaveCount(0);
+        await expect(page.locator('dialog.tool[open]')).toHaveCount(1);
+        await expect(page.locator('dialog.tool[open] > .tool-head')).toContainText('Multi-Instrument Scripts');
+        expect(await scriptText(page)).toBe(SCRIPT);
+
+        //And the editor's own window still answers the key, once it is pressed in there.
+        await page.locator('dialog.tool[open] .split .console').click();
+        await page.keyboard.press('Escape');
+        await expect(page.locator('dialog.tool[open]')).toHaveCount(0);
+    });
+
+    ///
+    ///The same for the AI window over a console's Script Editor, which draws it the same way.
+    ///
+    test('shuts the AI window and leaves the Script Editor', async ({ page, request }) => {
+        await withKey(request, async () => {
+            await connect(page, instrument.address);
+            await consoleButton(page, /Scripts/).click();
+            await editorReady(page);
+            await setScript(page, SCRIPT);
+
+            await page.locator('dialog.tool[open]').getByRole('button', { name: /Script with AI/ }).click();
+            const writer = page.locator('dialog.tool[open] dialog.tool[open]');
+            await expect(writer.locator('.chat')).toBeVisible();
+            await writer.locator('textarea.prompt').click();
+            expect(await inNested(page)).toBe(true);
+
+            await page.keyboard.press('Escape');
+
+            await expect(writer).toHaveCount(0);
+            await expect(page.locator('dialog.tool[open]')).toHaveCount(1);
+            await expect(page.locator('dialog.tool[open] > .tool-head')).toContainText('Script Editor');
+            expect(await scriptText(page)).toBe(SCRIPT);
+        });
+    });
+
+    ///
+    ///A menu open in the window takes the key before the window does, and the next Esc shuts the
+    ///window. The desktop's Snippets is a drop-down, and a drop-down eats its own Esc.
+    ///
+    test('shuts a menu before the window it is in', async ({ page }) => {
+        const tool = await openSequences(page);
+        await tool.getByRole('button', { name: /^Snippets/ }).click();
+        const menu = tool.locator('.menu[aria-label="Snippets"]');
+        await expect(menu).toBeVisible();
+
+        await page.keyboard.press('Escape');
+        await expect(menu).toHaveCount(0);
+        await expect(page.locator('dialog.tool[open]')).toHaveCount(1);
+        expect(await scriptText(page)).toBe(SCRIPT);
+
+        await page.keyboard.press('Escape');
+        await expect(page.locator('dialog.tool[open]')).toHaveCount(0);
+    });
+
+    ///
+    ///And the completion list in the editor, which is SequenceForm's own rule: Esc shuts the window
+    ///unless the list is showing, and then it shuts the list. Monaco keeps that key itself.
+    ///
+    test('shuts the completion list before the window', async ({ page }) => {
+        await connect(page, instrument.address);
+        await consoleButton(page, /Scripts/).click();
+        await setScript(page, 'REP');
+        await page.keyboard.press('Control+Space');
+        const list = page.locator('.monaco-editor .suggest-widget');
+        await expect(list).toBeVisible();
+
+        await page.keyboard.press('Escape');
+        await expect(list).toBeHidden();
+        await expect(page.locator('dialog.tool[open]')).toHaveCount(1);
+
+        await page.keyboard.press('Escape');
+        await expect(page.locator('dialog.tool[open]')).toHaveCount(0);
     });
 });
 

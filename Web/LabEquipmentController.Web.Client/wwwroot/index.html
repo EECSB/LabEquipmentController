@@ -457,7 +457,21 @@
                         // Esc for both. A modal <dialog> is meant to handle it itself and most
                         // browsers do; a non-modal one never does, and the preview browser this
                         // was built against does neither.
-                        el.addEventListener('keydown', (e) => { if (e.key === 'Escape') shut(); });
+                        //
+                        // Only the innermost thing the key was pressed in answers it. A window
+                        // opened from another one sits inside it on the page: the script editor
+                        // draws its reference and its AI window inside itself. So the key bubbled
+                        // on to the outer window and shut that as well, and Esc in the reference
+                        // lost the script in the Multi-Instrument Scripts window behind it. The
+                        // same goes for a menu open in the window: its Esc belongs to the menu,
+                        // which closes itself further up, just as Monaco keeps the Esc that shuts
+                        // its completion list. The desktop does the same: ScriptReferenceForm
+                        // closes itself and nothing else, and a drop-down eats the key.
+                        el.addEventListener('keydown', (e) => {
+                            if (e.key !== 'Escape' || e.target.closest('dialog') !== el) return;
+                            if (e.target.closest('.settings')?.querySelector(':scope > .menu')) return;
+                            shut();
+                        });
 
                         // A tool window can be dragged by its title bar. It opens in the middle
                         // and the middle is where the work is, so it routinely lands on top of

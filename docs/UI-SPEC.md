@@ -1012,7 +1012,7 @@ starts locked, and the hub's `Driven` message keeps it fresh.
 | `✕` on a tab | disconnects and closes |
 | Enter in the command box | sends |
 | Up / Down in the command box | command history for this instrument |
-| Esc in any dialog | closes it |
+| Esc in any dialog | closes it, and nothing else: only the innermost thing it was pressed in. A window opened from inside another (the reference or the AI window over a script editor) closes on its own and leaves the editor, with its script, where it was. A menu or a completion list open in the window takes the key before the window does |
 | Click outside a **modal** | closes it — both ends of the press must land outside |
 | Click outside a **tool window** | nothing. It is a window, not a popup |
 | Drag a tool window's title bar | moves it, clamped so a grabbable strip stays on screen |
