@@ -139,17 +139,31 @@ test.describe('pressing while a command is in flight', () => {
     ///arrow between them saying which is next.
     ///
     test('the presses stack up as chips, oldest first', async ({ page }) => {
+        const PRESSES = 4;
         const dcv = quick(page, 'DC V');
-        for (let i = 0; i < 4; i++) await dcv.click();
+        for (let i = 0; i < PRESSES; i++) await dcv.click();
 
-        await expect.poll(async () => await queueChips(page).count()).toBeGreaterThanOrEqual(2);
+        //What the strip draws, left to right: a chip as its command, an arrow as ▶.
+        //
+        //Taken in one look, and every assertion below is about that look. The strip is live. A
+        //press's chip can land, or a reply can take one away, between reading the chips and counting
+        //the arrows, and the two reads then describe two different queues: three chips, and the three
+        //arrows that go between four. The poll repeats the whole look until one shows two chips or
+        //more, so the look it ends on is also the one that showed them.
+        let drawn = [];
+        await expect.poll(async () => {
+            drawn = await pane(page).locator('.queue').evaluate((strip) =>
+                [...strip.children].map((el) => (el.classList.contains('to') ? '▶' : el.textContent.trim())));
+            return drawn.filter((d) => d !== '▶').length;
+        }).toBeGreaterThanOrEqual(2);
 
-        const chips = await queueChips(page).allTextContents();
-        for (const c of chips) expect(c.trim()).toBe('MEASure:VOLTage:DC?');
+        //One chip per press still waiting, and each the command pressed.
+        const chips = drawn.filter((d) => d !== '▶');
+        expect(chips.length).toBeLessThanOrEqual(PRESSES);
+        for (const c of chips) expect(c).toBe('MEASure:VOLTage:DC?');
 
-        //The arrow is drawn between chips and not before the first.
-        const arrows = await pane(page).locator('.queue .to').count();
-        expect(arrows).toBe(chips.length - 1);
+        //The arrow is drawn between chips and not before the first: chip, arrow, chip, arrow, chip.
+        expect(drawn).toEqual(chips.flatMap((c, i) => (i === 0 ? [c] : ['▶', c])));
     });
 
     ///
