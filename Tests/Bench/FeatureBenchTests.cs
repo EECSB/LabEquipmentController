@@ -62,7 +62,13 @@ public class FeatureBenchTests
     [MemberData(nameof(Expected))]
     public async Task The_read_only_quick_commands_all_answer(string which, InstrumentFamily family)
     {
-        using IInstrumentClient client = await Bench.ConnectAsync(Host(which));
+        // Longer than the app's five seconds, because this walks a meter through every
+        // function it has and a change of function is the slow part: an SDM3065X answers
+        // MEASure:RESistance? in 2.7 s asked on its own, and takes longer than five seconds
+        // to do it straight after the four current and voltage readings above it in the list.
+        // The app's default stands; what is being tested here is that each query is accepted,
+        // not how fast a relay moves.
+        using IInstrumentClient client = await Bench.ConnectAsync(Host(which), timeoutMs: 20000);
         InstrumentProfile profile = InstrumentProfile.ForIdentity(await client.QueryAsync("*IDN?"));
 
         var queries = profile.Commands

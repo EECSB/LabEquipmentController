@@ -54,7 +54,17 @@ dotnet test --filter "FullyQualifiedName~An_instrument_is_recognised"
 - Each instrument's `*IDN?` classifies to the family it should. Everything else in the app
   hangs off this: a wrong answer here gives every button, readout and catalog lookup the
   wrong answer at once.
-- Every read-only quick command on each profile answers.
+- Every read-only quick command on each profile answers. That test gives the link 20 s
+  rather than the app's 5, because it walks a meter through every function it has and
+  changing function is the slow part: an SDM3065X answers `MEASure:RESistance?` in 2.7 s
+  asked on its own and takes longer than five seconds to do it straight after the current
+  and voltage readings above it in the list. What is being tested is that each query is
+  accepted, not how fast a relay moves — the app's own default is unchanged.
+
+  This is the test that found the VXI-11 link going out of step after a slow reply (SPEC §5,
+  `Vxi11ClientTests`): the resistance query timed out, its answer arrived anyway, and every
+  query after it was answered with the one before. Worth knowing because the symptom was not
+  a transport error but `*IDN?` returning "Index was outside the bounds of the array".
 - The scope returns a waveform that *decodes* — not just the right number of points, which a
   wrong formula also produces, but sane voltages and monotonic time.
 - The scope returns a screenshot that decodes as an image of a plausible size. This transport

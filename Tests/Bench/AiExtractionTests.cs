@@ -34,9 +34,18 @@ public class AiExtractionTests
     private readonly ITestOutputHelper _out;
     public AiExtractionTests(ITestOutputHelper output) => _out = output;
 
+    /// <summary>
+    /// The guide to read, from <c>LEC_AI_PDF</c> or the Siglent SDM one in <c>datasheets/</c>.
+    ///
+    /// Under the vendor's own folder, which is where the guides were filed after this default
+    /// was written — the old flat path left this test reporting "no datasheet" on a checkout
+    /// that has the file. The guides are not in git (they are vendors' PDFs), so a worktree
+    /// has none of them and wants <c>LEC_AI_PDF</c> pointed at the main checkout's copy.
+    /// </summary>
     private static string Datasheet =>
         Environment.GetEnvironmentVariable("LEC_AI_PDF")
-        ?? Path.Combine(RepoRoot(), "datasheets", "Siglent_SDM_Multimeter_ProgrammingGuide_EN02A.pdf");
+        ?? Path.Combine(RepoRoot(), "datasheets", "Siglent",
+                        "Siglent_SDM_Multimeter_ProgrammingGuide_EN02A.pdf");
 
     /// <summary>
     /// A command's identity for comparing two catalogs: the header, with the optional-node
@@ -112,11 +121,17 @@ public class AiExtractionTests
     [AiFact]
     public async Task Extracts_commands_from_a_real_datasheet()
     {
+        // The connection the app is set to use, out of the book it keeps them in. Reading
+        // settings.Ai instead — the single connection from before there were several — meant
+        // this test reported "no AI connection configured" on a machine with one configured
+        // and working, because AiBookStore clears that field as it writes the book.
         UserSettings settings = SettingsStore.Load();
-        Assert.True(settings.Ai != null,
+        AiConnections book = settings.AiBookOrMigrated();
+        AiConnection? selected = book.Selected;
+        Assert.True(selected != null,
             "No AI connection configured. Set one under Tools ▸ AI Connection first.");
 
-        string? key = ApiKey(settings);
+        string? key = ApiKey(settings, book, selected!);
         Assert.False(string.IsNullOrWhiteSpace(key),
             "No API key stored, or it was encrypted for a different Windows account.");
 
@@ -126,7 +141,7 @@ public class AiExtractionTests
         // no chunking at all, so this is one request over 158 pages. The stored timeout is
         // whatever the user set for interactive work, and a test should not fail because of
         // that setting or quietly depend on it.
-        AiConnection connection = settings.Ai!.Clone();
+        AiConnection connection = selected!.Clone();
         connection.TimeoutSeconds = 600;
 
         _out.WriteLine($"provider : {connection.Info.Label} / {connection.EffectiveModel}");
@@ -198,12 +213,28 @@ public class AiExtractionTests
     /// Windows-only and Core stays portable, so the test repeats the P/Invoke rather than
     /// reaching for it — the same three calls, against the same user scope.
     /// </summary>
-    private static string? ApiKey(UserSettings settings)
+    private static string? ApiKey(UserSettings settings, AiConnections book, AiConnection connection)
     {
-        if (string.IsNullOrEmpty(settings.AiApiKeyProtected)) return null;
+        // Keyed by connection id, which is how AiBookStore writes them: a connection can be
+        // renamed or pointed at another provider without losing its key.
+        if (settings.AiApiKeysProtected != null
+            && settings.AiApiKeysProtected.TryGetValue(connection.Id, out string? stored)
+            && Unprotect(stored) is { Length: > 0 } key)
+            return key;
+
+        // And the one key from before there were several, which belongs to the connection
+        // that the one connection became — the first entry.
+        return book.Items.Count > 0 && book.Items[0].Id == connection.Id
+            ? Unprotect(settings.AiApiKeyProtected)
+            : null;
+    }
+
+    private static string? Unprotect(string? protectedBase64)
+    {
+        if (string.IsNullOrEmpty(protectedBase64)) return null;
         try
         {
-            byte[] blob = Convert.FromBase64String(settings.AiApiKeyProtected);
+            byte[] blob = Convert.FromBase64String(protectedBase64);
             byte[] clear = System.Security.Cryptography.ProtectedData.Unprotect(
                 blob, null, System.Security.Cryptography.DataProtectionScope.CurrentUser);
             return System.Text.Encoding.UTF8.GetString(clear);
