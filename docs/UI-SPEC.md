@@ -208,10 +208,10 @@ is its floor.
 and each of the windows above is a form with one of its own; on the web the pages in that column
 are browser tabs, and several of them are open at once with all four bands identical. So the top
 bar reads `Lab Equipment Controller — <this window>` — the window's own name, not a description
-of it, because the status line along the foot already says what it is for. The **bench keeps the
-strapline** (`— SCPI over Ethernet`): it is not one of the windows, it is the app, and
-`Controller — Bench` says the same word twice. The same name goes in `<PageTitle>`, so the
-browser's own tab strip can be read too.
+of it, because the status line along the foot already says what it is for. The **bench adds
+nothing**: it is not one of the windows, it is the app, and `MainForm`'s title bar carries the
+app's name alone. (It read `— SCPI over Ethernet` there, a strapline the desktop build has
+nowhere.) The same name goes in `<PageTitle>`, so the browser's own tab strip can be read too.
 
 A page that *is* one of those windows carries **no heading of its own**: the title bar names it,
 the browser tab names it, and a third copy at the top of the work area is the window saying its
@@ -226,12 +226,14 @@ opens, and **come back when that tab is closed**. A window that moved and a wind
 multiplied look the same until you close one of them, and a window that simply vanished leaves
 you working out which menu it came from. It is the round trip a detached console already makes.
 
-**What is being written goes with it**, both ways: the multi-instrument editor's script and the
-parts picked for it by hand arrive in the tab, and come back with the window when the tab is
-closed. It is kept rather than sent, in `localStorage`, because a tab that is closing cannot send
-anything (below): the tab keeps it current as it changes, and the window takes it home. The log
-and the table start empty, as a detached console's log does. Opened any other way, the editor is
-a new window on the first example, as a new `SequenceForm` is. **Not while a script runs** in
+**What is in it goes with it**, both ways: the multi-instrument editor's script and the parts
+picked for it by hand, the library's catalog and its filter, and which language the reference is
+showing arrive in the tab, and come back with the window when the tab is closed. It is kept
+rather than sent, in `localStorage`, because a tab that is closing cannot send anything (below):
+the tab keeps it current as it changes, and the window takes it home (`WindowCarry`). The
+editor's log and table start empty, as a detached console's log does. Opened any other way, each
+is a new window: the editor on the first example, as a new `SequenceForm` is, the library on the
+list of catalogs, the reference on the multi-instrument language. **Not while a script runs** in
 it: a run cannot go with the window, so it would stay behind, holding its instruments with
 nothing to watch it or to stop it from. `Open in a tab` is greyed until the run ends, with that
 reason in its tooltip (§7).
@@ -314,8 +316,11 @@ column headings of the list in §3.3, and which box the Address row shows.
   point: nothing else in that window is accent coloured, so an accent-filled switch was the
   one thing on screen pulling the eye, and what it pulled it towards is a heading. Then it
   was `ControlDark` flat, which was the opposite problem — a heading in a dark box reads as a
-  warning. Mixed rather than picked because there is no system colour between the two. See §9
-  for where the web stands on this.
+  warning. Mixed rather than picked because there is no system colour between the two. The web
+  fills it grey too (`--seg-on`, one per theme), at about the contrast the desktop's has against
+  the white half beside it, and so does every other `.seg` on the web, so there is one look for a
+  switch. Both captions are in the heading's ink in both builds; which one is chosen is the fill's
+  to say.
 - **Hover lifts only the unselected half, and lifts it the way Windows lifts every other
   button in the window**: the theme's own wash and edge, which on Windows 11 is a pale blue
   fill inside a blue line. Asked of the theme rather than guessed at — a hot button is
@@ -550,6 +555,13 @@ on every press. That is the same phantom arrived at from the other direction. `B
 sends `Bench` on every connect and disconnect; the message carries nothing, because what the list
 now is has an answer already and a page told to go and read it cannot be told a stale one.
 
+**A page reads the list again the moment it can hear about it.** A page opened a second before
+someone else connects an instrument is subscribing too late to be told: the push has already
+gone out and nothing repeats it, so the tab strip stayed empty until the page was reloaded. The
+list is therefore re-read once the hub connects, and again after a reconnection — the gap
+between reading the bench and being able to hear about it is the only place a change can be
+missed, and one request closes it.
+
 ---
 
 ## 4. The console
@@ -743,13 +755,13 @@ They are **windows, not panels**, and everything that follows from that holds in
 |---|---|
 | **Script Editor** | toolbar, in **three** groups as `ScriptForm` counts them — `New` · `Open…` · `Save` · `Save As…` ▸ `Examples…` · `Snippets ▾` · `Script with AI…` ▸ `Run` / `Stop`. Script with AI is *inside* the middle group: "all three answer the same question — where a script comes from when you do not have one yet". The toolbar sits the same distance from the title bar as from the card under it. Then the editor, alone in its card — no caption over it and no status under it. Then the lower split: `Output` with `Clear Log` · `Save Log` on the left, the results pane on the right. Status along the foot of the window |
 | **Multi-Instrument Scripts** | the same toolbar less `New` and `Save As…`, which `SequenceForm` does not have. Then **the binding strip**, docked between the toolbar and the editor and in the card with it: what each `DEVICE` line resolves to *right now* — a row per alias carrying its name, the model the script asks for, and a picker holding the open connection playing the part; red on the two naming columns when nothing is, with the picker saying why in the place the connection would be — `not connected`, `2 connected: pick one` or `taken by dmm`, the three reasons `SequenceForm` prints in brackets — and a grey sentence in place of the table when the script declares no instruments at all. It is one control, not a report and a form: on the web it was a line of text here **and** a `Bindings` card under the editor, the same three facts twice with the answer in the copy you could not read from where the complaint was. No lede above it either — the language belongs on the status line and in the reference, not in a band of prose between the title bar and the work. Kept filled as the script is typed and as instruments come and go — `SequenceForm` re-reads it on every keystroke and on a one-second timer — so there is **no `Check devices` button**, which is a press to be told what the window already knows. `Run` follows the strip: withheld while something named is missing, available when the script declares no instruments at all, because `PRINT`, `DELAY` and `RECORD` need none. Then the editor, the lower split and the status line, as the Script Editor has them |
-| **Command Reference** | the command list, with `Filter:` **on its caption line, at the right-hand end** — the filter belongs to the list, and on the row that picks the catalog it read as a second thing to set before anything would appear; `CommandReferenceForm` gives it a strip of its own directly over the list. **Double-clicking a command puts it in the console's box** (`_list.DoubleClick += (_, _) => InsertSelected()`) — into the box, not onto the wire, so what to send and when to send it stay two decisions. `Copy` · `Insert` do the same from the foot. **Three columns** as `CommandReferenceForm` has them — the provenance mark, the command sized to the longest one listed, and the description taking the rest — with **the category as a heading over the commands in it** rather than a fourth column printing the same word thirty times; the desktop builds a `ListViewGroup` per category, and a category returned to later in the guide is still headed once. **One line per command**, cut with an ellipsis and carrying the whole of it as a tooltip, because a `ListView` row is one line and a list read by running the eye down the left edge stops working when every third entry is two lines tall. **No gridlines**: this is the one list in the desktop app built without them, and with the categories headed there is nothing left to rule off. Set a size smaller than the page, as the window sets Segoe UI 9pt. The marks are `MarkFor`'s: `◆` read out of a datasheet, `✓` confirmed on hardware, `•` corroborated by another driver |
-| **Script Language Reference** | the lede; a **switch** between `Single instrument` and `Multi-instrument` with a line saying what the chosen one is for; then a card per idea: heading, prose, worked example. The examples are **coloured by the editor's own colouriser** — the same grammar and theme, as `ScriptReferenceForm` colours its own with the tokenizer its editor is built on — and each carries a `Copy`, which the desktop does not: there the reference is a rich text box and this is select-and-Ctrl+C |
+| **Command Reference** | the command list, with `Filter:` **on its caption line, at the right-hand end** — the filter belongs to the list, and on the row that picks the catalog it read as a second thing to set before anything would appear; `CommandReferenceForm` gives it a strip of its own directly over the list. **Double-clicking a command puts it in the console's box** (`_list.DoubleClick += (_, _) => InsertSelected()`) — into the box, not onto the wire, so what to send and when to send it stay two decisions. `Copy` · `Insert` do the same from the foot. **Three columns** as `CommandReferenceForm` has them — the provenance mark, the command sized to the longest one listed, and the description taking the rest — with **the category as a heading over the commands in it** rather than a fourth column printing the same word thirty times; the desktop builds a `ListViewGroup` per category, and a category returned to later in the guide is still headed once. **One line per command**, cut with an ellipsis and carrying the whole of it as a tooltip, because a `ListView` row is one line and a list read by running the eye down the left edge stops working when every third entry is two lines tall. **No gridlines**: this is the one list in the desktop app built without them, and with the categories headed there is nothing left to rule off. Set a size smaller than the page, as the window sets Segoe UI 9pt. The marks are `MarkFor`'s: `◆` read out of a datasheet, `✓` confirmed on hardware, `•` corroborated by another driver. **`Showing N.`** at the left of the `Copy` · `Insert` row, in both builds: the filter is what this window is for, and 1,200 commands narrowed to nine is the answer to whether the word you typed was the right one — which the list alone cannot give without being scrolled to its end |
+| **Script Language Reference** | the lede; a **switch** between `Single instrument` and `Multi-instrument` with a line saying what the chosen one is for; then a card per idea: heading, prose, worked example; and last, as `ScriptReferenceForm` ends, `In the editor` — Tab, Ctrl+Space, `Snippets` and F5, a line each, in that window's words. The examples are **coloured by the editor's own colouriser** — the same grammar and theme, as `ScriptReferenceForm` colours its own with the tokenizer its editor is built on — and each carries a `Copy`, which the desktop does not: there the reference is a rich text box and this is select-and-Ctrl+C |
 | **Command Library** | filter box (`Filter by maker, model or command…`); the catalog tree; `Open Vendor Page`; the programming guide itself, beside the commands; `Set Datasheets Folder…` (desktop only — see §9) |
 | **Screen Capture** | one card, and **the capture is already running when it opens** — the desktop's console takes the picture and only then builds `ScreenCaptureForm` around the bitmap, so the window never exists without one and there is nothing to press. **On the web the window opens first, so it says what it is doing while it does it**: a turning ring and `Capturing the instrument's screen…` until the picture lands, and `Capturing…` in the foot for every capture after that. The desktop says the same word in the console the moment it starts — `--- capturing screen (:DISPlay:DATA?) ---`. What must never stand there is the sentence for having no instrument at all: a transfer is seconds of an answer that is on its way, and a window that spends them claiming the connection is missing is claiming it about the connection it is using. The image, then along the foot: the size and type on the left, and `Capture Screen` · *gap* · `Copy` · `Save as PNG…` at the right. `Capture Screen` is kept, and set apart from the other two by the gap the console puts before `Send`, for the one thing the desktop can only do by closing the window and starting again: take the same screen after the instrument has moved on. It acts on the instrument; the two beside it act on what came back |
 | **Waveform** | the same shape, and **three groups on its control row**: `Channels` ▸ a chip per channel, then `Capture Waveform`, then `Run` · `every N ms`. Then the trace, then along the foot the point count, a Vpp per captured channel and the span on the left, with `Save CSV…` and a **camera** at the right — the same glyph and the same gesture the plot carries, aimed at the trace as drawn here rather than at the instrument's own screen, which is the other window. The dark ground is drawn inside the SVG, not applied to it, so it survives being serialised into the image |
 | **Readout** | **One card filling the window**, as `MultimeterReadoutForm` is docked: `Measure:` picker · `shown in` unit picker · `every` N `ms` ▸ `Start` / `Stop` along the top, on that form's own distances (§1); the large value and the run figures under it; the plot taking everything left; and `Clear` · `Save CSV…` at the end of the plot's picker strip, beside the button that saves the picture — the desktop has one row of actions along the foot of the window, and a second row of two buttons under a strip that already ends in empty space is a row spent saying nothing. **No caption**: the title bar says `Readout` and says which instrument as well. Opens 980×520 |
-| **AI Datasheet Extraction** | the file on the left, what will read it on the right: a **drop box** of 18 rem by 6, and beside it a column carrying `Using:` (a picker of the connections), `Effort:` (web only so far — see §9), `Extract text locally before sending`, and `Extract` / `Stop`. The two stand in a frame of their own and the box is as tall as the frame — the column sets the height and the target fills it, because they are one control between them: a file, and what will be done with it. A wider gap between the two than the ordinary one between two controls, and air under the switch, so `Extract` reads as the end of the column rather than the third thing in a list. Then the grid — tick · `Command` · `Category` · `Description` — **always there, filling the window**; status and `Save Ticked` along the foot. The box is the web's answer to the desktop's path box: a browser will not be talked out of drawing its own control on a file input, so the input is hidden and the box stands in its place — dashed while empty, solid once it holds a name, and lit while a file is over the window. It is a target rather than a strip because that is what it is for, and there is **no `Browse…`** beside it: the box is the button, and a second control opening the same picker only asks which one to press |
+| **AI Datasheet Extraction** | the file on the left, what will read it on the right: a **drop box** of 18 rem by 6, and beside it a column carrying `Using:` (a picker of the connections), `Effort:` (a picker in both builds, as the script writer has), `Extract text locally before sending`, and `Extract` / `Stop`. The two stand in a frame of their own and the box is as tall as the frame — the column sets the height and the target fills it, because they are one control between them: a file, and what will be done with it. A wider gap between the two than the ordinary one between two controls, and air under the switch, so `Extract` reads as the end of the column rather than the third thing in a list. Then the grid — tick · `Command` · `Category` · `Description` — **always there, filling the window**; status and `Save Ticked` along the foot. The box is the web's answer to the desktop's path box: a browser will not be talked out of drawing its own control on a file input, so the input is hidden and the box stands in its place — dashed while empty, solid once it holds a name, and lit while a file is over the window. It is a target rather than a strip because that is what it is for, and there is **no `Browse…`** beside it: the box is the button, and a second control opening the same picker only asks which one to press |
 | **Write a Script with AI** | what the model is being given, as a sentence and a bullet per instrument (`ScriptAiForm.ContextSummary`); then what the conversation costs — `N turn(s) — about X kB of transcript goes with every request` — and under that line **the conversation** itself, with `Clear` **in its own top-right corner**, over the first line of it, which is the nearest thing the pane has to a header. The window is a chat: every exchange stays on screen, oldest first, each carrying what was asked, what was written, a `Use This Script` of its own, and what the catalog check made of it — and **all of it goes back with the next request**, which is what makes "now do the same at 5 V" a request at all rather than a sentence about nothing. `Clear` forgets the lot, and the figure above it is characters rather than tokens — nothing here can count tokens and no two providers count them alike — but deciding whether to clear is the whole reason a number is there at all. **`Use This Script` belongs to the answer, not to the window**: under the script it takes, right-aligned, one per turn. A single one at the foot could only ever mean the newest, which in a conversation is the wrong one as often as it is the right one — you ask for a change, the change is worse, and the draft you wanted is three inches up the transcript with nothing to press. Then the composer, **under** the transcript the way a chat is laid out, and a clear step below it rather than against it: the request box is **one line, and as many as the text needs** — a pasted script or a Shift+Enter grows it to a ceiling, after which it scrolls inside itself rather than eating the transcript. **Enter sends; Shift+Enter starts a new line**, which is what Enter does in a chat. Sending empties the box, because what was in it is now in the transcript above. It **opens on a worked request, written in rather than greyed behind it** — a placeholder cannot be edited, selected or sent, and it goes the moment you type over it, so the one hint about how much detail helps is read by nobody; written, it is a request that already works. The same words stand behind the box once it is empty, as an example, which is all a placeholder can be. The options row is: `Using:` (a picker of the connections) **over** `Effort:`, `Revise the current script` **over** `Include the last run's output`, and `Write Script` at the end. Two stacks rather than one long line — five things do not fit the width of the request box, and a row that wraps puts its own button on a line of its own beside a field of nothing. **Both pickers, as the datasheet window has both** — which model and how hard to work it are one decision taken twice, and a window offering the first without the second sends you to the settings box for the other half. This is where the second half earns its keep: a sweep with a `WITH` block and a `FOR` in it is not transcription. The transcript is **there from the moment the window opens**, empty. **Everything runs the full width of the window** — transcript, box and both rows, edge to edge and lined up with each other. It was held to a 52rem measure, on the argument that a line of prose that long is hard to read back; asked for directly the other way, because this window is dragged to the width its reader wants and half of it standing empty is the worse answer. **The transcript takes the window and the composer keeps its own height**: the history scrolls and the box you type in does not move. Then, at the foot, the status line and nothing else. The conversation **outlives the window**: this one closes the moment a draft is used, so a history kept inside it would be a chat of exactly one turn — the desktop keeps a static keyed on the language, the web a `ScriptChats` service, and reopening opens on what it was closed with. The window opens at **1320×920**, which is what `ScriptAiForm` asks for; it is two text boxes and a row of switches and does not want the screen. **No instrument picker**: a console's script runs on that console's instrument, and the desktop asks nobody — `ScriptForm` hands over the one, `SequenceForm` the bench. The web keeps ticks in the multi-instrument editor only, where choosing among several catalogs is the point |
 
 The script toolbar is **three groups** — the file pair; the three ways a script comes into being,
@@ -776,6 +788,16 @@ snippets, the aliases a sequence has declared and the names a capture has bound.
 the server rather than keeping a second word list — two lists of what the language contains
 would be one list and one guess. Ctrl+Space offers; a `$` offers captured names and nothing
 else, because a `$` has exactly one meaning.
+
+**And both write snippets the same way** (`ScriptEditor.InsertSnippet`): a snippet from
+`Snippets ▾`, from the list, or from **Tab after its word** comes in with its first `«blank»`
+selected, marks and all, and Tab walks the rest. Tab after a snippet's word works whether or not
+the list has come up; with the list up, Tab takes what is highlighted in it, and anywhere else it
+is Tab. The marks stay in each blank until it is typed over, so one left unfilled still says so.
+The web took snippets from the menu as plain text, with the caret after them and Tab indenting,
+and made Monaco blanks of the list's without their marks — and read the `$f` in `RECORD $f, $v`
+as a variable of Monaco's own, writing `f`. The reference ends on these keys in both builds
+(`In the editor`: Tab, Ctrl+Space, `Snippets`, F5), in `ScriptReferenceForm`'s words.
 
 A capture window is **one card**: image, then the facts about it, then the buttons. Not three.
 
@@ -901,11 +923,19 @@ of what is drawn are on the plot.
 
 ## 6. Modal boxes
 
-**About** — the application icon, the name, the version with a `web build` pill on that
-build, the blurb, then a definition list: `Catalogs:` · `Server:` · `Serving:` ·
-`Source Code:`. Every figure is read at runtime — the version off the assembly, the runtime
-and OS off the framework, the totals by counting the catalogs — so nothing on it can go stale
-while looking authoritative. No OK button: it states facts and takes no decision. Esc closes.
+**About** — the application icon, the name, the version, the blurb, then a definition list:
+`Catalogs:` · `Server:` · `Serving:` · `Source Code:`. Every figure is read at runtime — the
+version off the assembly, the runtime and OS off the framework, the totals by counting the
+catalogs — so nothing on it can go stale while looking authoritative. No OK button: it states
+facts and takes no decision. Esc closes.
+
+**Both builds count what is catalogued and what is confirmed**: the commands, the families
+they span, and how many of them an instrument on a bench has answered. The last of those is
+the difference between believing a vendor's guide and knowing, and the library shows the same
+thing per command as a tick. `Serving:` is the web's alone and stays: with a bench server per
+room, it is the line that says which room you are driving — the desktop is the machine it is
+running on and has nothing to answer. There is no badge saying which build this is; the
+browser around it already says so.
 
 **Both builds say where the source is**, and both read the address and the licence off the
 assembly rather than carrying a copy — `AppInfo`, from the two lines Core's project file
@@ -1028,8 +1058,9 @@ starts locked, and the hub's `Driven` message keeps it fresh.
 | Click outside a **modal** | closes it — both ends of the press must land outside |
 | Click outside a **tool window** | nothing. It is a window, not a popup |
 | Drag a tool window's title bar | moves it, clamped so a grabbable strip stays on screen |
-| F5 in a script editor | runs — exactly when `Run` would, never around it: while a `DEVICE` line has nothing to run on, the status line says which and why, in the strip's own words (`Not run — left → SDM3065X (2 connected).`), and nothing is sent. Pressed again mid-run, it is not a second run |
-| Ctrl+S in a script editor | saves — exactly when `Save` would, under the name the script already has. On the web the save is a download, nothing is saved while the editor is empty, and Cmd+S on a Mac is taken as Ctrl+S |
+| F5 in a script editor | runs — exactly when `Run` would, never around it: while a `DEVICE` line has nothing to run on, the status line says which and why, in the strip's own words (`Not run — left → SDM3065X (2 connected).`), and nothing is sent. Pressed again mid-run, it is not a second run. Held down, it is one press in both builds, as holding a button down is one click: the desktop started a new run each time one ended, until it told the keyboard's repeats apart as the web does |
+| Ctrl+S in a script editor | saves — exactly when `Save` would, under the name the script already has, and once however long it is held. An empty editor saves an empty file, in both builds, and `Save` and `Save As…` stay live for it. On the web the save is a download, and Cmd+S on a Mac is taken as Ctrl+S |
+| `Use This Script` over a script in the editor | asks first, once the AI window has shut, which is when `ScriptForm` and `SequenceForm` ask: `Replace the script in the editor with the one that was written?` and `Save it first if you want to keep it.` OK puts the draft in. Cancel leaves the editor as it was, with the focus on `Script with AI…`, and the draft is still in the conversation. Over an empty editor nothing is asked |
 
 `Open in new tab` is a **link**, not a button calling `window.open`: nothing can pop-up-block
 it, and the browser's own conventions come free — Shift for a separate window, Ctrl for a
@@ -1078,19 +1109,21 @@ Only these. Each is something a browser forces, not a preference.
    can see or reach. The viewer it configured is no longer missing — see below.
 7. **Scrollbars and wrapping.** Where the desktop clamps a gap to keep a box's width, the web
    may keep the width and let the row wrap. Same promise, kept the way a browser keeps it.
+8. **Which server.** The About box's `Serving:` line names the address the page is talking to.
+   With a bench server per room it is the one line that says which bench you are driving; the
+   desktop is the machine it is running on and has nothing to answer.
 
-Everything else on the web that has no desktop counterpart is a debt, not a feature. It is
-inventoried separately and awaiting a keep-or-drop decision.
+Everything else on the web that has no desktop counterpart is a debt, not a feature. The
+inventory taken on 2026-08-21 was settled on **2026-09-20**, and nothing from it is
+outstanding: the title bar's `— SCPI over Ethernet` and the About box's `web build` pill were
+dropped, the bench-verified count and the library's `Showing N.` were ported to the desktop
+rather than dropped, and the lines a browser forces — `This console is open in another browser
+tab or window…`, the AI box's `One key, shared` and `Set as Ai__ApiKey` — stay, under 2 and 6
+above. Anything of this kind added from here is a debt again.
 
 ### Known differences that are not on that list
 
 Found while writing the tests, and recorded rather than quietly kept:
-
-- **The scan-kind switch's fill.** The desktop's selected half is grey; the web's is still
-  `--accent`. Not a decision, a decision half-made: the desktop was changed because nothing
-  else in that window is accent coloured, and the web has yet to be looked at with the same
-  question. Whichever way it goes, the two should end up saying the same thing, and §3.2
-  carries the argument.
 
 - **The idle status line.** `ScriptForm`, `SequenceForm` and `ScriptAiForm` all open with their
   status label reading `Ready.`. The web opens with it **empty** and keeps the line's height, so
@@ -1101,7 +1134,10 @@ Found while writing the tests, and recorded rather than quietly kept:
   instrument and prints the answer as a line of text; there is nothing to choose. It does not guess
   between two instruments of one model (SPEC §9a): the line says `(2 connected)`, its tooltip says to
   name each by serial number or address, and the script says which — the remedy is not on the line
-  itself, which at the window's narrowest would run the strip past its height and lose the rest.
+  itself, which would make every waiting part several times as long. The strip is as tall as its
+  text and no less than two lines, and it wraps between parts rather than inside one. At a fixed
+  two lines, the window at its narrowest with four parts waiting lost the last of them: a label
+  that does not fit draws nothing of what is left over.
   The web binds by the same rule — worked out on the server by the same Core code, so the two
   builds cannot bind one script two ways — and puts a picker against each alias, for the case of
   two instruments of one model on the bench: that is where the web says which plays which part. A
@@ -1117,25 +1153,6 @@ Found while writing the tests, and recorded rather than quietly kept:
   grey sentence while the script names none), and the answer is where the complaint is.
 
 
-- **`Effort:` in the datasheet window.** The web's datasheet half carries the picker beside
-  `Using:`; `DatasheetExtractForm` does not yet, and its effort is set in the AI Connection
-  box instead. The script writer carries it in both builds.
-
-- **The Script Editor's starting script.** The desktop opens on a commented worked example —
-  what a comment looks like, then `PRINT`, then a `REPEAT` with a `DELAY` inside it — which
-  teaches the language in the place where it is needed (`ScriptForm.SampleScript`). The web
-  opens on a single `*IDN?`. Both are a starting point rather than a blank page, which is what
-  the tests assert; that they are not the *same* starting point is a gap. The **multi-instrument**
-  editor is no longer one of these: both builds open it on `SequenceExamples.All[0]`, which is
-  also what leaves `Revise the current script` with something to revise — the desktop ticks that
-  switch when there is a script, and on the desktop there always is one.
-
-- **Save with nothing to save.** The web greys `Save` and `Save As…` while the editor is empty,
-  and Ctrl+S saves nothing then. `ScriptForm` and `SequenceForm` leave Save live and write an
-  empty file. Found while wiring Ctrl+S, which follows the web's button rather than deciding for
-  itself. The rule is older than the key, and `scripts.spec.js` holds it ("Save goes dead when
-  the editor is emptied"). Whichever way it is settled, the key goes with the button.
-
 - **Closing the Script Editor.** `ScriptForm` has no Esc: in its editor the key hides the
   completion list or leaves a snippet's placeholders, and that is all. The web closes it on Esc,
   as it closes every window, which is `SequenceForm`'s rule ("Esc closes it, like every other
@@ -1143,10 +1160,18 @@ Found while writing the tests, and recorded rather than quietly kept:
   the run without asking, where on the desktop the key does nothing. `ScriptForm` also asks
   `Save changes to the current script?` on the way out, and hides rather than closes, so opening
   it again finds the script, the log and the results; the web asks nothing and opens afresh.
-  Found while porting the two `FormClosing`s, and the desktop's to settle first.
+  Found while porting the two `FormClosing`s. Looked at on 2026-09-19 and kept as it is:
+  neither build changes for it.
 
-The other one found that way — the console not locking during a run — is closed: §7 describes
-what both builds now do, and `Web/tests/e2e/lock.spec.js` holds it there.
+The others found that way are closed, and described where they belong rather than here: the
+console not locking during a run (§7, held by `Web/tests/e2e/lock.spec.js`); the scan switch's
+fill, grey in both builds (§3.2); the Script Editor's starting script, which both builds now take
+from Core (`ScriptExamples.Starting`, the desktop's commented worked example — the web opened on a
+lone `*IDN?`); `Save` on an empty editor, live in both and writing an empty file (§8 — the web
+greyed it, and Ctrl+S with it); and `Effort:` in the datasheet window, which both builds carry
+beside `Using:` now that `DatasheetExtractForm` has one too. The multi-instrument editor opens on
+`SequenceExamples.All[0]` in both, which is also what leaves `Revise the current script` with
+something to revise.
 
 ---
 

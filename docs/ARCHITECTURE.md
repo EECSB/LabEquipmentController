@@ -160,11 +160,11 @@ LabEquipmentController/
 │   ├── Catalogs/               Loading the embedded catalogs, SCPI syntax, guide lookup
 │   ├── Capture/                IEEE 488.2 blocks, the five waveform dialects, the zoom view
 │   ├── Scripting/              Both runners, the language, its examples and guide
-│   ├── Results/                Recorded series, plot arithmetic, unit guessing
+│   ├── Results/                Recorded series, plot arithmetic, unit guessing, CSV
 │   ├── Settings/               UserSettings and where it is stored
 │   ├── Ai/                     Provider clients, extraction, script author
 │   └── CommandData/            The 36 curated catalogs (embedded resources)
-├── Tests/                      xUnit suite (1,821 tests) against a fake instrument, one
+├── Tests/                      xUnit suite (1,865 tests) against a fake instrument, one
 │   │                           folder per area: Ai, Catalogs, Capture, Transport,
 │   │                           Discovery, Scripting, Results, Settings, Cli, Web
 │   └── Bench/                  Tests that drive the real bench, off unless LEC_BENCH=1
@@ -381,10 +381,15 @@ capped at a million instructions.
   alias : MODEL` binds a name to a discovered instrument, `WITH alias … END` scopes
   lines to it, `COLUMNS` declares the table a run records into. Interleaved measurements
   — set the generator, wait, read the meter, repeat — live here because a single-
-  instrument script cannot express them.
+  instrument script cannot express them. Every `DEVICE` line is resolved before the first
+  line runs, wherever it stands, so an instrument that is missing stops the run with
+  nothing sent rather than halfway through a sweep.
 
 Runs record into `ReadingSeries` and plot through `ResultPlot`; `MeasurementUnit`
-guesses a column's unit from its name and values so axes label themselves.
+guesses a column's unit from its name and values so axes label themselves. Every Save CSV
+in either build writes through `CsvWriter`, so the quoting rule is one rule (SPEC §12) —
+an instrument's reply is not always a number, and one written out bare turned a reading
+into five columns.
 
 ### Capture
 
@@ -482,7 +487,7 @@ calling Core.
 
 Two suites, two languages, one philosophy: a guard that isn't mechanical will not hold.
 
-- **`Tests/` (xUnit, 1,821 tests)** runs against `FakeInstrumentClient` — no hardware.
+- **`Tests/` (xUnit, 1,865 tests)** runs against `FakeInstrumentClient` — no hardware.
   One folder per area — Ai, Catalogs, Capture, Transport, Discovery, Scripting, Results,
   Settings, Cli, Web — with the shared fake at the root; the namespaces stay flat, so
   every `--filter FullyQualifiedName~…` habit still selects what it always did.

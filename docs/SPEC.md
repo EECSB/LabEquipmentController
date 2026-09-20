@@ -194,6 +194,18 @@ harmless for an empty reply and dangerous for a partial one: `+8.39` in place of
 rest of the line in the buffer to corrupt the read after it. A binary block throws for the
 same reason, a screenshot cut short being one that comes back looking complete.
 
+**A reply that arrives late belongs to the call that asked for it, and to nothing else.**
+Giving up on a slow answer does not take it off the wire: the instrument replies in its own
+time, and that reply lands while the *next* call is waiting for a different one. Over VXI-11
+every call is stamped with an RPC transaction id, so a reply carrying another one is dropped
+and the read goes on — the deadline still bounds the whole wait. This is not hypothetical: a
+Siglent SDM3065X asked for resistance straight after a current reading takes longer than five
+seconds to change function, and before the id was checked that one timeout left the link
+answering every later query with the one before it, `*IDN?` included. Where the id cannot
+help — a reply abandoned *part way through*, whose remaining bytes would be read as the next
+message's header — the link says it is out of step and asks to be reconnected, rather than
+decoding what is left.
+
 **Disconnect** returns the instrument to local (front-panel) control before dropping the
 link. This applies on explicit disconnect *and* on application exit, where each close runs
 on a worker thread with a short bounded wait so a powered-off instrument cannot hang the
@@ -953,10 +965,13 @@ and, for a sequence, the `DEVICE` line that binds it under §9a, spelled out wor
 model, or its serial number where another connected instrument is the same model. A model two
 instruments answer to binds neither, and a model told only `DEVICE <alias> : <model>` writes the
 model back. The alias is the instrument's kind — `gen`, `dmm`, `scope` — made unique on a bench
-with two of a kind; a name the script being revised already gives an instrument is kept, and so
-is a `DEVICE` line of it that binds. A single-instrument script has no alias, because its lines
-carry no prefix. Both builds describe the bench with the same code, and the web counts every
-open instrument when deciding what is a second of a model, not only the ticked ones.
+with two of a kind; a name the script in the editor already gives an instrument is kept, whether
+or not the script is sent to be revised, and so is a `DEVICE` line of it that binds. On the web,
+a part picked in the binding table goes across as the instrument picked for it, under its own
+alias, and is declared by what binds that instrument where the line as written would not. A
+single-instrument script has no alias, because its lines carry no prefix. Both builds describe
+the bench with the same code, and the web counts every open instrument when deciding what is a
+second of a model, not only the ticked ones.
 
 **Given the catalog, not asked to remember one.** A model writing SCPI unaided reaches for
 whatever dialect it has seen most, which is how `:SOURce1:FREQuency 1000` gets sent to a
@@ -981,9 +996,19 @@ is written to a catalog; §11b's separation holds here too.
 | Output | Format |
 |---|---|
 | Scan results | CSV, RFC 4180, header `IP Address,Port,Protocol,Identity`, CRLF, fields quoted only when needed |
+| Recorded rows | CSV, RFC 4180, the run's own `COLUMNS` as the header, one row per `RECORD` |
 | Console log | Plain text, exactly as displayed |
+| Readout | CSV, header `Time (s),<function> (<unit>)`, `g9` invariant-culture numbers |
 | Waveform | CSV, header `Time (s),Voltage (V)`, `g9` invariant-culture numbers |
 | Settings | JSON at `%AppData%\LabEquipmentController\settings.json` |
+
+**One writer, RFC 4180, for every CSV above** (`CsvWriter`). CRLF between rows, and a field
+quoted only when it holds a comma, a quote or a line break — so a column of readings stays a
+column of plain numbers, and a reading that is not one stays in its column. An instrument's
+reply is not always a number: every `*IDN?` carries three commas and a Siglent generator
+answers `C1:OUTP?` with four, and written out bare that one reading became five columns under
+a header that declared one. Both front ends save through the same writer, because the file a
+run produces must not depend on which build recorded it.
 
 Settings persist the last interface address, port list, communication timeout, and the
 window size and maximized state. A missing, empty or corrupt settings file must yield
