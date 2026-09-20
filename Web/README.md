@@ -176,6 +176,33 @@ AI connections set up in the page, catalogs a model extracted, and guides upload
 library all land under `LEC_DATA` — `/data` in the image, kept on a named volume by the
 compose file — so replacing the container does not throw them away.
 
+## Programming guides
+
+The app ships none of them; they are the manufacturers' copyright. The library shows the
+guide beside the commands it documents when it holds one, and offers the vendor's own
+download page when it does not.
+
+Two ways to give it one, and the browser only knows the first:
+
+- **Upload it** from the page — `Upload a PDF…` beside the catalog it belongs to. It is
+  filed under that manufacturer's folder in `LEC_DATA/datasheets`, which is where the
+  desktop build's collection is filed too, and looked up again by Core's own matching rather
+  than assumed to be the right file.
+- **Point the server at a folder you already have** with `LEC_DATASHEETS`, or by mounting
+  one over `/data/datasheets`. A bench that keeps a library of guides serves it that way —
+  read-only is fine, it is only ever read — instead of uploading a second copy of each.
+
+```yaml
+services:
+  lec-web:
+    volumes:
+      - /srv/bench/guides:/data/datasheets:ro
+```
+
+There is no folder picker on the page, and there will not be: it would be picking a path on
+the server's disk, out of a list the browser cannot see. The person who can see that disk is
+the one who starts the server, which is where that choice lives.
+
 ## Tests
 
 The client is covered end to end by Playwright, driving a real browser against a real

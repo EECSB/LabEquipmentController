@@ -34,6 +34,12 @@ executable and the setting stays unset until the user picks one. See
 
 The app only ever reads these files. It never writes, moves or renames them.
 
+The web build looks in a folder of its own, because the disk it can reach is the server's
+rather than yours: `LEC_DATASHEETS` if whoever started the server named one, and otherwise
+`LEC_DATA/datasheets`, which the browser fills by uploading. Point it at a folder like this
+one and both builds read the same library. There is no folder picker on the page — see
+docs/UI-SPEC.md §9.
+
 ## A folder per manufacturer
 
 Guides are filed the way the library's tree presents them — one folder per maker, named

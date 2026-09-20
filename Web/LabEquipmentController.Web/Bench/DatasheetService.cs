@@ -19,13 +19,29 @@ public sealed class DatasheetService
 {
     private readonly ILogger<DatasheetService> _log;
 
-    public DatasheetService(AiSettingsStore store, ILogger<DatasheetService> log)
+    public DatasheetService(AiSettingsStore store, IConfiguration config, ILogger<DatasheetService> log)
     {
         _log = log;
-        Directory = Path.Combine(store.DataDirectory, "datasheets");
+        Directory = config["LEC_DATASHEETS"] is { Length: > 0 } folder
+            ? Path.GetFullPath(folder)
+            : Path.Combine(store.DataDirectory, "datasheets");
     }
 
-    /// <summary>Where the guides live. Created on the first upload, not before.</summary>
+    /// <summary>
+    /// Where the guides live: <c>LEC_DATASHEETS</c> if whoever started this server named a
+    /// folder, and otherwise one under <c>LEC_DATA</c>, created on the first upload.
+    ///
+    /// That variable is this build's answer to the desktop's <c>Set Datasheets Folder…</c>, and
+    /// it is deliberately not a button on the page. The desktop's picker is for the person
+    /// sitting at the machine the folder is on; here the only person who can see that disk is
+    /// the one who started the server, so that is who chooses — by naming the folder, or by
+    /// mounting one over <c>/data/datasheets</c>, which is the same choice made in the
+    /// compose file. A picker in the browser would be picking a path on somebody else's
+    /// machine, out of a list it cannot see.
+    ///
+    /// A collection pointed at this way may well be read-only, which costs nothing to read
+    /// and makes an upload fail — and an upload that fails says so already.
+    /// </summary>
     public string Directory { get; }
 
     /// <summary>

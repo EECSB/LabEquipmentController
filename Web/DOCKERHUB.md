@@ -112,6 +112,10 @@ AI connections, catalogs extracted from a datasheet, and uploaded programming gu
 written under `LEC_DATA` (`/data`). Mount a volume there or replacing the container throws
 them away.
 
+A library of guides you already keep can be served instead of uploaded: mount it over
+`/data/datasheets`, read-only if you like, or name it with `LEC_DATASHEETS`. They are only
+ever read.
+
 ---
 
 ## Tags

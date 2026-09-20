@@ -871,6 +871,9 @@ of a command is not worth having.
 - **The app ships none of them.** They are the manufacturers' copyright. The desktop points at a
   folder on the machine it runs on; the server keeps its own under `LEC_DATA/datasheets`, and the
   browser puts files into it by uploading — a server has nobody at a keyboard to point anywhere.
+  Whoever starts it does have a keyboard, and points it with **`LEC_DATASHEETS`** or by mounting
+  a folder over the default one: a bench that already keeps a library of guides serves it that
+  way, read-only if it likes, rather than uploading a second copy of each.
 - **Filed under a folder per manufacturer**, which is how the desktop's collection is filed and
   what stops two vendors' identical model numbers picking each other's guide. An upload is filed
   under the manufacturer of the catalog it was uploaded for.
@@ -1104,9 +1107,11 @@ Only these. Each is something a browser forces, not a preference.
    The web has a status bar carrying that plus the catalog totals and the page name, because
    a browser window has a foot and nothing else was using it.
 6. **Server-side paths.** Anything naming a folder names a folder *on the server*.
-   `Set Datasheets Folder…` is **absent on the web**, and stays absent: a folder picker on a page
-   would be picking a folder on the server's disk, which is not a thing the person at the browser
-   can see or reach. The viewer it configured is no longer missing — see below.
+   `Set Datasheets Folder…` is **absent on the web and stays absent**: a folder picker on a page
+   would be picking a path on somebody else's machine, out of a list it cannot see. The choice it
+   offers is not missing, though — it belongs to whoever starts the server, who names the folder
+   with `LEC_DATASHEETS` or mounts one over the default `LEC_DATA/datasheets`, and the browser
+   fills the collection by uploading into it (§5). Nor is the viewer it configured.
 7. **Scrollbars and wrapping.** Where the desktop clamps a gap to keep a box's width, the web
    may keep the width and let the row wrap. Same promise, kept the way a browser keeps it.
 8. **Which server.** The About box's `Serving:` line names the address the page is talking to.
