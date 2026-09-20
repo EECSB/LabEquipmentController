@@ -22,7 +22,7 @@
 ; Output: Desktop\bin\LabEquipmentController-v<version>-setup.exe
 
 #define AppName      "Lab Equipment Controller"
-#define AppVersion   "1.1.0"
+#define AppVersion   "1.2.0"
 #define AppPublisher "The EECS Blog"
 #define AppURL       "https://github.com/EECSB/LabEquipmentController"
 #define AppExe       "LabEquipmentController.exe"

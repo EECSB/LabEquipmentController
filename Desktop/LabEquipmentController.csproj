@@ -13,7 +13,7 @@
     <Product>Lab Equipment Controller</Product>
     <AssemblyTitle>Lab Equipment Controller</AssemblyTitle>
     <Description>Discover and control lab instruments over Ethernet or RS-232 using SCPI.</Description>
-    <Version>1.1.0</Version>
+    <Version>1.2.0</Version>
 
     <!--
       This app is never packed, but NuGet still gives every project a package identity, and

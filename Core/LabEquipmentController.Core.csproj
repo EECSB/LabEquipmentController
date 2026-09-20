@@ -42,13 +42,13 @@
       number is worth more than the precision.
 
       1.0.0 is already on nuget.org and stays there; versions cannot be withdrawn, only
-      delisted. Everything after this is 1.1.x for fixes and 1.x for additions.
+      delisted. Everything after this is 1.x.y for fixes and 1.x for additions.
 
       publish-nuget.yml is still manual-only, and still for the original reason: a version
       here can never be reused or deleted, so nothing should publish one without a person
       deciding to.
     -->
-    <Version>1.1.0</Version>
+    <Version>1.2.0</Version>
     <Authors>EECSB</Authors>
     <Company>The EECS Blog</Company>
     <Product>Lab Equipment Controller</Product>
