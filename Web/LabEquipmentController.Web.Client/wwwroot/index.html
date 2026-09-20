@@ -197,6 +197,17 @@
             // open its picker from a real click, and the button that says Open… is ours.
             press: (el) => el?.click(),
 
+            // A question put once what has just changed is on the screen. confirm() stops the
+            // page until it is answered, so asked at once it can come up over a window that has
+            // already been told to shut, and hold it there behind the question. One frame is
+            // waited for, and no more than a moment where no frames are being drawn.
+            askAfterPaint: (text) => new Promise((answer) => {
+                let asked = false;
+                const ask = () => { if (!asked) { asked = true; answer(confirm(text)); } };
+                requestAnimationFrame(() => setTimeout(ask, 0));
+                setTimeout(ask, 100);
+            }),
+
             // Put a snippet where the caret is, as the desktop's editor does, and leave the
             // caret after it. Appending to the end instead would be a different feature:
             // snippets are written into a line being typed, not onto the bottom of the file.
@@ -854,11 +865,12 @@
                 },
 
                 // What a window takes with it when it moves: the multi-instrument editor's script
-                // and the parts picked for it. The dialog leaves it here as its tab opens, the tab
-                // keeps it current while it is open, and the window takes it back when the tab has
-                // gone. Kept rather than sent, because a tab that is closing cannot send anything
-                // (see claimTool), and in localStorage because every tab of this address shares it.
-                // A browser that refuses storage moves the window without it, as before.
+                // and the parts picked for it, the library's catalog and filter, the reference's
+                // language (WindowCarry). The dialog leaves it here as its tab opens, the tab keeps
+                // it current while it is open, and the window takes it back when the tab has gone.
+                // Kept rather than sent, because a tab that is closing cannot send anything (see
+                // claimTool), and in localStorage because every tab of this address shares it. A
+                // browser that refuses storage moves the window without it, as before.
                 carry: (which, what) => { try { localStorage.setItem('lec.carried.' + which, what); } catch { } },
                 carried: (which) => { try { return localStorage.getItem('lec.carried.' + which); } catch { return null; } },
                 drop: (which) => { try { localStorage.removeItem('lec.carried.' + which); } catch { } },

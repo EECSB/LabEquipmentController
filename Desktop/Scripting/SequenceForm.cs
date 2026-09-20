@@ -135,6 +135,7 @@ public sealed class SequenceForm : Form
         _devices.AutoSize = false;
         _devices.Padding = new Padding(8, 4, 8, 6);
         _devices.UseMnemonic = false;   // model names contain '&' on some makers
+        _devices.SizeChanged += (_, _) => FitDevices();   // narrower is more lines
 
         // --- editor over (output | results) ---
         var outer = new SplitContainer
@@ -234,7 +235,8 @@ public sealed class SequenceForm : Form
             _status.Height = _status.PreferredHeight;
             SplitLayout.SetFraction(outer, 0.55);
             SplitLayout.SetFraction(lower, 0.5);    // log and results even, as in the console
-            _devices.Height = LogicalToDeviceUnits(46);
+            _shown = true;
+            FitDevices();
             SetToolbarIcons();
             NormalizeToolbar();
             PinToolRowHeights();     // after Normalize: the button height is what they are sized to
@@ -261,11 +263,7 @@ public sealed class SequenceForm : Form
             }
         }
 
-        KeyDown += (_, e) =>
-        {
-            if (e.KeyCode == Keys.F5) { e.Handled = true; _ = RunAsync(); }
-            else if (e.Control && e.KeyCode == Keys.S) { e.Handled = true; SaveSequence(); }
-        };
+        // F5 and Ctrl+S are taken in ProcessCmdKey, below, where a held key can be told apart.
 
         // Esc closes it, like every other window in the app. It goes through Close() rather
         // than round it, so the running-script guard below still gets its say — and the
@@ -297,6 +295,25 @@ public sealed class SequenceForm : Form
             }
             _deviceWatch.Stop();
         };
+    }
+
+    /// <summary>
+    /// F5 runs and Ctrl+S saves, anywhere in the window.
+    ///
+    /// Held down, either is one press, as holding a button down is one click. A held F5 started
+    /// a new run each time one ended, and a held Ctrl+S saved once per repeat; the web build's
+    /// keys were one press each already. The keyboard's own repeats say so in bit 30 of the
+    /// message, the key's previous state, which a KeyDown handler is never shown — so the keys
+    /// are taken here rather than there.
+    /// </summary>
+    protected override bool ProcessCmdKey(ref Message msg, Keys keyData)
+    {
+        Keys key = keyData & Keys.KeyCode;
+        bool repeat = (msg.LParam.ToInt64() & 0x40000000) != 0;
+
+        if (key == Keys.F5) { if (!repeat) _ = RunAsync(); return true; }
+        if (key == Keys.S && (keyData & Keys.Control) != 0) { if (!repeat) SaveSequence(); return true; }
+        return base.ProcessCmdKey(ref msg, keyData);
     }
 
     private void SetToolbarIcons()
@@ -401,6 +418,7 @@ public sealed class SequenceForm : Form
             // Returning without touching Run left it stuck in whatever state the *previous*
             // script had put it, which was a lie about this one.
             _btnRun.Enabled = _runCts == null;
+            FitDevices();
             return;
         }
 
@@ -415,10 +433,35 @@ public sealed class SequenceForm : Form
             else { allFound = false; parts.Add($"{b.Alias} → {b.Model}  ({b.Reason})"); }
         }
 
-        _devices.Text = string.Join("     ", parts);
+        // Each part whole on its line. The spaces inside one do not break, so a strip that wraps
+        // does it between parts, rather than leaving "(not" at the end of one line and
+        // "connected)" at the start of the next.
+        _devices.Text = string.Join("     ", parts.Select(p => p.Replace(' ', '\u00A0')));
         _devices.ForeColor = allFound ? SystemColors.ControlText : Color.Firebrick;
         _btnRun.Enabled = allFound && _runCts == null;
+        FitDevices();
     }
+
+    /// <summary>
+    /// As tall as what the strip says, and never less than its two lines.
+    ///
+    /// Two lines, fixed, held every part until the window was at its narrowest with four or more
+    /// of them waiting for an instrument. Then a label that does not fit draws nothing of what is
+    /// left over, and the last parts were simply not there. The editor under it gives up the room
+    /// instead.
+    /// </summary>
+    private void FitDevices()
+    {
+        // Not before the window is up: until then the strip has no width worth wrapping to.
+        if (!_shown) return;
+
+        int wanted = Math.Max(LogicalToDeviceUnits(46),
+                              _devices.GetPreferredSize(new Size(_devices.Width, 0)).Height);
+        if (_devices.Height != wanted) _devices.Height = wanted;
+    }
+
+    /// <summary>Set once the window is shown, when the strip first has a width to fit.</summary>
+    private bool _shown;
 
     /// <summary>
     /// Every command the connected instruments accept, for the completion popup.

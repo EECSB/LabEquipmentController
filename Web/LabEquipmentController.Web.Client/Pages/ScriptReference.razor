@@ -70,6 +70,21 @@ else
             </div>
         }
     </div>
+
+    @* The keys, last, as ScriptReferenceForm ends on them. Written here rather than in Core's
+       ScriptGuide, which leaves how an editor behaves to the editor describing it — and the words
+       are that window's own, because the editor here now does each of these things the way the
+       desktop's does. *@
+    <div class="group">
+        <span class="cap">In the editor</span>
+        <p class="muted" style="margin:0; max-width:78ch">
+            <b>Tab</b> expands the word before the caret into a snippet, or jumps to the next
+            «placeholder» in one you just inserted.<br />
+            <b>Ctrl+Space</b> offers whatever can go where the caret is.<br />
+            <b>Snippets</b> is this same list, and writes any of it into the editor for you.<br />
+            <b>F5</b> runs.
+        </p>
+    </div>
 }
 
 @code {
@@ -90,6 +105,12 @@ else
     /// every time whatever is hosting it re-renders.
     /// </summary>
     [Parameter] public bool? Sequence { get; set; }
+
+    /// <summary>
+    /// The window coming back from a browser tab that has closed, rather than being opened: the
+    /// language the tab was showing comes back with it. WindowDialog says so.
+    /// </summary>
+    [Parameter] public bool Returning { get; set; }
 
     private ScriptGuideDto? _guide;
     private bool _asked;
@@ -144,16 +165,61 @@ else
             if (_seeded) return;
             _seeded = true;
             _sequence = Sequence ?? true;
+
+            // Back from a tab that has closed: on the language the tab was showing.
+            if (Returning && await WindowCarry.TakeAsync<Carried>(JS, Route, home: true) is { } back)
+                _sequence = back.Sequence;
         }
         else
         {
+            // Moved into this tab: on the language the window was showing, which the link it was
+            // moved by could not say — so the address is put right before anything is read.
+            if (!_seeded)
+            {
+                _seeded = true;
+                _moved = WindowCarry.Moved(Nav);
+                if (_moved && await WindowCarry.TakeAsync<Carried>(JS, Route, home: false) is { } carried
+                    && carried.Sequence != (SequenceFromQuery ?? true))
+                {
+                    Nav.NavigateTo(AddressOf(carried.Sequence), replace: true);
+                    return;
+                }
+            }
+
             _sequence = SequenceFromQuery ?? true;
+            if (_moved) await WindowCarry.KeepAsync(JS, Route, new Carried(_sequence));
         }
 
         await Load();
     }
 
     private bool _seeded;
+
+    // ------------------------------------------------------------ moving into a tab and back
+
+    /// <summary>This page is the window moved into a tab of its own by Open in a tab (WindowCarry).</summary>
+    private bool _moved;
+
+    /// <summary>Where it is kept on the way, under the address of the page it moves to.</summary>
+    private const string Route = "script-language";
+
+    /// <summary>What moves with the window: which of the two languages it is showing.</summary>
+    private sealed record Carried(bool Sequence);
+
+    /// <summary>
+    /// Moving into a tab: leave which language this shows where the tab will find it. WindowDialog
+    /// calls it as Open in a tab is pressed, before the window closes here.
+    /// </summary>
+    public async Task SendOutAsync() => await WindowCarry.KeepAsync(JS, Route, new Carried(_sequence));
+
+    /// <summary>The page for one language, and in a tab the window moved into, still saying so.</summary>
+    private string AddressOf(bool sequence)
+    {
+        var query = new List<string>();
+        if (!sequence) query.Add("sequence=false");
+        if (_moved) query.Add("moved=1");
+        return query.Count == 0 ? "script-language" : "script-language?" + string.Join('&', query);
+    }
 
     /// <summary>
     /// Cross to the other language. In a window that is this component's own state; as a page
@@ -166,7 +232,7 @@ else
 
         if (!Embedded)
         {
-            Nav.NavigateTo(sequence ? "script-language" : "script-language?sequence=false");
+            Nav.NavigateTo(AddressOf(sequence));
             return;
         }
 

@@ -1,6 +1,7 @@
 @page "/catalog"
 @inject IJSRuntime JS
 @inject BenchClient Bench
+@inject NavigationManager Nav
 
 @* No heading and no lede, in either shape — the title bar names this window and the browser tab
    names it again, and a third copy at the top of the work area is the window saying its own name
@@ -234,6 +235,12 @@
     [Parameter] public bool Embedded { get; set; }
 
     /// <summary>
+    /// The window coming back from a browser tab that has closed, rather than being opened: the
+    /// catalog and the filter the tab was left on come back with it. WindowDialog says so.
+    /// </summary>
+    [Parameter] public bool Returning { get; set; }
+
+    /// <summary>
     /// Where Insert puts a command. Set by a console, which is what turns this from the
     /// Command Library into the desktop's Command Reference — the same list, with somewhere
     /// for a line to go.
@@ -275,11 +282,48 @@
         _catalogs = await Bench.CatalogsAsync();
         _totalCommands = _catalogs.Sum(c => c.CommandCount);
 
+        // Moved rather than opened, into a tab or back from one: on the catalog and the filter it
+        // was left on, where anything else opens on the list of catalogs.
+        _moved = !Embedded && WindowCarry.Moved(Nav);
+        if ((_moved || Returning)
+            && await WindowCarry.TakeAsync<Carried>(JS, Route, home: Returning) is { } carried)
+        {
+            _filter = carried.Filter ?? "";
+            _selected = _catalogs.FirstOrDefault(c => c.Family == carried.Family);
+            await Reload();
+            return;
+        }
+
         if (Family is { Length: > 0 })
         {
             _selected = _catalogs.FirstOrDefault(c => c.Family == Family);
             await Reload();
         }
+    }
+
+    // ------------------------------------------------------------ moving into a tab and back
+
+    /// <summary>This is the window moved into a tab of its own by Open in a tab (WindowCarry).</summary>
+    private bool _moved;
+
+    /// <summary>Where it is kept on the way, under the address of the page it moves to.</summary>
+    private const string Route = "catalog";
+
+    /// <summary>What moves with the window: the catalog it is showing, and the filter over it.</summary>
+    private sealed record Carried(string? Family, string Filter);
+
+    private Carried Pack() => new(_selected?.Family, _filter);
+
+    /// <summary>
+    /// Moving into a tab: leave what this shows where the tab will find it. WindowDialog calls it
+    /// as Open in a tab is pressed, before the window closes here.
+    /// </summary>
+    public async Task SendOutAsync() => await WindowCarry.KeepAsync(JS, Route, Pack());
+
+    /// <summary>In the tab, what it shows is kept current as it changes.</summary>
+    private async Task Keep()
+    {
+        if (_moved) await WindowCarry.KeepAsync(JS, Route, Pack());
     }
 
     /// <summary>
@@ -348,8 +392,10 @@
         await Reload();
     }
 
+    /// <summary>The list again, for the catalog and the filter now chosen — which are also what a move keeps.</summary>
     private async Task Reload()
     {
+        await Keep();
         if (_selected is null) { _commands = []; _guide = null; return; }
         _commands = await Bench.CatalogAsync(_selected.Family, _filter);
 

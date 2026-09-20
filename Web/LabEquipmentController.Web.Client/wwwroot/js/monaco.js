@@ -22,6 +22,9 @@
     ///"the" editor.
     const editors = new Map();
 
+    ///How many editors have been built, so that each has a context key of its own (see create).
+    let built = 0;
+
     let loading = null;
     let registered = false;
 
@@ -339,14 +342,51 @@
         }
     }
 
-    ///`«count»` becomes `${1:count}`, in the order they appear — which is the order Tab visits them,
-    ///and the order ScriptSnippet.Placeholders reports for the desktop.
+    ///
+    ///A snippet as Monaco writes one: each `«count»` a blank, `${1:«count»}`, in the order they appear —
+    ///which is the order Tab visits them, and the order ScriptSnippet.Placeholders reports for the
+    ///desktop.
+    ///
+    ///The marks stay in the blank, as the desktop selects them with it, so typing replaces the lot and
+    ///a blank left unfilled still reads as one. Everything else is text, and `$`, `}` and `\` mean
+    ///something to a snippet: the `$f` in `RECORD $f, $v` was read as a variable nobody had set, and
+    ///came out as `f`.
+    ///
     function toSnippet(body) {
         let n = 0;
-        return body.replace(/«([^»]*)»/g, function (_, name) {
+        return body.replace(/[\\$}]/g, '\\$&').replace(/«([^»]*)»/g, function (_, name) {
             n += 1;
-            return '${' + n + ':' + name + '}';
+            return '${' + n + ':«' + name + '»}';
         });
+    }
+
+    ///Write a snippet at the caret: its first blank selected, and Tab walking the rest.
+    function insertSnippet(editor, body, replacing) {
+        editor.focus();
+        editor.getContribution('snippetController2').insert(toSnippet(body), { overwriteBefore: replacing });
+    }
+
+    ///
+    ///The snippet whose word stands right before the caret, or null. A word is what the desktop's
+    ///editor reads as one (ScriptEditor.WordBeforeCaret) — letters, digits, `_`, `*`, `$` and `:` — and a
+    ///trigger matches it whole, in any case.
+    ///
+    function triggerAt(held) {
+        if (held.triggers.size === 0) return null;
+        const position = held.editor.getPosition();
+        if (!position) return null;
+
+        const before = held.editor.getModel().getLineContent(position.lineNumber).slice(0, position.column - 1);
+        const word = (/[\p{L}\p{N}_*$:]+$/u.exec(before) || [''])[0];
+        const body = held.triggers.get(word.toLowerCase());
+        return body === undefined ? null : { word, body };
+    }
+
+    ///Tab on a snippet's word: the word goes, and the snippet takes its place.
+    function expand(held) {
+        const found = triggerAt(held);
+        if (found) insertSnippet(held.editor, found.body, found.word.length);
+        else held.editor.trigger('keyboard', 'tab', null);   //the key has moved on since it was read
     }
 
     ///Everything the app calls, under the name the rest of the interop already uses.
@@ -393,8 +433,27 @@
                 scrollbar: { verticalScrollbarSize: 10, horizontalScrollbarSize: 10 }
             });
 
-            const held = { editor, ref, sequence: !!sequence, sessionId: sessionId || null, quiet: false };
+            const held = { editor, ref, sequence: !!sequence, sessionId: sessionId || null, quiet: false,
+                           triggers: new Map() };
             editors.set(el, held);
+
+            //
+            //**Tab after a snippet's word writes the snippet**, as the desktop's editor does
+            //(ScriptEditor.OnKeyDown). Only with nothing else open that Tab belongs to — the
+            //suggestion list, which it accepts from, and a snippet being filled in, whose blanks it
+            //walks — and otherwise Tab is Tab.
+            //
+            //Said through a context key, so that the key is Monaco's own Tab everywhere else. One per
+            //editor, because a command added to an editor is heard by every editor on the page, and
+            //each must answer only for its own caret.
+            //
+            const key = 'lecAtTrigger' + (++built);
+            const atTrigger = editor.createContextKey(key, false);
+            held.recheck = () => atTrigger.set(triggerAt(held) !== null);
+            editor.onDidChangeCursorPosition(held.recheck);
+            editor.onDidChangeModelContent(held.recheck);
+            editor.addCommand(monaco.KeyCode.Tab, () => expand(held),
+                key + ' && !suggestWidgetVisible && !inSnippetMode && !editorHasSelection && !editorTabMovesFocus');
 
             //
             //**Paint it.**
@@ -474,7 +533,24 @@
             }
         },
 
-        ///Write at the caret, which is what the Snippets menu does.
+        ///
+        ///Write a snippet at the caret, with its first blank selected and Tab walking the rest: what the
+        ///Snippets menu does, as the desktop's does (ScriptEditor.InsertSnippet).
+        ///
+        snippet: function (el, body) {
+            const held = editors.get(el);
+            if (held) insertSnippet(held.editor, body, 0);
+        },
+
+        ///The snippets this editor's language has, by the word Tab expands each from.
+        snippets: function (el, list) {
+            const held = editors.get(el);
+            if (!held) return;
+            held.triggers = new Map((list || []).map((s) => [String(s.trigger).toLowerCase(), s.body]));
+            held.recheck();
+        },
+
+        ///Write text at the caret, as it stands.
         insert: function (el, text) {
             const held = editors.get(el);
             if (!held) return;

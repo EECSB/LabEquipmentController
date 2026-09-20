@@ -207,6 +207,10 @@ public sealed class BenchClient(HttpClient http) : IAsyncDisposable
     public async Task<IReadOnlyList<ExampleDto>> SequenceExamplesAsync()
         => await http.GetFromJsonAsync<List<ExampleDto>>("api/examples/sequence") ?? [];
 
+    /// <summary>The worked example the Script Editor opens on, as the desktop's ScriptForm does.</summary>
+    public async Task<string> ScriptStartAsync()
+        => (await http.GetFromJsonAsync<ExampleDto>("api/examples/script-start"))?.Script ?? "";
+
     /// <summary>
     /// A script's DEVICE lines and what each is bound to on the bench right now, given what has
     /// been picked by hand. The server works it out, by the rule the desktop's strip uses.
@@ -358,8 +362,26 @@ public sealed class BenchClient(HttpClient http) : IAsyncDisposable
             // status bar stayed at what it was when this page loaded is a window disagreeing
             // with itself.
             _hub.On("Bench", () => SessionsChanged?.Invoke());
+
+            // Whatever happened while this connection was down was not heard, and nothing
+            // will say it again. Re-read once it is back, for the same reason as below.
+            _hub.Reconnected += _ =>
+            {
+                SessionsChanged?.Invoke();
+                return Task.CompletedTask;
+            };
         }
-        if (_hub.State == HubConnectionState.Disconnected) await _hub.StartAsync();
+        if (_hub.State == HubConnectionState.Disconnected)
+        {
+            await _hub.StartAsync();
+
+            // And once it is up for the first time. A page opened a moment before someone
+            // else connected an instrument is listening too late to be told about it: the
+            // push has already gone out, nothing repeats it, and the tab strip stays empty
+            // until the page is reloaded. Asking once here costs one request and closes the
+            // window between reading the bench and being able to hear about it.
+            SessionsChanged?.Invoke();
+        }
         return _hub;
     }
 

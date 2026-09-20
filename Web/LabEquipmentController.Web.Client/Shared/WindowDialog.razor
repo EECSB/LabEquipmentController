@@ -46,15 +46,15 @@
             @* Built only while the window is open, so each opening starts fresh rather than
                showing what was left behind — and so a catalog of 24,000 commands is not sitting
                in the render tree of every page that happens to have the gear on it. A window
-               coming back from its tab is not an opening: the editor brings what the tab held. *@
+               coming back from its tab is not an opening: it brings what the tab held. *@
             @switch (window)
             {
                 case Window.Catalog:
-                    <Catalog Embedded="true" />
+                    <Catalog Embedded="true" @ref="_catalog" Returning="@_returning.Contains(window)" />
                     break;
 
                 case Window.Language:
-                    <ScriptReference Embedded="true" />
+                    <ScriptReference Embedded="true" @ref="_language" Returning="@_returning.Contains(window)" />
                     break;
 
                 case Window.Sequences:
@@ -90,20 +90,21 @@
     };
 
     /// <summary>
-    /// Where Open in a tab goes: the window's address, and for the multi-instrument editor a word
-    /// saying that this is the window moving rather than a page being opened, so the tab takes up
-    /// the script it carried (see Sequences). In the address because the tab may be a separate
-    /// window, by Shift-click, with nothing else to tell it where it came from.
+    /// Where Open in a tab goes: the window's address, and a word saying that this is the window
+    /// moving rather than a page being opened, so the tab takes up what it carried (WindowCarry).
+    /// In the address because the tab may be a separate window, by Shift-click, with nothing else
+    /// to tell it where it came from.
     /// </summary>
-    private static string LinkOf(Window window)
-        => window == Window.Sequences ? AddressOf(window) + "?moved=1" : AddressOf(window);
+    private static string LinkOf(Window window) => AddressOf(window) + "?moved=1";
 
-    /// <summary>The multi-instrument editor, while its window is open here: it packs what moves with it.</summary>
+    /// <summary>What is in each window while it is open here: each packs what moves with it.</summary>
+    private Catalog? _catalog;
+    private ScriptReference? _language;
     private Sequences? _sequences;
 
     /// <summary>
-    /// Windows coming back from a tab that has closed, rather than being opened: the editor takes
-    /// up what its tab held. Cleared when the window shuts, so the next opening is a new window.
+    /// Windows coming back from a tab that has closed, rather than being opened: each takes up
+    /// what its tab held. Cleared when the window shuts, so the next opening is a new window.
     /// </summary>
     private readonly HashSet<Window> _returning = [];
 
@@ -144,9 +145,17 @@
     /// </summary>
     private async Task SentOut(Window what)
     {
-        // What is in it goes too. The tab opened on an editor of its own, and the script being
-        // written went with the dialog that closed here.
-        if (what == Window.Sequences && _sequences is not null) await _sequences.SendOutAsync();
+        // What is in it goes too. The tab opens on a page of its own, and what the window held —
+        // the script being written, the catalog and the filter, the language — went with the
+        // dialog that closed here.
+        Task sent = what switch
+        {
+            Window.Catalog when _catalog is not null => _catalog.SendOutAsync(),
+            Window.Language when _language is not null => _language.SendOutAsync(),
+            Window.Sequences when _sequences is not null => _sequences.SendOutAsync(),
+            _ => Task.CompletedTask,
+        };
+        await sent;
 
         _out[what] = false;
         Close(what);

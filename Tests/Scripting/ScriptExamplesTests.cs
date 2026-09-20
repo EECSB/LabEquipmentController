@@ -26,6 +26,26 @@ public class ScriptExamplesTests
         Assert.Equal(examples.Count, examples.Select(e => e.Name).Distinct().Count());
     }
 
+    /// <summary>
+    /// What the Script Editor opens on, in both builds, is one worked example for every instrument,
+    /// so it asks nothing any of them might not answer: its only command is *IDN?. The rest is the
+    /// language it is there to show — a comment first, then PRINT, REPEAT and DELAY.
+    /// </summary>
+    [Fact]
+    public void The_starting_script_asks_nothing_but_the_identity()
+    {
+        string[] keywords = ["PRINT ", "REPEAT ", "DELAY ", "END"];
+        string[] lines = ScriptExamples.Starting.Split('\n').Select(l => l.Trim()).ToArray();
+
+        string[] commands = lines
+            .Where(l => l.Length > 0 && !l.StartsWith('#') && !keywords.Any(k => l.StartsWith(k, System.StringComparison.Ordinal)))
+            .ToArray();
+
+        Assert.Equal(["*IDN?", "*IDN?"], commands);
+        Assert.StartsWith("#", lines[0]);
+        Assert.All(keywords, k => Assert.Contains(lines, l => l.StartsWith(k, System.StringComparison.Ordinal)));
+    }
+
     [Fact]
     public void A_multimeter_is_not_offered_the_generator_dialect()
     {

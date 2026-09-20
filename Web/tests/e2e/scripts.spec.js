@@ -11,7 +11,7 @@
 //
 const fs = require('fs');
 const { test, expect } = require('./fixtures');
-const { freshBench, connect, pane, boxOf, setScript, scriptText, scriptTokens } = require('./helpers');
+const { freshBench, connect, pane, boxOf, setScript, scriptText, scriptTokens, editorReady } = require('./helpers');
 const { startInstrument } = require('./instrument');
 
 ///A script that uses one of everything this window has to show: a message, a captured reply, a
@@ -118,22 +118,26 @@ test.describe('the toolbar', () => {
     });
 
     ///
-    ///Nothing to save once there is nothing to save.
+    ///An empty editor saves an empty file, as ScriptForm's and SequenceForm's do: Save and Save As
+    ///stay live whatever is in the box. They were greyed here while it was empty.
     ///
     ///Emptied rather than found empty: the window opens with a script already in it, so New is what
     ///makes the empty case reachable at all.
     ///
-    test('Save goes dead when the editor is emptied', async ({ page }) => {
+    test('Save stays live on an empty editor, and saves an empty file', async ({ page }) => {
         const tool = await openEditor(page);
 
         await tool.getByRole('button', { name: /^New$/ }).click();
         expect(await scriptText(page)).toBe('');
+        await expect(tool.getByRole('button', { name: /^Save As/ })).toBeEnabled();
 
-        await expect(tool.getByRole('button', { name: /^Save$/ })).toBeDisabled();
-        await expect(tool.getByRole('button', { name: /^Save As/ })).toBeDisabled();
-
-        await setScript(page, 'PRINT hello');
-        await expect(tool.getByRole('button', { name: /^Save$/ })).toBeEnabled();
+        const [file] = await Promise.all([
+            page.waitForEvent('download'),
+            tool.getByRole('button', { name: /^Save$/ }).click(),
+        ]);
+        expect(file.suggestedFilename()).toBe('script.txt');
+        expect(fs.readFileSync(await file.path(), 'utf8')).toBe('');
+        await expect(status(page)).toHaveText('Saved script.txt');
     });
 
     ///
@@ -141,18 +145,22 @@ test.describe('the toolbar', () => {
     ///download under the name the script already has. It used to be the browser's key, which saved
     ///the page (this app's HTML) rather than the script.
     ///
-    ///Only when Save would. With the editor emptied both buttons are greyed and the key saves
-    ///nothing. Held down, it is one save and not a download per repeat. On the bench behind the
-    ///window, it is still the browser's.
+    ///Whenever Save would, which is always - an empty editor saves an empty file. Held down, it is
+    ///one save and not a download per repeat. On the bench behind the window, it is still the
+    ///browser's.
     ///
-    test('Ctrl+S saves the script, when Save would', async ({ page }) => {
+    test('Ctrl+S saves the script, as Save does', async ({ page }) => {
         const tool = await openEditor(page);
         const saved = [];
         page.on('download', (d) => saved.push(d));
 
-        //New leaves the focus on its own button, in the window.
+        //New leaves the focus on its own button, in the window. The key is the window's once its
+        //editor exists - Monaco is fetched when the first editor opens - so that is waited for.
         await tool.getByRole('button', { name: /^New$/ }).click();
+        await editorReady(page);
         await page.keyboard.press('Control+s');
+        await expect.poll(() => saved.length).toBe(1);
+        expect(fs.readFileSync(await saved[0].path(), 'utf8')).toBe('');
 
         await setScript(page, SCRIPT);
         await page.keyboard.down('Control');
@@ -161,10 +169,10 @@ test.describe('the toolbar', () => {
         await page.keyboard.up('s');
         await page.keyboard.up('Control');
 
+        await expect.poll(() => saved.length).toBe(2);
         await expect(status(page)).toHaveText('Saved script.txt');
-        await expect.poll(() => saved.length).toBe(1);
-        expect(saved[0].suggestedFilename()).toBe('script.txt');
-        const text = fs.readFileSync(await saved[0].path(), 'utf8');
+        expect(saved[1].suggestedFilename()).toBe('script.txt');
+        const text = fs.readFileSync(await saved[1].path(), 'utf8');
         expect(text.replace(/\r\n/g, '\n')).toBe(SCRIPT);
 
         //Dispatched rather than typed: a Ctrl+S left to the browser saves the page, for real.
@@ -174,7 +182,8 @@ test.describe('the toolbar', () => {
             return e.defaultPrevented;
         });
         expect(bench).toBe(false);
-        expect(saved).toHaveLength(1);
+        await page.waitForTimeout(300);
+        expect(saved).toHaveLength(2);
     });
 
     ///
@@ -190,16 +199,19 @@ test.describe('the toolbar', () => {
 
 test.describe('writing a script', () => {
     ///
-    ///The window opens with something in it rather than with a blank page.
+    ///The window opens on the desktop's worked example rather than on a blank page: what a comment
+    ///looks like, then PRINT, then a REPEAT with a DELAY in it, which teaches the language in the place
+    ///where it is needed. One copy, Core's ScriptExamples.Starting, which ScriptForm opens on too. The
+    ///web opened on a lone `*IDN?`: a starting point, and not the same one.
     ///
-    ///The desktop opens on a commented worked example - what a comment looks like, then PRINT, then a
-    ///REPEAT with a DELAY in it - which teaches the language in the place where it is needed. The web
-    ///opens on a single `*IDN?`. Both are a starting point rather than an empty box; that they are not
-    ///the *same* starting point is recorded in UI-SPEC §9 as a difference, not asserted here.
-    ///
-    test('opens on a starting script rather than a blank page', async ({ page }) => {
+    test('opens on the desktop\'s worked example', async ({ page }) => {
         await openEditor(page);
-        expect(await scriptText(page)).not.toBe('');
+        const text = async () => (await scriptText(page)).replace(/\r\n/g, '\n');
+
+        await expect.poll(text).toMatch(/^# SCPI script — one command per line\.\n/);
+        expect(await text()).toContain('PRINT Identifying instrument...\n*IDN?\n');
+        expect(await text()).toContain('REPEAT 3\n    *IDN?\n    DELAY 500\nEND\n');
+        expect(await text()).toMatch(/PRINT Done\.\n$/);
     });
 
     ///
@@ -316,6 +328,66 @@ test.describe('the editor itself', () => {
         await expect(list).toBeVisible();
         await expect(list).toContainText('reading');
     });
+
+    ///The script with Monaco's line endings (CRLF on Windows) read as the \n it was written with.
+    const textIn = async (page) => (await scriptText(page)).replace(/\r\n/g, '\n');
+
+    ///
+    ///A snippet from the menu comes in with its first blank chosen, and Tab walks the rest, which is
+    ///what the desktop's Snippets does (ScriptEditor.InsertSnippet). The blanks keep their « » marks
+    ///until they are typed over, so one left unfilled still says so. It went in as plain text, with
+    ///the caret after it and Tab indenting.
+    ///
+    test('writes a snippet from the menu with its first blank chosen, and Tab walks the rest', async ({ page }) => {
+        const tool = await openEditor(page);
+        await tool.getByRole('button', { name: /^New$/ }).click();
+        await expect.poll(() => textIn(page)).toBe('');
+
+        await tool.getByRole('button', { name: /^Snippets/ }).click();
+        await tool.locator('.menu[aria-label="Snippets"] .item', { hasText: 'REPEAT' }).click();
+        await expect.poll(() => textIn(page)).toBe('REPEAT «count»\n    «command»\nEND\n');
+
+        await page.keyboard.type('3');
+        await page.keyboard.press('Tab');
+        await page.keyboard.type('*IDN?');
+        await expect.poll(() => textIn(page)).toBe('REPEAT 3\n    *IDN?\nEND\n');
+    });
+
+    ///
+    ///Tab after a snippet's word writes the snippet, as the desktop's editor does, whether or not the
+    ///suggestion list has come up. After any other word, Tab is Tab.
+    ///
+    test('writes a snippet for its word when Tab is pressed after it', async ({ page }) => {
+        await openEditor(page);
+        await setScript(page, 'print');   // the caret after it, and no list open
+
+        await page.keyboard.press('Tab');
+        await expect.poll(() => textIn(page)).toBe('PRINT «message»\n');
+        await page.keyboard.type('hello');
+        await expect.poll(() => textIn(page)).toBe('PRINT hello\n');
+
+        await setScript(page, 'printer');
+        await page.keyboard.press('Tab');
+        await expect.poll(() => textIn(page)).toMatch(/^printer +$/);
+    });
+
+    ///
+    ///The language reference ends on the editor's keys, as ScriptReferenceForm does: Tab, Ctrl+Space,
+    ///Snippets and F5, in its words.
+    ///
+    test('ends its reference on the keys the editor takes', async ({ page }) => {
+        const tool = await openEditor(page);
+        await tool.getByRole('button', { name: /^Snippets/ }).click();
+        await tool.getByRole('button', { name: /What all of this means/ }).click();
+
+        const reference = page.locator('dialog.tool[open] dialog.tool[open]');
+        const keys = reference.locator('.group').last();
+        await expect(keys.locator('.cap')).toHaveText('In the editor');
+        await expect(keys).toContainText('Tab expands the word before the caret into a snippet');
+        await expect(keys).toContainText('Ctrl+Space offers whatever can go where the caret is.');
+        await expect(keys).toContainText('Snippets is this same list');
+        await expect(keys).toContainText('F5 runs.');
+    });
 });
 
 test.describe('running a script', () => {
@@ -419,6 +491,33 @@ test.describe('running a script', () => {
         //The curve is the other tab, as it is in the console.
         await results.getByRole('button', { name: 'Plot' }).click();
         await expect(tool.locator('.plotcanvas')).toBeVisible();
+    });
+
+    ///
+    ///Save CSV writes the file the desktop's ResultsPanel writes, quoting and all.
+    ///
+    ///An instrument's reply is not always a number. Every `*IDN?` carries three commas, and a Siglent
+    ///generator answers `C1:OUTP?` with four - which is how this was found, on a bench. Written out
+    ///bare, one reading arrived in a spreadsheet as five columns under a heading that declared one.
+    ///Both builds now save through Core's CsvWriter, so the rule cannot drift between them again.
+    ///
+    test('saves a reply full of commas as one quoted column', async ({ page }) => {
+        const tool = await openEditor(page);
+        await setScript(page, ['COLUMNS what', '*IDN? -> id', 'RECORD $id'].join('\n'));
+        await tool.getByRole('button', { name: /^Run$/ }).click();
+
+        const results = tool.locator('.group', { hasText: 'Results table' });
+        await expect(results.locator('tbody tr')).toHaveCount(1, { timeout: 20000 });
+
+        const [file] = await Promise.all([
+            page.waitForEvent('download'),
+            tool.getByRole('button', { name: 'Save CSV' }).click(),
+        ]);
+        expect(file.suggestedFilename()).toBe('script-results.csv');
+
+        const rows = fs.readFileSync(await file.path(), 'utf8').trim().split(/\r?\n/);
+        expect(rows[0]).toBe('what');
+        expect(rows[1]).toBe(`"${instrument.identity}"`);
     });
 
     ///

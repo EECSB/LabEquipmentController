@@ -138,10 +138,14 @@ test.describe('pressing while a command is in flight', () => {
     ///And they queue rather than interleaving: one chip each, in the order they were pressed, with the
     ///arrow between them saying which is next.
     ///
+    ///Four different commands, so that the order says something. The same one pressed four times
+    ///stands in every order at once, and "oldest first" could not be told from any other.
+    ///
     test('the presses stack up as chips, oldest first', async ({ page }) => {
-        const PRESSES = 4;
-        const dcv = quick(page, 'DC V');
-        for (let i = 0; i < PRESSES; i++) await dcv.click();
+        const PRESSES = [['DC V', 'MEASure:VOLTage:DC?'], ['AC V', 'MEASure:VOLTage:AC?'],
+                         ['DC I', 'MEASure:CURRent:DC?'], ['AC I', 'MEASure:CURRent:AC?']];
+        const pressed = PRESSES.map(([, command]) => command);
+        for (const [label] of PRESSES) await quick(page, label).click();
 
         //What the strip draws, left to right: a chip as its command, an arrow as ▶.
         //
@@ -157,13 +161,21 @@ test.describe('pressing while a command is in flight', () => {
             return drawn.filter((d) => d !== '▶').length;
         }).toBeGreaterThanOrEqual(2);
 
-        //One chip per press still waiting, and each the command pressed.
+        //One chip per press still waiting, each the command pressed, and in the order they were
+        //pressed: a run of the presses, with those already answered gone from the front and none
+        //standing ahead of one pressed before it.
         const chips = drawn.filter((d) => d !== '▶');
-        expect(chips.length).toBeLessThanOrEqual(PRESSES);
-        for (const c of chips) expect(c).toBe('MEASure:VOLTage:DC?');
+        const from = pressed.indexOf(chips[0]);
+        expect(from).toBeGreaterThanOrEqual(0);
+        expect(chips).toEqual(pressed.slice(from, from + chips.length));
 
         //The arrow is drawn between chips and not before the first: chip, arrow, chip, arrow, chip.
         expect(drawn).toEqual(chips.flatMap((c, i) => (i === 0 ? [c] : ['▶', c])));
+
+        //And the instrument was asked them in that order.
+        const asked = () => instrument.received.filter((c) => c.startsWith('MEASure:'));
+        await expect.poll(() => asked().length, { timeout: 20000 }).toBe(PRESSES.length);
+        expect(asked()).toEqual(pressed);
     });
 
     ///

@@ -18,11 +18,13 @@
         <button @onclick="New" title="Start a new script. Anything unsaved in the box is lost — save it first if you want to keep it."><Icon Name="new" /> New</button>
     }
     <button @onclick="Open" title="Open a script file from disk."><Icon Name="openfile" /> Open&hellip;</button>
-    <button @onclick="() => Save(rename: false)" disabled="@(Script.Length == 0)"
+    @* Live whatever is in the editor, as ScriptForm's and SequenceForm's are: an empty editor saves
+       an empty file. They were greyed here while it was empty, and Ctrl+S with them. *@
+    <button @onclick="() => Save(rename: false)"
             title="Save the script (Ctrl+S)."><Icon Name="save" /> Save</button>
     @if (!IsSequence)
     {
-        <button @onclick="() => Save(rename: true)" disabled="@(Script.Length == 0)"
+        <button @onclick="() => Save(rename: true)"
                 title="Save the script under a new name."><Icon Name="save" /> Save As&hellip;</button>
     }
 
@@ -67,7 +69,7 @@
        script arrives, then running it — and its own comment says why this is in the middle one:
        "Snippets and Script with AI sit beside the examples, because all three answer the same
        question — where a script comes from when you do not have one yet." *@
-    <button @onclick="OpenAi" title="Have a model draft the script, out of the connected instruments' catalogs and nothing else."><Icon Name="ai" /> Script with AI&hellip;</button>
+    <button @ref="_aiButton" @onclick="OpenAi" title="Have a model draft the script, out of the connected instruments' catalogs and nothing else."><Icon Name="ai" /> Script with AI&hellip;</button>
 
     <span class="gap"></span>
 
@@ -110,7 +112,7 @@
     <ToolWindow Title="Write a Script with AI" Fill="true" OpenWidth="1320" OpenHeight="920"
                 OnClosed="() => _aiOpen = false">
         <Ai Tool="AiTool.Script" Session="@SessionId" IsSequence="IsSequence"
-            CurrentScript="@Script" RecentOutput="@RecentOutput" OnUse="UseScript" />
+            CurrentScript="@Script" RecentOutput="@RecentOutput" Picks="@Picks" OnUse="UseScript" />
     </ToolWindow>
 }
 
@@ -145,6 +147,9 @@
     /// <summary>The instrument this editor runs against, when it has just one.</summary>
     [Parameter] public string? SessionId { get; set; }
 
+    /// <summary>The multi-instrument page's binding table as picked by hand, for the AI window.</summary>
+    [Parameter] public IReadOnlyDictionary<string, string>? Picks { get; set; }
+
     /// <summary>Raised when the whole script is replaced — an example loaded, or a draft
     /// used — rather than typed into. The multi-instrument editor re-reads its DEVICE lines
     /// then, which is a server call and not something to do per keystroke.</summary>
@@ -157,6 +162,7 @@
     private ElementReference _editor;
     private ElementReference _file;
     private ElementReference _snippetsButton;
+    private ElementReference _aiButton;
     private bool _referenceOpen;
 
     /// <summary>
@@ -190,10 +196,13 @@
         {
             _self = DotNetObjectReference.Create(this);
             await JS.InvokeVoidAsync("lec.monaco.create", _editor, _self, Script, IsSequence, SessionId, await Dark());
+            _built = true;
+            await GiveSnippets();
             return;
         }
 
         await JS.InvokeVoidAsync("lec.monaco.set", _editor, Script);
+        await GiveSnippets();
 
         if (_focusStart)
         {
@@ -201,6 +210,21 @@
             await JS.InvokeVoidAsync("lec.monaco.focusStart", _editor);
         }
     }
+
+    /// <summary>
+    /// The words Tab expands into snippets, as the desktop's editor expands them: given once there
+    /// is an editor to give them to and the list has come from the server, in whichever order those
+    /// two happen.
+    /// </summary>
+    private async Task GiveSnippets()
+    {
+        if (!_built || _snippetsGiven || _snippetList.Count == 0) return;
+        _snippetsGiven = true;
+        await JS.InvokeVoidAsync("lec.monaco.snippets", _editor, _snippetList);
+    }
+
+    private bool _built;
+    private bool _snippetsGiven;
 
     /// <summary>Whether the page is in its dark theme, so the editor opens in the same one.</summary>
     private async Task<bool> Dark()
@@ -230,7 +254,7 @@
 
     /// <summary>
     /// Ctrl+S, pressed anywhere in this editor's window, found the way F5 is. It does what Save
-    /// does, and Save makes its own check.
+    /// does, an empty editor included.
     /// </summary>
     [JSInvokable]
     public Task SaveKey() => Save(rename: false);
@@ -271,10 +295,6 @@
     /// </param>
     private async Task Save(bool rename)
     {
-        // Nothing to save, which is why both buttons are greyed then. Ctrl+S comes here too, and
-        // would otherwise download an empty file where the button does nothing.
-        if (Script.Length == 0) return;
-
         string suggested = _name.Length > 0 ? _name : (IsSequence ? "sequence.txt" : "script.txt");
         string? name = rename
             ? await JS.InvokeAsync<string?>("prompt", "Save the script as:", suggested)
@@ -303,7 +323,10 @@
         _snippets = false;
         // The placeholder marks go with it, as they do in the desktop's editor — they say
         // what has to be filled in, and they are the one part of a snippet that is not code.
-        await JS.InvokeVoidAsync("lec.monaco.insert", _editor, snippet.Body);
+        // And as there, the first of them is selected and Tab walks the rest
+        // (ScriptEditor.InsertSnippet). It went in as plain text, marks and all, with the caret
+        // after it and Tab indenting.
+        await JS.InvokeVoidAsync("lec.monaco.snippet", _editor, snippet.Body);
         await ScriptChanged.InvokeAsync(await JS.InvokeAsync<string>("lec.monaco.get", _editor));
     }
 
@@ -352,15 +375,37 @@
     /// The script the model wrote, into the editor, with the caret at its start and the focus
     /// there, as SequenceForm and ScriptForm leave them (Select(0, 0), then Focus()). The AI
     /// window goes with the button that was pressed in it, and the focus would have gone too.
+    ///
+    /// Over a script, it asks first, as both of them do: the draft takes the whole editor, and
+    /// what it replaces is gone. Asked once the AI window has shut, which is when they ask it —
+    /// ScriptAiForm has closed by the time the MessageBox comes up. Cancel leaves the editor as
+    /// it was, and the focus on Script with AI…, where the desktop's is left; the draft is still
+    /// in the conversation, which outlives the window.
     /// </summary>
     private async Task UseScript(string script)
     {
+        _aiOpen = false;
+
+        if (Script.Length > 0)
+        {
+            StateHasChanged();
+            if (!await JS.InvokeAsync<bool>("lec.askAfterPaint", ReplaceQuestion))
+            {
+                await _aiButton.FocusAsync();
+                return;
+            }
+        }
+
         await ScriptChanged.InvokeAsync(script);
         await Say("Script written by AI — read it before running it.");
         await OnScriptReplaced.InvokeAsync();
-        _aiOpen = false;
         _focusStart = true;
     }
+
+    /// <summary>ScriptForm's and SequenceForm's words, the OK/Cancel box's title aside.</summary>
+    private const string ReplaceQuestion =
+        "Replace the script in the editor with the one that was written?\n\n"
+      + "Save it first if you want to keep it.";
 
     private sealed record FilePayload(string name, string base64);
 }

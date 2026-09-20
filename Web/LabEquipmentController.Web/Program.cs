@@ -250,6 +250,9 @@ api.MapGet("/examples/script/{family}", (string family) =>
 api.MapGet("/examples/sequence", () =>
     SequenceExamples.All.Select(e => new ExampleDto(e.Name, e.Script)).ToList());
 
+// What the Script Editor opens on, whatever the instrument: the desktop's worked example.
+api.MapGet("/examples/script-start", () => new ExampleDto("Starting script", ScriptExamples.Starting));
+
 api.MapPost("/runs/script", (ScriptRunRequest req, RunService runs) => runs.StartScript(req));
 
 api.MapPost("/runs/sequence", (SequenceRunRequest req, RunService runs) => runs.StartSequence(req));

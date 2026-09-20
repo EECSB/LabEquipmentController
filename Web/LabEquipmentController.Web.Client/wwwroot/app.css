@@ -33,6 +33,8 @@
     --accent: #1f6feb;
     --accent-ink: #ffffff;
     --accent-soft: #e8f0fe;
+    /* The chosen half of a switch (.seg): see there. */
+    --seg-on: #c9ced6;
     --ok: #1a7f37;
     --bad: #c1121f;
     --console-bg: #0b0d10;
@@ -64,6 +66,7 @@
     --line-soft: #232932;
     --accent: #4c8dff;
     --accent-soft: #16233a;
+    --seg-on: #3a414c;
     --ok: #46b96a;
     --bad: #ff6b6b;
     --console-bg: #05070a;
@@ -127,7 +130,15 @@ body {
 .titlebar .ghost:hover:not(:disabled) { background: var(--accent-soft); border-color: var(--line); color: var(--ink); }
 
 /* Three squares in one box, the way a small toolbar toggle group looks: one border around
-   the set, hairlines between, and the one that is on filled in. */
+   the set, hairlines between, and the one that is on filled in.
+
+   Filled grey, not accent, as the desktop's SegmentButton fills the bench's scan switch: a grey
+   between the border's and the face's, dark enough that the chosen half is obvious at a glance
+   and light enough to stay a heading. An accent-filled switch was the one thing on screen pulling
+   the eye, and what it pulled it towards is a heading. The same contrast against the half beside
+   it in both themes — about what the desktop's has against its white. Hover lifts only the half
+   that is not chosen; lifting the chosen one would make it look unchosen at the moment it is
+   about to be pressed. */
 .seg { display: inline-flex; border: 1px solid var(--line); border-radius: 4px; overflow: hidden; }
 .seg button {
     padding: .2rem .4rem;
@@ -136,8 +147,8 @@ body {
 }
 .seg button:first-child { border-left: 0; }
 .seg button:hover:not(:disabled) { background: var(--accent-soft); border-color: var(--line); color: var(--ink); }
-.seg button.on { background: var(--accent); color: var(--accent-ink); }
-.seg button.on:hover:not(:disabled) { background: var(--accent); color: var(--accent-ink); }
+.seg button.on { background: var(--seg-on); color: var(--ink); }
+.seg button.on:hover:not(:disabled) { background: var(--seg-on); color: var(--ink); }
 .seg svg { width: 13px; height: 13px; flex: 0 0 13px; }
 
 /* ---- the settings menu --------------------------------------------------- */
@@ -367,9 +378,13 @@ body {
    high because it stands in a row of boxes; here it stands in for the heading itself, so it
    takes the heading's size and weight and only its border makes it more than text. */
 .cap > .seg { height: auto; vertical-align: middle; }
+/* Both halves in the heading's own ink, chosen or not, as SegmentButton draws both in
+   ControlText: which one is chosen is the fill's to say, and a caption greyed out beside it reads
+   as a heading that is disabled rather than one not picked. */
 .cap > .seg button {
     height: auto; padding: .08rem .3rem;
     font-size: 12px; font-weight: 600; line-height: 1.35;
+    color: var(--ink);
 }
 /* A caption with something beside it. A card whose title line carries one action reads as
    a titled box with a button, which is what a WinForms group box with a button in its top

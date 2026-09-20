@@ -52,7 +52,13 @@
     private IReadOnlyList<SessionDto> _sessions = [];
     private IReadOnlyList<ExampleDto> _examples = [];
     private string? _sessionId;
-    private string _script = "*IDN?\n";
+
+    /// <summary>
+    /// What is in the editor. It opens on the desktop's commented worked example
+    /// (<c>ScriptExamples.Starting</c>, from the server) — a comment, PRINT, then a REPEAT with a
+    /// DELAY in it — where it opened on a lone <c>*IDN?</c>: both a starting point, and not the same one.
+    /// </summary>
+    private string _script = "";
     private bool _running;
     private string? _runId;
     /// <summary>What the line along the foot says. Empty until something has happened —
@@ -77,6 +83,7 @@
     {
         if (Window is not null) Window.BeforeClose = MayClose;
 
+        _script = await Bench.ScriptStartAsync();
         _sessions = await Bench.SessionsAsync();
         _sessionId = Session ?? _sessions.FirstOrDefault()?.Id;
         await LoadExamples();
@@ -165,13 +172,14 @@
         _rows.Clear();
     }
 
+    /// <summary>
+    /// The recorded rows as a file, through Core's writer — the same one ResultsPanel saves
+    /// the desktop's table with, so a reading holding a comma is quoted here exactly as it is
+    /// there. A Siglent generator answering C1:OUTP? is four commas in one cell.
+    /// </summary>
     private async Task SaveCsv()
-    {
-        var csv = new System.Text.StringBuilder();
-        csv.Append(string.Join(',', _columns)).Append("\r\n");
-        foreach (var r in _rows) csv.Append(string.Join(',', r.Values)).Append("\r\n");
-        await Download("script-results.csv", "text/csv", csv.ToString());
-    }
+        => await Download("script-results.csv", "text/csv",
+                          CsvWriter.Table(_columns, _rows.Select(r => r.Values)));
 
     private async Task Download(string name, string mime, string text)
         => await JS.InvokeVoidAsync("lec.download", name, mime,

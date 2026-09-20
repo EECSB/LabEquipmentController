@@ -16,22 +16,6 @@ namespace LabEquipmentController;
 /// </summary>
 public sealed class ScriptForm : Form
 {
-    private const string SampleScript =
-        "# SCPI script — one command per line.\r\n" +
-        "# '#' or '//' begin a comment.  DELAY <ms> pauses.\r\n" +
-        "# REPEAT <n> ... END repeats a block.  PRINT <text> logs a message.\r\n" +
-        "\r\n" +
-        "PRINT Identifying instrument...\r\n" +
-        "*IDN?\r\n" +
-        "\r\n" +
-        "# Read the identity three times, half a second apart\r\n" +
-        "REPEAT 3\r\n" +
-        "    *IDN?\r\n" +
-        "    DELAY 500\r\n" +
-        "END\r\n" +
-        "\r\n" +
-        "PRINT Done.\r\n";
-
     /// <summary>
     /// Ready-made scripts offered by the "Examples" dropdown, for the instrument this
     /// editor belongs to. See <see cref="ScriptExamples"/> — they live in Core so the
@@ -115,7 +99,8 @@ public sealed class ScriptForm : Form
 
         BuildUi();
 
-        _editor.Text = SampleScript;
+        // The worked example both builds open on (Core's, so the web's is the same one).
+        _editor.Text = ScriptExamples.Starting.Replace("\n", "\r\n");
         _dirty = false;
         UpdateTitle();
     }
@@ -278,12 +263,26 @@ public sealed class ScriptForm : Form
             _results.PinToolHeight();    // then pin: the button height is what it uses
         };
 
-        KeyDown += (_, e) =>
-        {
-            if (e.KeyCode == Keys.F5) { e.Handled = true; _ = RunScriptAsync(); }
-            else if (e.Control && e.KeyCode == Keys.S) { e.Handled = true; SaveScript(); }
-        };
         FormClosing += ScriptForm_FormClosing;
+    }
+
+    /// <summary>
+    /// F5 runs and Ctrl+S saves, anywhere in the window.
+    ///
+    /// Held down, either is one press, as holding a button down is one click. A held F5 started
+    /// a new run each time one ended, and a held Ctrl+S saved once per repeat; the web build's
+    /// keys were one press each already. The keyboard's own repeats say so in bit 30 of the
+    /// message, the key's previous state, which a KeyDown handler is never shown — so the keys
+    /// are taken here rather than there.
+    /// </summary>
+    protected override bool ProcessCmdKey(ref Message msg, Keys keyData)
+    {
+        Keys key = keyData & Keys.KeyCode;
+        bool repeat = (msg.LParam.ToInt64() & 0x40000000) != 0;
+
+        if (key == Keys.F5) { if (!repeat) _ = RunScriptAsync(); return true; }
+        if (key == Keys.S && (keyData & Keys.Control) != 0) { if (!repeat) SaveScript(); return true; }
+        return base.ProcessCmdKey(ref msg, keyData);
     }
 
     /// <summary>

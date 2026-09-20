@@ -24,6 +24,33 @@ public sealed record ScriptExample(string Name, string Script);
 /// </summary>
 public static class ScriptExamples
 {
+    /// <summary>
+    /// What the Script Editor opens on, in both builds: a commented worked example rather than a
+    /// blank page or a lone query. What a comment looks like, then <c>PRINT</c>, then a
+    /// <c>REPEAT</c> with a <c>DELAY</c> inside it — the language taught in the place where it is
+    /// needed, before anyone has opened the reference. Its only command is <c>*IDN?</c>, which every
+    /// instrument answers, so it runs on whatever the editor was opened for.
+    /// </summary>
+    /// <remarks>
+    /// It lived in the desktop's ScriptForm, and the web opened on a single <c>*IDN?</c> instead:
+    /// both a starting point, and not the same one.
+    /// </remarks>
+    public const string Starting =
+        "# SCPI script — one command per line.\n" +
+        "# '#' or '//' begin a comment.  DELAY <ms> pauses.\n" +
+        "# REPEAT <n> ... END repeats a block.  PRINT <text> logs a message.\n" +
+        "\n" +
+        "PRINT Identifying instrument...\n" +
+        "*IDN?\n" +
+        "\n" +
+        "# Read the identity three times, half a second apart\n" +
+        "REPEAT 3\n" +
+        "    *IDN?\n" +
+        "    DELAY 500\n" +
+        "END\n" +
+        "\n" +
+        "PRINT Done.\n";
+
     /// <summary>The examples that suit this instrument family.</summary>
     public static IReadOnlyList<ScriptExample> ForFamily(InstrumentFamily family) => family switch
     {

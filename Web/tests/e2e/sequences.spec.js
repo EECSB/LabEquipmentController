@@ -381,6 +381,24 @@ test.describe('F5', () => {
     });
 });
 
+test.describe('snippets', () => {
+    ///
+    ///A snippet's dollar signs are the language's, not the editor's. The whole-sweep snippet records
+    ///$f and $v, and Monaco reads a bare $f in a snippet as a variable of its own: it wrote "f", and
+    ///the RECORD line recorded two words.
+    ///
+    test('keep their dollar signs', async ({ page }) => {
+        await openSequences(page);
+        await setScript(page, 'sweep');   // the snippet's word, with the caret after it
+        await page.keyboard.press('Tab');
+
+        const text = async () => (await scriptText(page)).replace(/\r\n/g, '\n');
+        await expect.poll(text).toContain('RECORD $f, $v');
+        expect(await text()).toContain('«gen»: «set frequency» $f');
+        expect(await text()).toContain('DEVICE «gen» : «MODEL»');
+    });
+});
+
 test.describe('Ctrl+S', () => {
     ///
     ///It saves the multi-instrument script as well, as SequenceForm's does, under this window's own
@@ -436,7 +454,9 @@ test.describe('Open in a tab', () => {
         try {
             await expect(page.locator('dialog.tool[open]')).toHaveCount(0);
             await expect(tab.locator('.code.monaco')).toBeVisible({ timeout: BOOT_MS });
-            expect(await textIn(tab)).toBe(PICKED);
+            //Polled, not read once: the editor is on screen a moment before the carried script
+            //has been put in it, and a one-shot read caught it empty about a third of the time.
+            await expect.poll(() => textIn(tab), { timeout: BOOT_MS }).toBe(PICKED);
             const spare = tab.locator('.group.editor > .bindings tbody tr')
                 .filter({ has: tab.locator('td:text-is("spare")') });
             await expect(spare).not.toHaveClass(/unbound/);
