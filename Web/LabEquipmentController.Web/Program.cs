@@ -26,12 +26,41 @@ builder.Services.AddSingleton(sp =>
 builder.Services.AddSingleton<AiSettingsStore>();
 builder.Services.AddSingleton<AiService>();
 builder.Services.AddSingleton<DatasheetService>();
+// The server as a host's bench (LEC_SERVICE_TOKEN), and below a path (LEC_PATH_BASE). Off, it is
+// the standalone app exactly as before; see ServiceMode.
+builder.Services.AddSingleton<ServiceMode>();
 
 var app = builder.Build();
 
 // Debugging the browser half is a development-only affair, and calling this in production
 // throws.
 if (app.Environment.IsDevelopment()) app.UseWebAssemblyDebugging();
+
+// ------------------------------------------------------------ service mode
+//
+// Below a path when a host proxies this server at one: UsePathBase strips the prefix before
+// anything routes, so every route below is written as it always was, and the page shell is
+// served with a <base href> that says where it lives (see the fallback further down).
+//
+// And a bearer token on the API and the hub when one is configured. The page itself stays
+// open, because it is the host's frame that loads it and a page can do nothing without the API;
+// the token is checked here rather than by an authentication scheme because there is exactly
+// one caller with exactly one token, and a scheme would be an identity system for a bench.
+var service = app.Services.GetRequiredService<ServiceMode>();
+if (service.PathBase.Length > 0) app.UsePathBase(service.PathBase);
+app.Use(async (context, next) =>
+{
+    if (service.Enabled
+        && (context.Request.Path.StartsWithSegments("/api") || context.Request.Path.StartsWithSegments("/hub"))
+        && !service.Admits(context.Request))
+    {
+        context.Response.StatusCode = StatusCodes.Status401Unauthorized;
+        context.Response.Headers.WWWAuthenticate = "Bearer";
+        await context.Response.WriteAsync(ServiceMode.Challenge);
+        return;
+    }
+    await next();
+});
 
 // Order matters and is easy to get subtly wrong: the framework files (the .wasm runtime and
 // the assemblies) are served first, then everything else in the client's wwwroot.
@@ -52,7 +81,31 @@ app.UseBlazorFrameworkFiles();
 // changed first, and an unchanged one comes back as a 304 with no body. One conditional
 // request per file per load, in exchange for never serving yesterday's UI.
 app.UseStaticFiles(new StaticFileOptions { OnPrepareResponse = Revalidate });
-app.MapFallbackToFile("index.html", new StaticFileOptions { OnPrepareResponse = Revalidate });
+
+// The page shell, served by hand rather than as the file it is, because its one absolute
+// reference — <base href> — has to say where the app is served from: "/" alone, or the path a
+// host proxies it at (LEC_PATH_BASE). Everything the page then asks for is relative to that
+// line, so the one line is what makes a sub-path work. Same no-cache as the file had.
+app.MapFallback(async context =>
+{
+    var shell = app.Environment.WebRootFileProvider.GetFileInfo("index.html");
+    if (!shell.Exists)
+    {
+        context.Response.StatusCode = StatusCodes.Status404NotFound;
+        return;
+    }
+
+    string html;
+    using (var reader = new StreamReader(shell.CreateReadStream()))
+        html = await reader.ReadToEndAsync();
+
+    if (service.PathBase.Length > 0)
+        html = html.Replace("<base href=\"/\" />", $"<base href=\"{service.PathBase}/\" />", StringComparison.Ordinal);
+
+    context.Response.ContentType = "text/html; charset=utf-8";
+    context.Response.Headers.CacheControl = "no-cache";
+    await context.Response.WriteAsync(html);
+});
 
 static void Revalidate(StaticFileResponseContext ctx)
     => ctx.Context.Response.Headers.CacheControl = "no-cache";
@@ -259,6 +312,15 @@ api.MapPost("/runs/sequence", (SequenceRunRequest req, RunService runs) => runs.
 
 api.MapPost("/runs/{runId}/stop", (string runId, RunService runs)
     => runs.Stop(runId) ? Results.NoContent() : Results.NotFound());
+
+// A run after the fact: how it ended, and everything it said and recorded, kept for an hour
+// after the end. The hub tells the story as it happens to whoever is listening; this is for
+// whoever was not — a host that missed one message, or anything that drives the API without a
+// hub connection — because a message missed must not be a measurement lost.
+api.MapGet("/runs", (RunService runs) => runs.Records());
+
+api.MapGet("/runs/{runId}", (string runId, RunService runs)
+    => runs.Record(runId) is { } record ? Results.Ok(record) : Results.NotFound());
 
 api.MapPost("/sequence/requirements", (SequenceRunRequest req, BenchService bench)
     => bench.BindSequence(req.Script, req.Bindings));

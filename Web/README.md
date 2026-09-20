@@ -170,6 +170,31 @@ page; there is no Windows DPAPI in a Linux container to hold a per-user one.
 
 Both are stated in the UI rather than left to be discovered.
 
+## Service mode: the server as a host's bench
+
+A host can run this server as a bench it drives rather than an app a person opens —
+Treeality's Instruments plugin is the first to. One variable switches it on, and without it
+nothing below changes:
+
+```yaml
+    environment:
+      LEC_SERVICE_TOKEN: ${LEC_SERVICE_TOKEN}   # every /api route and the hub take it as a bearer
+      LEC_PATH_BASE: /instruments/bench         # optional: serve the page and the API below a path
+```
+
+With the token set, the API and the hub answer `401` to anything not carrying it
+(`Authorization: Bearer …`, or `access_token=` in the query for a WebSocket); the page itself
+stays open, since it can do nothing without the API. Opening the page no longer closes a bench a
+run is driving — the host's people open it while a measurement runs — and an instrument a run
+holds refuses every other command until the run ends. A run stays readable for an hour after it
+ends, at `GET /api/runs/{id}`. And the AI features take their connection from the host with each
+request, so every person spends their own key and none is stored here; the AI Connection box
+says so.
+
+`LEC_PATH_BASE` is independent of the token: it is for a host that proxies this server at a
+path of its own, and it rewrites the page's `<base href>` to match. [docs/SPEC.md](../docs/SPEC.md)
+§18 has the reasoning; `Tests/Web/ServiceModeTests.cs` holds the promises.
+
 ## What the server writes outlives the container
 
 AI connections set up in the page, catalogs a model extracted, and guides uploaded for the

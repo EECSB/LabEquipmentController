@@ -114,8 +114,10 @@
 
             // The bench page and nothing else. It is the app; the others are windows the app
             // opens, and opening a reference in a tab of its own must not disconnect the
-            // instruments the reference is being read for.
-            const bench = location.pathname === '/' || location.pathname === '';
+            // instruments the reference is being read for. Measured from <base href>, because
+            // a host may serve the app below a path of its own, and "/" is then not this page.
+            const base = new URL(document.baseURI).pathname;
+            const bench = location.pathname === base || location.pathname + '/' === base;
 
             //Written as this document goes, so the next one can tell how long ago that was.
             addEventListener('pagehide', () => {
@@ -135,7 +137,7 @@
                 }
 
                 try {
-                    await fetch('/api/bench/opened?resumed=' + resumed, { method: 'POST' });
+                    await fetch(new URL('api/bench/opened?resumed=' + resumed, document.baseURI), { method: 'POST' });
                 } catch {
                     // The server lets the bench go on its own timer as well. This only makes it
                     // prompt, and an app that would not start because of it is a worse bargain.

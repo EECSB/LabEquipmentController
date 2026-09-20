@@ -54,8 +54,20 @@ public sealed class BenchService : IAsyncDisposable
     private int _watching;
     private CancellationTokenSource? _closing;
 
-    public BenchService(ILogger<BenchService> log, IHubContext<BenchHub> hub)
-        => (_log, _hub) = (log, hub);
+    /// <summary>The server as a host's bench, or null for the standalone app. See <see cref="ServiceMode"/>.</summary>
+    private readonly ServiceMode? _service;
+
+    public BenchService(ILogger<BenchService> log, IHubContext<BenchHub> hub, ServiceMode? service = null)
+        => (_log, _hub, _service) = (log, hub, service);
+
+    private bool Service => _service?.Enabled == true;
+
+    /// <summary>
+    /// In service mode an instrument a run holds is held against everything, not only against its
+    /// console. The console locks itself in the page; a host's request, or a second person's, does
+    /// not, and a command that lands between two steps of a measurement changes what it measured.
+    /// </summary>
+    private bool Held(string id) => Service && IsDriven(id);
 
     /// <summary>
     /// One open conversation with one instrument.
@@ -495,6 +507,12 @@ public sealed class BenchService : IAsyncDisposable
             yield break;
         }
 
+        if (Held(id))
+        {
+            yield return new ReadingDto(0, 0, 0, 0, 0, 0, 0, ServiceMode.HeldMessage);
+            yield break;
+        }
+
         // The desktop's box allows the same range, and reads it afresh each time round so a
         // change takes effect at once. Here the client restarts the stream instead, which is
         // the same thing seen from further away.
@@ -550,6 +568,8 @@ public sealed class BenchService : IAsyncDisposable
     {
         if (!_sessions.TryGetValue(id, out var s))
             return new CommandReply(text, null, false, 0, "No such session — it may have been closed.");
+        if (Held(id))
+            return new CommandReply(text, null, ScpiClient.IsQuery(text), 0, ServiceMode.HeldMessage);
 
         bool isQuery = ScpiClient.IsQuery(text);
         var clock = Stopwatch.StartNew();
@@ -581,6 +601,8 @@ public sealed class BenchService : IAsyncDisposable
     {
         if (!_sessions.TryGetValue(id, out var s))
             return new DiscoveryReply(CommandDiscovery.Query, false, 0, "");
+        if (Held(id))
+            return new DiscoveryReply(CommandDiscovery.Query, false, 0, "");
 
         var found = await CommandDiscovery.DiscoverAsync(s.Client, ct);
         return new DiscoveryReply(CommandDiscovery.Query, found.Success, found.Count, found.HeaderList);
@@ -604,6 +626,8 @@ public sealed class BenchService : IAsyncDisposable
     {
         if (!_sessions.TryGetValue(id, out var s))
             return new WaveformSetDto([], [], 0, "No such session.");
+        if (Held(id))
+            return new WaveformSetDto([], [], 0, ServiceMode.HeldMessage);
         if (!s.Profile.SupportsWaveformCapture)
             return new WaveformSetDto([], [], 0, $"No waveform-transfer dialect is documented for {s.Profile.Name}.");
 
@@ -645,6 +669,8 @@ public sealed class BenchService : IAsyncDisposable
     {
         if (!_sessions.TryGetValue(id, out var s))
             return new ScreenshotDto("", "", 0, "", "No such session.");
+        if (Held(id))
+            return new ScreenshotDto("", "", 0, "", ServiceMode.HeldMessage);
         string? cmd = s.Profile.ScreenCaptureCommand;
         if (string.IsNullOrEmpty(cmd))
             return new ScreenshotDto("", "", 0, "", $"No screen-capture command is documented for {s.Profile.Name}.");
@@ -773,7 +799,8 @@ public sealed class BenchService : IAsyncDisposable
 
             _log.LogInformation("No page has the bench open; letting {Count} instrument(s) go.",
                 _sessions.Count);
-            await CloseAllAsync();
+            if (Service) await CloseIdleAsync();
+            else await CloseAllAsync();
         }, CancellationToken.None);
     }
 
@@ -801,6 +828,10 @@ public sealed class BenchService : IAsyncDisposable
     /// and opening one is not opening the app.
     ///
     /// <see cref="Linger"/> stays for the case nobody comes back at all.
+    ///
+    /// <b>In service mode an instrument a run holds is kept</b>, here and when the last page goes:
+    /// the bench belongs to a host then, whose people open the page while a measurement is running,
+    /// and the measurement is what the bench is for. The idle ones still go.
     /// </remarks>
     public async Task PageOpenedAsync(bool resumed)
     {
@@ -809,13 +840,21 @@ public sealed class BenchService : IAsyncDisposable
         _log.LogInformation(
             "The app was opened; letting {Count} instrument(s) from the last window go.",
             _sessions.Count);
-        await CloseAllAsync();
+        if (Service) await CloseIdleAsync();
+        else await CloseAllAsync();
     }
 
     /// <summary>Disconnect every instrument on the bench, properly.</summary>
     public async Task CloseAllAsync()
     {
         foreach (var id in _sessions.Keys.ToList()) await DisconnectAsync(id);
+    }
+
+    /// <summary>Disconnect every instrument no run is driving, and leave the driven ones to their runs.</summary>
+    public async Task CloseIdleAsync()
+    {
+        foreach (var id in _sessions.Keys.ToList())
+            if (!IsDriven(id)) await DisconnectAsync(id);
     }
 
     public ValueTask DisposeAsync() => new(CloseAllAsync());

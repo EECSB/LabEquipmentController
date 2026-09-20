@@ -28,6 +28,11 @@
                 {
                     <span>Asking the server…</span>
                 }
+                else if (_status.HostConnections)
+                {
+                    <span class="pill">host</span>
+                    <span>connections come from the host</span>
+                }
                 else if (_status.Configured)
                 {
                     <span class="pill ok">configured</span>
@@ -43,7 +48,14 @@
         <button class="shut" @onclick="Close" aria-label="Close"><Icon Name="close" /></button>
     </div>
 
-    @if (_status is not null)
+    @if (_status is not null && _status.HostConnections)
+    {
+        @* The server is a host's bench: the connection arrives with each request from the host,
+           and every person spends their own. There is nothing to set here, and fields that did
+           nothing would be worse than a sentence that says why. *@
+        <p class="note">@_status.Reason</p>
+    }
+    else if (_status is not null)
     {
         <div class="fields">
             @* Which connection these fields are about. There can be several, because the
@@ -180,13 +192,24 @@
         </p>
     }
 
-    <p class="fine">
-        <strong>One key, shared.</strong> There are no accounts here, so anyone who can reach this
-        address can spend this key and change these settings &mdash; right on a private bench
-        network, wrong on a public one. What you apply is held by the server and survives a
-        restart; <span class="mono">Ai__ApiKey</span> and its siblings in the environment are the
-        starting point when nothing has been applied.
-    </p>
+    @if (_status?.HostConnections != true)
+    {
+        <p class="fine">
+            <strong>One key, shared.</strong> There are no accounts here, so anyone who can reach this
+            address can spend this key and change these settings &mdash; right on a private bench
+            network, wrong on a public one. What you apply is held by the server and survives a
+            restart; <span class="mono">Ai__ApiKey</span> and its siblings in the environment are the
+            starting point when nothing has been applied.
+        </p>
+    }
+    else
+    {
+        <p class="fine">
+            <strong>Each person's own key.</strong> This server is a host's bench: the host sends the
+            connection of whoever is asking with each request, the key is spent for that call and kept
+            nowhere here, and the settings that would otherwise be on this page live in the host.
+        </p>
+    }
 </dialog>
 
 @code {

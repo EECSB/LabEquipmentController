@@ -258,6 +258,22 @@ public sealed record RecordedRow(IReadOnlyList<string> Values);
 
 public sealed record RunSummary(string RunId, IReadOnlyList<string> Columns, bool Failed, string? Error);
 
+/// <summary>
+/// A run as the server keeps it after the fact: what it was, how it ended, and everything it
+/// said and recorded on the way.
+/// </summary>
+/// <remarks>
+/// The hub tells a run's story as it happens, to whoever is in the room. This is for whoever was
+/// not — a page that joined late, a host that missed one message, anything driving the API without
+/// a hub connection at all — because a message missed must not be a measurement lost. Kept for an
+/// hour after the run ends; <c>Status</c> is <c>running</c>, <c>finished</c>, <c>failed</c> or
+/// <c>stopped</c>.
+/// </remarks>
+public sealed record RunRecordDto(
+    string RunId, string Kind, string Status, IReadOnlyList<string> Columns,
+    DateTimeOffset StartedAt, DateTimeOffset? EndedAt, string? Error,
+    IReadOnlyList<ScriptOutputLine> Output, IReadOnlyList<RecordedRow> Rows);
+
 // ------------------------------------------------------------------------ the plot
 
 /// <summary>
@@ -414,7 +430,20 @@ public sealed record AiStatus(
     bool Configured, string Provider, string Model, string Endpoint, int TimeoutSeconds,
     bool? ExtractTextLocally, bool KeyFromConfiguration, string? Reason,
     IReadOnlyList<AiProviderDto> Providers, string Effort, IReadOnlyList<string> Efforts,
-    IReadOnlyList<AiConnectionDto> Connections, string SelectedId);
+    IReadOnlyList<AiConnectionDto> Connections, string SelectedId,
+    bool HostConnections = false);
+
+/// <summary>
+/// An AI connection a host hands this server with one request, when the server is its bench
+/// (service mode): the provider's shape, its address and model, and the key. Used for that one
+/// call and kept nowhere — the key never lands in the settings file, and every person the host
+/// serves spends their own. <c>AiStatus.HostConnections</c> is how the page learns that this is
+/// where connections come from, so its settings box has nothing to set and says so.
+/// </summary>
+/// <param name="Provider">Gemini, Anthropic or OpenAiCompatible, as <c>AiProvider</c> spells them.</param>
+public sealed record HostAiConnection(
+    string Provider, string BaseUrl, string Model, string ApiKey,
+    int? TimeoutSeconds = null, bool? ExtractTextLocally = null, string? Effort = null);
 
 /// <summary>
 /// One connection in the list, as a picker needs it.
@@ -470,9 +499,11 @@ public sealed record AiTurn(string Request, string Script, string Notes, IReadOn
 /// editor whether or not the script goes to the model. It does not go to the model itself.
 /// </param>
 /// <param name="Picks">The binding table's picks, alias to session id, so the writer is told what the table shows.</param>
+/// <param name="Host">The connection a host sends with the request, in service mode; null otherwise.</param>
 public sealed record AiScriptRequest(
     string Request, IReadOnlyList<string> SessionIds, bool IsSequence, string? CurrentScript, string? RecentOutput,
-    IReadOnlyList<AiTurn>? History = null, string? EditorScript = null, IReadOnlyDictionary<string, string>? Picks = null);
+    IReadOnlyList<AiTurn>? History = null, string? EditorScript = null, IReadOnlyDictionary<string, string>? Picks = null,
+    HostAiConnection? Host = null);
 
 /// <param name="Notes">
 /// The model's own one-line account of what it did. The desktop has always shown this under
@@ -481,7 +512,8 @@ public sealed record AiScriptRequest(
 /// </param>
 public sealed record AiScriptReply(string Script, IReadOnlyList<string> Undocumented, string? Error, string Notes = "");
 
-public sealed record AiExtractRequest(string FileName, string Base64);
+/// <param name="Host">The connection a host sends with the request, in service mode; null otherwise.</param>
+public sealed record AiExtractRequest(string FileName, string Base64, HostAiConnection? Host = null);
 
 /// <param name="Token">
 /// Names this extraction on the server, so the ticked commands can be saved without sending

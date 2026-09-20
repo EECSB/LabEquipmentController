@@ -1117,6 +1117,11 @@ Only these. Each is something a browser forces, not a preference.
 8. **Which server.** The About box's `Serving:` line names the address the page is talking to.
    With a bench server per room it is the one line that says which bench you are driving; the
    desktop is the machine it is running on and has nothing to answer.
+9. **Whose bench it is.** Run as a host's bench (SPEC §18, `LEC_SERVICE_TOKEN`), the AI
+   Connection box shows one sentence in place of its fields — the connection comes from the host
+   with each request — and its foot says *each person's own key* where it said *one key,
+   shared*. The desktop has one person and one key and nothing to say about it; the web, in
+   that mode, has neither.
 
 Everything else on the web that has no desktop counterpart is a debt, not a feature. The
 inventory taken on 2026-08-21 was settled on **2026-09-20**, and nothing from it is

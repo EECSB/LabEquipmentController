@@ -35,12 +35,30 @@ public sealed class AiService
     private readonly BenchService _bench;
     private readonly IAiClient _client;
     private readonly ILogger<AiService> _log;
+    private readonly ServiceMode? _service;
 
-    public AiService(AiSettingsStore settings, BenchService bench, IAiClient client, ILogger<AiService> log)
-        => (_settings, _bench, _client, _log) = (settings, bench, client, log);
+    public AiService(AiSettingsStore settings, BenchService bench, IAiClient client, ILogger<AiService> log, ServiceMode? service = null)
+        => (_settings, _bench, _client, _log, _service) = (settings, bench, client, log, service);
+
+    /// <summary>
+    /// The server is a host's bench (<see cref="ServiceMode"/>): the AI connection arrives with each
+    /// request and nothing of this server's own is spent, whatever its settings file says.
+    /// </summary>
+    private bool HostSupplied => _service?.Enabled == true;
 
     public AiStatus Status()
     {
+        // As a host's bench there is nothing to set here and no key of this server's to spend: the
+        // box says where connections come from, and the tools say the same until a request brings one.
+        if (HostSupplied)
+        {
+            var host = Connection();
+            return new AiStatus(
+                false, host.Provider.ToString(), "", "", host.TimeoutSeconds, null, false,
+                ServiceMode.HostConnectionsMessage, Providers, host.Effort.ToString(), Efforts, [], "",
+                HostConnections: true);
+        }
+
         var c = Connection();
         // The list to choose from, with the labels that keep two connections on one model
         // apart — composed in Core, so the desktop's picker and this one read the same.
@@ -75,6 +93,7 @@ public sealed class AiService
     /// </summary>
     public AiSettingsReply Apply(AiSettingsUpdate update)
     {
+        if (HostSupplied) return new AiSettingsReply(null, ServiceMode.HostConnectionsMessage);
         string? error = _settings.Apply(update);
         return error is null ? new AiSettingsReply(Status(), null) : new AiSettingsReply(null, error);
     }
@@ -82,15 +101,17 @@ public sealed class AiService
     /// <summary>Another connection on a provider's defaults, selected, and the state after.</summary>
     public AiSettingsReply AddConnection(string? provider)
     {
+        if (HostSupplied) return new AiSettingsReply(null, ServiceMode.HostConnectionsMessage);
         _settings.Add(provider);
         return new AiSettingsReply(Status(), null);
     }
 
     /// <summary>Forget one, and its key with it.</summary>
     public AiSettingsReply RemoveConnection(string id)
-        => _settings.Remove(id)
-            ? new AiSettingsReply(Status(), null)
-            : new AiSettingsReply(null, "There is no such connection.");
+        => HostSupplied ? new AiSettingsReply(null, ServiceMode.HostConnectionsMessage)
+            : _settings.Remove(id)
+                ? new AiSettingsReply(Status(), null)
+                : new AiSettingsReply(null, "There is no such connection.");
 
     /// <summary>
     /// Use this one, everywhere.
@@ -100,9 +121,50 @@ public sealed class AiService
     /// to. Two places that can disagree about what is in force is one place too many.
     /// </summary>
     public AiSettingsReply SelectConnection(string id)
-        => _settings.Select(id)
-            ? new AiSettingsReply(Status(), null)
-            : new AiSettingsReply(null, "There is no such connection.");
+        => HostSupplied ? new AiSettingsReply(null, ServiceMode.HostConnectionsMessage)
+            : _settings.Select(id)
+                ? new AiSettingsReply(Status(), null)
+                : new AiSettingsReply(null, "There is no such connection.");
+
+    /// <summary>
+    /// The connection a request runs on, and its key: the host's, sent with the request, when this
+    /// server is a host's bench; this server's own, from its settings, when it is not. Or why neither.
+    /// </summary>
+    /// <remarks>
+    /// The two never mix. A bench does not fall back on a key of its own when the host sends none,
+    /// because the whole point of the arrangement is that each person spends their own; and a
+    /// standalone server does not take a key from a request, because a page that could hand the
+    /// server a key to spend would be a page that could hand it anyone's.
+    /// </remarks>
+    private (AiConnection Connection, string ApiKey, string? Refusal) Resolve(HostAiConnection? host)
+    {
+        if (!HostSupplied)
+        {
+            if (host is not null) return (new AiConnection(), "", ServiceMode.NotAServiceMessage);
+            if (!_settings.Configured) return (new AiConnection(), "", Status().Reason);
+            return (Connection(), _settings.ApiKey, null);
+        }
+
+        if (host is null) return (new AiConnection(), "", ServiceMode.NoHostConnectionMessage);
+        if (!Enum.TryParse(host.Provider, ignoreCase: true, out AiProvider provider))
+            return (new AiConnection(), "",
+                $"'{host.Provider}' is not a provider this bench knows. It knows {string.Join(", ", Enum.GetNames<AiProvider>())}.");
+        if (string.IsNullOrWhiteSpace(host.ApiKey))
+            return (new AiConnection(), "", "The host sent an AI connection with no key.");
+
+        var connection = new AiConnection
+        {
+            Provider = provider,
+            BaseUrl = host.BaseUrl ?? "",
+            Model = host.Model ?? "",
+            TimeoutSeconds = host.TimeoutSeconds is > 0 ? host.TimeoutSeconds.Value : 300,
+            ExtractTextLocally = host.ExtractTextLocally,
+        };
+        if (host.Effort is { Length: > 0 } && Enum.TryParse(host.Effort, ignoreCase: true, out AiEffort effort))
+            connection.Effort = effort;
+
+        return (connection, host.ApiKey, null);
+    }
 
     /// <summary>
     /// The presets, as Core holds them. The browser cannot reach Core — the client half has
@@ -125,7 +187,8 @@ public sealed class AiService
 
     public async Task<AiScriptReply> WriteScriptAsync(AiScriptRequest req, CancellationToken ct)
     {
-        if (!_settings.Configured) return new AiScriptReply("", [], Status().Reason);
+        var (connection, apiKey, refusal) = Resolve(req.Host);
+        if (refusal is not null) return new AiScriptReply("", [], refusal);
 
         IReadOnlyList<ScriptContextInstrument> instruments = Describe(req);
         if (instruments.Count == 0)
@@ -135,7 +198,7 @@ public sealed class AiService
         {
             var author = new ScriptAuthor(_client);
             var result = await author.WriteAsync(
-                req.Request, instruments, req.IsSequence, Connection(), _settings.ApiKey,
+                req.Request, instruments, req.IsSequence, connection, apiKey,
                 req.CurrentScript, req.RecentOutput, Conversation(req.History), ct);
             return new AiScriptReply(result.Script, result.Undocumented, null, result.Notes);
         }
@@ -195,7 +258,8 @@ public sealed class AiService
 
     public async Task<AiExtractReply> ExtractAsync(AiExtractRequest req, CancellationToken ct)
     {
-        if (!_settings.Configured) return new AiExtractReply(0, 0, [], null, Status().Reason);
+        var (connection, apiKey, refusal) = Resolve(req.Host);
+        if (refusal is not null) return new AiExtractReply(0, 0, [], null, refusal);
 
         // The upload is written to a temp file because the extractor reads documents from
         // disk — PDF, DOCX or text — and unpicking that to take a stream would change Core
@@ -206,7 +270,7 @@ public sealed class AiService
         {
             await File.WriteAllBytesAsync(temp, Convert.FromBase64String(req.Base64), ct);
             var extractor = new CommandExtractor(_client);
-            var result = await extractor.ExtractAsync(Connection(), _settings.ApiKey, temp, null, ct);
+            var result = await extractor.ExtractAsync(connection, apiKey, temp, null, ct);
 
             // Nothing is written here. What a model reads out of a datasheet is extracted,
             // not verified, and the desktop makes you look at the list and untick what is

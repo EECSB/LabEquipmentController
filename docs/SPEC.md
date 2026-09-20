@@ -1387,3 +1387,50 @@ having next to it):
   Addressing was the part already done, exactly as this entry predicted: `InstrumentAddress`
   was the single place `serial://COM3?baud=9600` needed reading, and all three front ends
   took it from there.
+
+## 18. Service mode — the server as a host's bench
+
+Built 2026-09-20 for a host that runs the web server not as an app for the person at the
+keyboard but as a bench it drives — Treeality's Instruments plugin is the first — and switched
+on by one variable, so that nothing here changes for anyone who does not set it.
+
+| Variable | What it does |
+|---|---|
+| `LEC_SERVICE_TOKEN` | Service mode. Every `/api` route and the hub take this token as `Authorization: Bearer`, or as `access_token` in the query where a WebSocket has no headers to set; a request without it is answered `401`. The page itself stays open, since it is the host's frame that loads it and a page can do nothing without the API. |
+| `LEC_PATH_BASE` | Serves the page and the API below a path — `/instruments/bench` — which is how a host proxies this server at a path of its own. Independent of the token. The page shell's `<base href>` is rewritten to match, and everything the page asks for is relative to it. |
+
+With the token set, four things change on the bench, each the answer to a promise the
+standalone app makes that is wrong for a bench somebody else drives:
+
+1. **Opening the page does not close the bench.** The standalone app lets every instrument go
+   when the app is opened afresh, and twenty seconds after the last page leaves (§6,
+   `BenchService.PageOpenedAsync`), because a person opening it wants an empty bench. A host's
+   people open the page while a measurement is running. In service mode an instrument a run
+   holds is kept, by either path; the idle ones still go.
+2. **An instrument a run holds takes nothing else.** The console locks itself while a run drives
+   its instrument (§7); a host's request does not, and a command that lands between two steps
+   of a measurement changes what it measured. In service mode the server refuses it — a
+   command, a readout, a capture, a screenshot, and a second run — until the run ends, with
+   one sentence.
+3. **A run is readable after it ends.** `GET /api/runs/{id}` answers how a run ended and
+   everything it said and recorded, for an hour after the end, and `GET /api/runs` lists what
+   is remembered. The hub tells the story as it happens; this is for whoever was not in the
+   room. Kept in every mode, because it costs nothing and is useful to anything that drives
+   the API.
+4. **The AI features spend the person's own connection.** The host sends the connection —
+   provider, address, model, key — with each `POST /api/ai/script` and `POST /api/ai/extract`,
+   and it is used for that call and kept nowhere. The server's own key is never spent as a
+   bench, the AI Connection box says where connections come from instead of offering fields,
+   and a standalone server refuses a connection sent with a request, because a page that could
+   hand the server a key to spend would be a page that could hand it anyone's.
+
+Two things the host needs were already so, and are pinned rather than changed: a
+multi-instrument run binds each `DEVICE` line by its alias, so an alias spelled unlike its
+model finds its instrument (`WebSequenceRunTests`); and the page shell reaches the server
+relative to its `<base href>`, so the sub-path works without a second build.
+`Tests/Web/ServiceModeTests.cs` holds all of it, fake instruments standing in as everywhere
+else.
+
+What service mode is not: an account system. There is one caller with one token, and a token is
+not an identity. Who may do what is the host's to decide, and it decides before it forwards
+anything.

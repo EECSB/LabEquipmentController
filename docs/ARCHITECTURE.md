@@ -275,6 +275,16 @@ per-user key store would need accounts this app does not have. The key comes fro
 configuration and is never sent to the browser — but anyone who can open the page can spend
 it, and the UI says so.
 
+**And all three read differently when the server is somebody's bench.** Since 2026-09-20 a
+host can run this server in *service mode* (`Bench/ServiceMode.cs`, switched on by
+`LEC_SERVICE_TOKEN`; Treeality's Instruments plugin is the first): the API and the hub take a
+bearer token, opening the page no longer closes a bench a run is driving, an instrument a run
+holds refuses everything but its run, a run stays readable after it ends
+(`GET /api/runs/{id}`), and the AI connection arrives with each request from the host rather
+than living in a key of the server's own. `LEC_PATH_BASE` serves the whole thing below a path,
+for a host that proxies it at one, by rewriting the page shell's `<base href>`. Without the
+variable, nothing above changes. SPEC §18 has the reasoning.
+
 Discovery is why the compose file uses host networking: a subnet sweep from inside Docker's
 default bridge scans the container's own private network, finds nothing, and reports an
 empty bench with no hint as to why. That mode is Linux-only, and
