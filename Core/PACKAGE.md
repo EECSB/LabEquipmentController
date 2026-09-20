@@ -110,7 +110,7 @@ foreach (var c in catalog!.Commands.Where(c => c.BenchVerified))
 
 **One rule governs all of it: never invent SCPI.** Every command is transcribed from a
 vendor programming guide — not a forum, not another vendor's guide, not a plausible guess.
-518 of the 23,978 entries have additionally been confirmed on real instruments; the rest
+524 of the 23,978 entries have additionally been confirmed on real instruments; the rest
 are marked as guide-only, honestly, rather than presented as tested.
 
 **A small script language**, with a runner for one instrument and a runner for several at

@@ -5,7 +5,7 @@ Written to be handed to an AI coding agent — point one at this file and at you
 address and it has everything it needs — but every step is a person's job just as well.
 
 **You are the only one who can do this.** The catalogs in this project are transcribed from
-vendor programming guides, and 518 of 23,978 entries have ever been confirmed against a real
+vendor programming guides, and 524 of 23,978 entries have ever been confirmed against a real
 instrument, because this project has three instruments on its bench. Yours is a model nobody
 here has. A command you confirm answers a question no amount of re-reading the guide can.
 
@@ -105,7 +105,7 @@ the only place that record lives.
 |------------|-----------|-------|----------------|
 | Make and model, as `*IDN?` reports it | **VXI-11** or raw socket + port | Anything a future contributor needs to know — firmware quirks, a port that misbehaves, a command the guide gets wrong | your handle |
 
-The table is what turns "518 of 23,978 entries are bench-verified" from a claim into
+The table is what turns "524 of 23,978 entries are bench-verified" from a claim into
 something traceable to a person and a piece of hardware. An entry marked `benchVerified`
 whose instrument is in nobody's name is exactly the kind of unattributed assertion this
 project refuses everywhere else.

@@ -508,7 +508,7 @@ Catalogs are JSON, embedded as `commands.<family>.json`, each entry carrying cat
 syntax, description, optional example, whether it is a query, and how far it is trusted.
 Each catalog records the guide it was transcribed from.
 
-36 catalogs, 23,978 entries, of which 518 carry a bench tick and 2,778 a cross-check.
+36 catalogs, 23,978 entries, of which 524 carry a bench tick and 2,778 a cross-check.
 
 **No description stops mid-sentence.** A guide wraps a description at the margin, and the
 extractors used to stop at the line it started on whenever the next line began with
@@ -555,7 +555,7 @@ nothing looser, because a cut that goes uncounted is the failure it exists to ca
 | Keysight scope | 1793 | 0 | 142 | Keysight InfiniiVision 3000T X-Series Programmer's Guide (9018-07265) |
 | R&S scope | 1449 | 0 | 85 | R&S RTB2000 User Manual (1333.1611.02 v09), plus the RTM3000 and RTA4000 manuals |
 | R&S FSV analyzer | 1279 | 0 | 109 | R&S FSVA/FSV Operating Manual (1307.9331.12-17) |
-| Oscilloscope | 1200 | 409 | 147 | Rigol MSO2000A/DS2000A Programming Guide (Feb 2016) |
+| Oscilloscope | 1200 | 415 | 147 | Rigol MSO2000A/DS2000A Programming Guide (Feb 2016) |
 | R&S FSIQ analyzer | 1051 | 0 | 0 | R&S FSIQ Operating Manual (1119.5063.12), chapter 6 — first extraction, no adoption pass |
 | Siglent scope | 859 | 0 | 120 | Siglent SDS Series Programming Guide (EN11D) + SDS3000X HD (EN11F) |
 | Rigol spectrum analyzer | 586 | 0 | 88 | Rigol DSA800 Series Programming Guide (Aug. 2016) |
@@ -598,8 +598,13 @@ sources, and `tools/scpi-extract/README.md` gives the clone lines that produce t
 Those corpora are not committed, and while they were absent every catalog built without
 them silently gained no marks at all. Re-running the check against 7,581 driver commands
 took the cross-checked count from 1,460 to 2,778, twenty catalogs gaining marks and twelve
-of them going from none. The bench count did not move and cannot for now: all three
-instruments here are unreachable, so `✓` is stuck at 518 until they are back.
+of them going from none. The bench count did not move with it, and for a while could not:
+all three instruments here were unreachable. They answered again on 2026-09-20, and a full
+sweep re-confirmed every tick already on those three catalogs — 402 of 437 sent on the
+DS2202, 80 of 82 on the SDM3065X, 24 of 104 on the SDG2042X, with nothing rejected that the
+instrument has the option for. `✓` stands at 524: the six added are the waveform-transfer
+settings the sweep cannot send, confirmed the way a setting has to be, by reading back what
+was set.
 
 One catalog corrects its guide. The Chroma manual prints `VOLTaget:PROTection` and
 `PROTecton:TRIPped?` a handful of times while spelling both correctly everywhere else;

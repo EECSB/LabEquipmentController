@@ -449,7 +449,7 @@ Each command:
 | `description` | The guide's sentence, not a paraphrase |
 | `example` | Present when the guide gives one |
 | `isQuery` | Present and `true` on query forms |
-| `benchVerified` | Present and `true` on the 518 entries confirmed against real hardware |
+| `benchVerified` | Present and `true` on the 524 entries confirmed against real hardware |
 | `crossChecked` | Present and `true` where an independent open-source driver uses the same header |
 | `guideMisprint` | On an entry transcribing a vendor typo as printed: what the guide prints, why it looks wrong, what to try |
 
@@ -566,7 +566,7 @@ differently there**: a serial port cannot be swept the way an address can, so th
 halves a subnet sweep runs together are split. Listing the ports opens nothing and happens
 on arrival; opening them is `Scan`, over the ports chosen and the baud rates named, and
 nothing else is ever tried. Eleven catalogs cannot yet be rebuilt from their
-guides (documented per-catalog in the toolchain README), and 518 of 23,978 entries have
+guides (documented per-catalog in the toolchain README), and 524 of 23,978 entries have
 bench confirmation — the rest are transcription, which is exactly what
 [VERIFYING-COMMANDS.md](VERIFYING-COMMANDS.md) invites contributors to change.
 

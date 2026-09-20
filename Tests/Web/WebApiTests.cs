@@ -90,9 +90,15 @@ public class WebApiTests : IClassFixture<WebFactory>
         // A report is evidence of what the sweep could distinguish when it ran. Reading one
         // without checking which outcomes it knew about is how eighty commands came to claim
         // a bench check none of them had.
+        // 518 became 524 on 2026-09-20, and the six are the other half of that lesson. A
+        // sweep re-run against all three instruments answered 402, 80 and 24 and added
+        // nothing: every command it can send was already ticked. What it cannot send is a
+        // setting — it sends queries needing no argument — so the six waveform-transfer
+        // settings the capture path drives were confirmed the way SPEC §10 says a setting
+        // has to be: set, read back what was set, error queue clean, and put back as found.
         Assert.Equal(36, catalogs!.Count);
         Assert.Equal(23_978, catalogs.Sum(c => c.CommandCount));
-        Assert.Equal(518, catalogs.Sum(c => c.BenchVerified));
+        Assert.Equal(524, catalogs.Sum(c => c.BenchVerified));
     }
 
     [Fact]

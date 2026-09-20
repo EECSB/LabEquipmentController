@@ -303,8 +303,8 @@ hardware only for those 3.
 
 ## Contributing
 
-Three instruments sit on this bench, so 518 of the 23,978 catalogued commands carry a bench
-tick, 2,710 more are corroborated by an independent open-source driver, and the remaining
+Three instruments sit on this bench, so 524 of the 23,978 catalogued commands carry a bench
+tick, 2,704 more are corroborated by an independent open-source driver, and the remaining
 20,750 have only ever been read in a vendor guide. Thirty-three of the thirty-six catalogs
 have never touched hardware at all. **If you own one of those
 instruments, you can help to add or verify the commands and functions.**
@@ -347,7 +347,7 @@ worth a PR on its own; include the model, the firmware version and the error it 
 - **Discover Commands** relies on `SYSTem:HELP:HEADers?`, which none of the three verified
   instruments implements — it falls back to the curated catalog for that instrument's family.
 - **Only the Rigol oscilloscope, Siglent generator and multimeter catalogs have been used
-  against real hardware**, and only in part: 518 of 23,978 entries carry a bench tick. The
+  against real hardware**, and only in part: 524 of 23,978 entries carry a bench tick. The
   other thirty-three families are transcribed from vendor guides and cross-checked against
   open-source drivers, but no such instrument has been on this bench. Treat them as
   documented, not proven. [Tests/Bench](Tests/Bench) holds the suite that verifies the three
