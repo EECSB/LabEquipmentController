@@ -378,7 +378,7 @@ namespace LabEquipmentController
             {
                 while (!ct.IsCancellationRequested)
                 {
-                    string reply = await _session.Client.QueryAsync(_selected.Query, ct);
+                    string reply = await _session.Client.AskAsync(_selected.Query, ct);
 
                     if (ReadingSeries.TryParseReading(reply, out double v))
                     {

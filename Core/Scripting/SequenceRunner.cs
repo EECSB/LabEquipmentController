@@ -37,8 +37,11 @@ public sealed record SequenceRow(IReadOnlyList<string> Values);
 /// works it out for a whole script from what is connected — the desktop's strip and the web's
 /// binding table both show its answer — and the RunAsync overload that resolves by alias then
 /// runs on it, as it runs on the CLI's <c>--device</c> bindings. The overload that is handed
-/// only the model resolves each line as it comes, alone, which cannot tell two instruments of
-/// one model apart.
+/// only the model resolves each line alone, which cannot tell two instruments of one model
+/// apart.
+///
+/// Either way, every DEVICE line is resolved before the first line runs, wherever in the script
+/// it stands, and one that finds nothing stops the run with nothing sent.
 ///
 /// A sweep is why this exists: stepping a generator and reading a meter at each step is
 /// interleaved, one instrument after the other inside a loop, which is not something a
@@ -90,8 +93,8 @@ public static class SequenceRunner
     /// Run a sequence, finding each DEVICE line's instrument by the model it names.
     /// </summary>
     /// <remarks>
-    /// Each line is resolved alone, as the run reaches it, so two lines asking for one model
-    /// are one question with one answer. A front end with a bench to bind against wants
+    /// Each line is resolved alone, so two lines asking for one model are one question with one
+    /// answer. A front end with a bench to bind against wants
     /// <see cref="SequenceBinding"/> and the overload that resolves by alias instead, which is
     /// how the desktop and the web run; the CLI's <c>--device</c> bindings use that overload too.
     /// </remarks>
@@ -157,6 +160,33 @@ public static class SequenceRunner
         var vars = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         var frames = new Stack<Frame>();
 
+        // Every DEVICE line is found before anything is sent. Found as the run reached each one,
+        // a meter declared on line 5 and not connected stopped the run after line 2 had turned
+        // on a generator's output — which is what naming the instruments up front is for
+        // preventing. The desktop and the web will not start with a part unbound, for the same
+        // reason; this is the same rule for everything else that runs one.
+        var declared = new Dictionary<int, SequenceDevice>();
+        for (int i = 0; i < lines.Length; i++)
+        {
+            string line = lines[i].Trim();
+            if (!line.ToUpperInvariant().StartsWith("DEVICE")) continue;
+
+            if (!TryParseDevice(line, out string alias, out string model))
+            {
+                output($"Line {i + 1}: expected  DEVICE <alias> : <model>", ScriptOutputKind.Error);
+                return;
+            }
+
+            IInstrumentClient? client = resolve(alias, model);
+            if (client == null)
+            {
+                output($"Line {i + 1}: {unresolved(alias, model)}", ScriptOutputKind.Error);
+                return;
+            }
+
+            declared[i] = new SequenceDevice(alias, model, client);
+        }
+
         string? target = null;          // the current WITH block's device, if any
         int pc = 0, executed = 0;
 
@@ -177,24 +207,12 @@ public static class SequenceRunner
 
             string upper = raw.ToUpperInvariant();
 
-            // --- DEVICE gen : SDG2042X ---
+            // --- DEVICE gen : SDG2042X --- found already, above; from here it is in scope
             if (upper.StartsWith("DEVICE"))
             {
-                if (!TryParseDevice(raw, out string alias, out string model))
-                {
-                    output($"Line {lineNo}: expected  DEVICE <alias> : <model>", ScriptOutputKind.Error);
-                    return;
-                }
-
-                IInstrumentClient? client = resolve(alias, model);
-                if (client == null)
-                {
-                    output($"Line {lineNo}: {unresolved(alias, model)}", ScriptOutputKind.Error);
-                    return;
-                }
-
-                devices[alias] = new SequenceDevice(alias, model, client);
-                output($"{alias} → {model}", ScriptOutputKind.Info);
+                SequenceDevice found = declared[lineNo - 1];
+                devices[found.Alias] = found;
+                output($"{found.Alias} → {found.Model}", ScriptOutputKind.Info);
                 continue;
             }
 
@@ -340,7 +358,7 @@ public static class SequenceRunner
             {
                 if (command.Contains('?'))
                 {
-                    string resp = (await device.Client.QueryAsync(command, ct).ConfigureAwait(false)).Trim();
+                    string resp = (await device.Client.AskAsync(command, ct).ConfigureAwait(false)).Trim();
                     output(resp.Length == 0 ? "(no response)" : resp, ScriptOutputKind.Response);
                     if (capture != null) vars[capture] = resp;
                 }

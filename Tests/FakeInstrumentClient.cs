@@ -58,9 +58,16 @@ public sealed class FakeInstrumentClient : IInstrumentClient
         Log.Add("SEND:" + command);
     }
 
+    /// <summary>
+    /// Called as a query arrives, before it is answered. For watching what only holds during
+    /// the call — the timeout in force while a reading is being taken, say.
+    /// </summary>
+    public System.Action<string>? Watching { get; init; }
+
     public async Task<string> QueryAsync(string command, CancellationToken ct = default)
     {
         ct.ThrowIfCancellationRequested();
+        Watching?.Invoke(command);
         if (command.Trim() == ThrowOn) throw new System.IO.IOException("simulated failure");
         await HopAsync(ct).ConfigureAwait(false);
         Log.Add("QUERY:" + command);

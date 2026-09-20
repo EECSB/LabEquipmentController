@@ -143,6 +143,72 @@ public class SequenceRunnerTests
         Assert.Empty(bench.Sent("SDG2042X"));   // nothing ran, not even the line before it
     }
 
+    /// <summary>
+    /// Wherever the DEVICE line stands. Found as the run reached it, this one stopped the run
+    /// after the generator's output had been turned on, with a meter that was never going to
+    /// read it.
+    /// </summary>
+    [Fact]
+    public async Task A_missing_instrument_further_down_is_found_before_anything_is_sent()
+    {
+        var bench = new Bench();
+        bench.Add("SDG2042X");
+
+        await bench.RunAsync("""
+            DEVICE gen : SDG2042X
+            gen: C1:OUTP ON
+            DEVICE dmm : SDM3065X
+            dmm: MEASure:VOLTage:AC?
+            """);
+
+        string error = Assert.Single(bench.Errors);
+        Assert.StartsWith("Line 3:", error);
+        Assert.Contains("SDM3065X", error);
+        Assert.Empty(bench.Sent("SDG2042X"));
+    }
+
+    /// <summary>A DEVICE line that cannot be read is found as early, and for the same reason.</summary>
+    [Fact]
+    public async Task A_device_line_that_cannot_be_read_is_found_before_anything_is_sent()
+    {
+        var bench = new Bench();
+        bench.Add("SDG2042X");
+
+        await bench.RunAsync("""
+            DEVICE gen : SDG2042X
+            gen: C1:OUTP ON
+            DEVICE SDM3065X
+            """);
+
+        string error = Assert.Single(bench.Errors);
+        Assert.StartsWith("Line 3: expected  DEVICE", error);
+        Assert.Empty(bench.Sent("SDG2042X"));
+    }
+
+    /// <summary>
+    /// Found once, however often the run passes it: a DEVICE line inside a loop is one part, not
+    /// a question asked again on every pass.
+    /// </summary>
+    [Fact]
+    public async Task A_device_line_inside_a_loop_is_found_once()
+    {
+        var bench = new Bench();
+        bench.Add("SDM3065X");
+        int asked = 0;
+
+        await SequenceRunner.RunAsync("""
+            REPEAT 3
+                DEVICE dmm : SDM3065X
+                dmm: MEASure:VOLTage:DC?
+            END
+            """,
+            model => { asked++; return bench.Instruments[model]; },
+            (_, _) => { }, _ => { }, CancellationToken.None);
+
+        Assert.Equal(1, asked);
+        Assert.Equal(3, bench.Sent("SDM3065X").Count);
+    }
+
     // ------------------------------------------------------------------------ sweeps
 
     [Fact]
@@ -857,5 +923,26 @@ public class SequenceAliasBindingTests
         Assert.Contains("SDM3065X", error);
         Assert.DoesNotContain("no connected instrument matches", error);
         Assert.Empty(left.Log);   // nothing ran, not even on the instrument that was there
+    }
+
+    /// <summary>...and so is one declared after the first line has run. A program handing this
+    /// its own bindings has nothing else to stop it.</summary>
+    [Fact]
+    public async Task An_alias_bound_to_nothing_further_down_is_found_before_anything_is_sent()
+    {
+        var bench = new Bench();
+        var left = bench.Bind("left");
+
+        await bench.RunAsync("""
+            DEVICE left  : SDM3065X
+            left: CONFigure:VOLTage:DC
+            DEVICE right : SDM3065X
+            right: MEASure:VOLTage:DC?
+            """);
+
+        string error = Assert.Single(bench.Errors);
+        Assert.StartsWith("Line 3:", error);
+        Assert.Contains("\"right\"", error);
+        Assert.Empty(left.Log);
     }
 }

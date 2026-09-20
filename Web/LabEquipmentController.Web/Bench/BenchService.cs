@@ -512,7 +512,7 @@ public sealed class BenchService : IAsyncDisposable
         {
             string reply = "";
             string? failed = null;
-            try { reply = await s.Client.QueryAsync(query, ct); }
+            try { reply = await s.Client.AskAsync(query, ct); }
             catch (OperationCanceledException) { yield break; }
             catch (Exception ex) { failed = ex.Message; }
 
@@ -557,7 +557,7 @@ public sealed class BenchService : IAsyncDisposable
         {
             if (isQuery)
             {
-                string reply = (await s.Client.QueryAsync(text, ct)).Trim();
+                string reply = (await s.Client.AskAsync(text, ct)).Trim();
                 return new CommandReply(text, reply, true, clock.Elapsed.TotalSeconds, null);
             }
             await s.Client.SendAsync(text, ct);

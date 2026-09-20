@@ -843,7 +843,7 @@ public sealed class InstrumentConsole : UserControl
         {
             if (ScpiClient.IsQuery(command))
             {
-                string response = await Session.Client.QueryAsync(command);
+                string response = await Session.Client.AskAsync(command);
                 AppendLog(response.Length == 0 ? "(no response)" : response, Color.MediumSpringGreen);
                 RecordIfNumeric(command, response);
             }

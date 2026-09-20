@@ -157,7 +157,7 @@ public static class ScriptRunner
             {
                 if (command.Contains('?'))
                 {
-                    string resp = (await client.QueryAsync(command, ct).ConfigureAwait(false)).Trim();
+                    string resp = (await client.AskAsync(command, ct).ConfigureAwait(false)).Trim();
                     output(resp.Length == 0 ? "(no response)" : resp, ScriptOutputKind.Response);
                     if (capture != null) vars[capture] = resp;
                 }
