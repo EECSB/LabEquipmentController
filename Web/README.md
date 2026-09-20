@@ -59,7 +59,7 @@ volumes:
   lec-data:
 ```
 
-**Which tag.** `latest` is the newest release. `1.1.0` pins that exact release, `1.1` and `1`
+**Which tag.** `latest` is the newest release. `1.2.0` pins that exact release, `1.2` and `1`
 follow the newest patch and minor within that line, and `sha-ef23359` pins one commit for
 something that has to be reproducible. The
 [Tags page](https://hub.docker.com/r/eecsb/labequipmentcontroller-web/tags) is the list that
@@ -187,7 +187,10 @@ cd Web/tests && npm install && npm run test:e2e
 
 That run needs **no instrument**: a fake SCPI listener stands in for one, answering as an
 SDM3065X over a loopback socket, which is all the app needs to classify it and open a
-console for it.
+console for it. Started with `channels`, the same listener is a two-channel Rigol that answers
+the `:WAVeform` tree — a sine on channel 1, a square on channel 2, and a third channel answered
+the way a real DS2202 answers one it does not have — so the waveform window is covered with a
+trace in it (`waveform.spec.js`).
 
 It builds once and then starts a server per worker on ports 5111 upwards — one bench each,
 because the bench is shared server state and two workers on one would clear each other's.
