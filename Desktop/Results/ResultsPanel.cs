@@ -3,7 +3,6 @@ using System.Collections.Generic;
 using System.Drawing;
 using System.IO;
 using System.Linq;
-using System.Text;
 using System.Windows.Forms;
 
 namespace LabEquipmentController;
@@ -233,13 +232,12 @@ internal sealed class ResultsPanel : UserControl
 
         try
         {
-            var sb = new StringBuilder();
-            if (_results.Columns.Count > 0)
-                sb.AppendLine(string.Join(",",
-                    _results.Columns.Cast<ColumnHeader>().Select(c => Csv(c.Text))));
-            foreach (SequenceRow r in _rows) sb.AppendLine(string.Join(",", r.Values.Select(Csv)));
-
-            File.WriteAllText(dlg.FileName, sb.ToString());
+            // Core's writer rather than a local one: the browser build saves the same table
+            // from the same rows, and one quoting rule in one place is what keeps the two
+            // files identical (CsvWriter).
+            File.WriteAllText(dlg.FileName, CsvWriter.Table(
+                [.. _results.Columns.Cast<ColumnHeader>().Select(c => c.Text)],
+                _rows.Select(r => r.Values)));
             Status?.Invoke(this, "Results saved to " + dlg.FileName);
         }
         catch (Exception ex)
@@ -248,10 +246,4 @@ internal sealed class ResultsPanel : UserControl
                 MessageBoxButtons.OK, MessageBoxIcon.Warning);
         }
     }
-
-    /// <summary>Quote a field only when it needs it, so a plain number stays a plain number.</summary>
-    private static string Csv(string s)
-        => s.Contains(',') || s.Contains('"') || s.Contains('\n')
-            ? "\"" + s.Replace("\"", "\"\"") + "\""
-            : s;
 }

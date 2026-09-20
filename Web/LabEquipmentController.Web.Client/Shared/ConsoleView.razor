@@ -504,14 +504,10 @@
     }
 
     private async Task SaveCsv()
-    {
-        var sb = new System.Text.StringBuilder("Time,Command,Value\r\n");
-        foreach (var r in _results)
-            sb.Append(r.At.ToString("O")).Append(',').Append(Csv(r.Command)).Append(',').Append(Csv(r.Value)).Append("\r\n");
-        await Download($"{FileStem}-readings.csv", "text/csv", sb.ToString());
-
-        static string Csv(string s) => s.IndexOfAny([',', '"', '\r', '\n']) >= 0 ? '"' + s.Replace("\"", "\"\"") + '"' : s;
-    }
+        => await Download($"{FileStem}-readings.csv", "text/csv",
+                          CsvWriter.Table(["Time", "Command", "Value"],
+                                          _results.Select(r => (IReadOnlyList<string>)
+                                              [r.At.ToString("O"), r.Command, r.Value])));
 
     private async Task Download(string name, string mime, string text)
     {

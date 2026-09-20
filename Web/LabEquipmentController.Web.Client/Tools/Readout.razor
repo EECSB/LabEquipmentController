@@ -204,6 +204,10 @@
     private string Unit =>
         Session.Readouts.FirstOrDefault(r => r.Query == _query)?.Unit ?? "";
 
+    /// <summary>What is being measured — "DC volts" — which is what heads the saved file.</summary>
+    private string Function =>
+        Session.Readouts.FirstOrDefault(r => r.Query == _query)?.Label ?? "";
+
     /// <summary>The number as the readout shows it — scaled, and unscaled when Raw is chosen.</summary>
     private string Shown => _series.Count == 0
         ? "—"
@@ -231,18 +235,23 @@
 
     // ------------------------------------------------------------------ saving
 
+    /// <summary>
+    /// The readings as a file, written the way MultimeterReadoutForm writes them: Core's
+    /// two-column document, headed with the function and its unit rather than a bare "Value",
+    /// and the numbers at full precision rather than at the three decimals the table shows.
+    /// The columns on screen are a table to read; the file is the measurement.
+    /// </summary>
     private async Task SaveCsv()
     {
-        var csv = new System.Text.StringBuilder("Seconds,Value\n");
-        foreach (var r in _series)
-        {
-            csv.Append(r.Seconds.ToString("0.###", System.Globalization.CultureInfo.InvariantCulture))
-               .Append(',')
-               .Append(r.Value.ToString("R", System.Globalization.CultureInfo.InvariantCulture))
-               .Append('\n');
-        }
+        string header = Function.Length == 0 ? "Value" : $"{Function} ({Unit})";
+        string csv = CsvWriter.Table(["Time (s)", header],
+            _series.Select(r => (IReadOnlyList<string>)
+            [
+                r.Seconds.ToString("g9", System.Globalization.CultureInfo.InvariantCulture),
+                r.Value.ToString("g9", System.Globalization.CultureInfo.InvariantCulture),
+            ]));
         // lec.download takes base64, as every other save in the app hands it.
-        string base64 = Convert.ToBase64String(System.Text.Encoding.UTF8.GetBytes(csv.ToString()));
+        string base64 = Convert.ToBase64String(System.Text.Encoding.UTF8.GetBytes(csv));
         await JS.InvokeVoidAsync("lec.download", "readout.csv", "text/csv", base64);
     }
 

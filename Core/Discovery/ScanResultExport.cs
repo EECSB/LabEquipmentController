@@ -1,6 +1,5 @@
 using System.Collections.Generic;
 using System.Linq;
-using System.Text;
 
 namespace LabEquipmentController;
 
@@ -47,23 +46,5 @@ public static class ScanResultExport
     /// </summary>
     public static string ToCsv(IReadOnlyList<string> columns,
                                IEnumerable<(string A, string B, string C, string D)> rows)
-    {
-        var sb = new StringBuilder();
-        sb.Append(string.Join(',', columns)).Append("\r\n");
-        foreach ((string a, string b, string c, string d) in rows)
-        {
-            sb.Append(Csv(a)).Append(',')
-              .Append(Csv(b)).Append(',')
-              .Append(Csv(c)).Append(',')
-              .Append(Csv(d)).Append("\r\n");
-        }
-        return sb.ToString();
-    }
-
-    /// <summary>Quote a field when it contains a comma, quote, or newline; double embedded quotes.</summary>
-    private static string Csv(string field)
-    {
-        if (field.IndexOfAny(new[] { ',', '"', '\n', '\r' }) < 0) return field;
-        return "\"" + field.Replace("\"", "\"\"") + "\"";
-    }
+        => CsvWriter.Table(columns, rows.Select(r => (IReadOnlyList<string>)[r.A, r.B, r.C, r.D]));
 }
