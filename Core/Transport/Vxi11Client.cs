@@ -60,6 +60,13 @@ public sealed class Vxi11Client : IInstrumentClient
     private int _xid;
     private uint _maxRecvSize = 4096;
 
+    /// <summary>
+    /// Set when a reply was abandoned part way through, which leaves bytes on the connection
+    /// that belong to no message anyone is still waiting for. Cleared only by connecting
+    /// again — a fresh socket is the only thing that puts the stream back on a boundary.
+    /// </summary>
+    private bool _outOfStep;
+
     public string Host { get; }
 
     /// <summary>The dynamically-resolved VXI-11 core channel port (0 until connected).</summary>
@@ -90,6 +97,20 @@ public sealed class Vxi11Client : IInstrumentClient
         if (CorePort == 0)
             throw new IOException("Host has an RPC portmapper but no VXI-11 instrument registered.");
 
+        await OpenCoreAsync(CorePort, ct).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Open the core channel on a port already known, and start a link on it.
+    ///
+    /// Split from <see cref="ConnectAsync"/> because the portmapper lookup and the channel
+    /// are two separate things: the lookup is how the port is found, not part of talking to
+    /// the instrument once it is.
+    /// </summary>
+    internal async Task OpenCoreAsync(int corePort, CancellationToken ct)
+    {
+        CorePort = corePort;
+        _outOfStep = false;
         _tcp = new TcpClient { NoDelay = true };
         await Deadline.RunAsync(t => _tcp.ConnectAsync(Host, CorePort, t).AsTask(), TimeoutMs,
                                 $"{Host} did not answer on VXI-11 port {CorePort}", ct)
@@ -137,7 +158,7 @@ public sealed class Vxi11Client : IInstrumentClient
         byte[] reply = await CallAsync(pm.GetStream(), PortmapProgram, PortmapVersion,
                                        ProcGetPort, args, ct).ConfigureAwait(false);
         int off = ResultsOffset(reply);
-        return (int)ReadU32(reply, off);
+        return (int)Field(reply, off);
     }
 
     private async Task CreateLinkAsync(CancellationToken ct)
@@ -153,12 +174,12 @@ public sealed class Vxi11Client : IInstrumentClient
         int off = ResultsOffset(reply);
 
         // Create_LinkResp { error, lid, abortPort, maxRecvSize }
-        uint error = ReadU32(reply, off);
+        uint error = Field(reply, off);
         if (error != 0)
             throw new IOException($"VXI-11 create_link failed ({DescribeError(error)}).");
 
-        _linkId = (int)ReadU32(reply, off + 4);
-        _maxRecvSize = ReadU32(reply, off + 12);
+        _linkId = (int)Field(reply, off + 4);
+        _maxRecvSize = Field(reply, off + 12);
         if (_maxRecvSize is 0 or > 1024 * 1024) _maxRecvSize = 8192; // sanity clamp
         _linked = true;
     }
@@ -180,7 +201,7 @@ public sealed class Vxi11Client : IInstrumentClient
                                        ProcDeviceWrite, args, ct).ConfigureAwait(false);
         int off = ResultsOffset(reply);
 
-        uint error = ReadU32(reply, off);
+        uint error = Field(reply, off);
         if (error != 0)
             throw new IOException($"VXI-11 device_write failed ({DescribeError(error)}).");
     }
@@ -257,13 +278,17 @@ public sealed class Vxi11Client : IInstrumentClient
             int off = ResultsOffset(reply);
 
             // Device_ReadResp { error, reason, data<> }
-            uint error = ReadU32(reply, off);
+            uint error = Field(reply, off);
             if (error == ErrorIoTimeout) break;          // no (more) data — treat as end
             if (error != 0)
                 throw new IOException($"VXI-11 device_read failed ({DescribeError(error)}).");
 
-            uint reason = ReadU32(reply, off + 4);
-            int len = (int)ReadU32(reply, off + 8);
+            uint reason = Field(reply, off + 4);
+            int len = (int)Field(reply, off + 8);
+            if (len < 0 || off + 12 + len > reply.Length)
+                throw new IOException(
+                    $"Malformed VXI-11 device_read reply: it claims {len} bytes of data and "
+                  + $"carries {Math.Max(0, reply.Length - off - 12)}.");
             if (len > 0) { data.AddRange(new ArraySegment<byte>(reply, off + 12, len)); idle.Restart(); }
 
             if ((reason & ReasonEnd) != 0) break;        // instrument signalled END
@@ -295,10 +320,17 @@ public sealed class Vxi11Client : IInstrumentClient
     // ---------------------------------------------------------------- RPC core
 
     /// <summary>Build a complete, record-marked ONC RPC call frame.</summary>
-    private byte[] BuildCallFrame(int program, int version, int proc, List<byte> args)
+    /// <param name="xid">
+    /// The id this call is stamped with. The reply carries it back, which is the only way to
+    /// tell this call's answer from the answer to one that was given up on — see
+    /// <see cref="CallAsync"/>.
+    /// </param>
+    private byte[] BuildCallFrame(int program, int version, int proc, List<byte> args, out uint xid)
     {
+        xid = (uint)Interlocked.Increment(ref _xid);
+
         var body = new List<byte>();
-        AddU32(body, (uint)Interlocked.Increment(ref _xid));
+        AddU32(body, xid);
         AddU32(body, 0);              // msg_type = CALL
         AddU32(body, 2);              // rpcvers
         AddU32(body, (uint)program);
@@ -314,29 +346,78 @@ public sealed class Vxi11Client : IInstrumentClient
         return frame.ToArray();
     }
 
-    /// <summary>Send one ONC RPC call and return the reply payload (record marker stripped).</summary>
+    /// <summary>
+    /// Send one ONC RPC call and return its own reply payload (record marker stripped).
+    ///
+    /// **Its own**, which is the whole of the difficulty. Giving up on a slow reply does not
+    /// take it off the wire: the instrument answers in its own time, and that answer arrives
+    /// while the next call is waiting for a different one. Read blindly, every reply from then
+    /// on belongs to the call before it — a Siglent SDM3065X asked for resistance a moment
+    /// after a current reading takes longer than five seconds to change function, and after
+    /// that one timeout the link reported "device_write failed (I/O timeout)" for a write it
+    /// had not answered yet and then threw index errors out of the decoder for everything
+    /// else, *IDN? included.
+    ///
+    /// The xid the call was stamped with is what sorts it out. A reply carrying another one is
+    /// the answer to a call already given up on: drop it and read the next. The deadline still
+    /// bounds the whole wait, so an instrument that has genuinely stopped talking times out as
+    /// before rather than looping.
+    /// </summary>
     private async Task<byte[]> CallAsync(NetworkStream stream, int program, int version,
                                          int proc, List<byte> args, CancellationToken ct)
     {
-        byte[] frame = BuildCallFrame(program, version, proc, args);
+        if (_outOfStep)
+            throw new IOException(
+                "This VXI-11 link is out of step: a reply was cut short part way through and "
+              + "what is left on the connection cannot be matched to a call. Reconnect to the "
+              + "instrument.");
+
+        byte[] frame = BuildCallFrame(program, version, proc, args, out uint xid);
 
         return await Deadline.RunAsync(async t =>
         {
             await stream.WriteAsync(frame, t).ConfigureAwait(false);
 
-            var payload = new List<byte>();
             while (true)
             {
-                byte[] mk = await ReadExactAsync(stream, 4, t).ConfigureAwait(false);
+                byte[] payload = await ReadReplyAsync(stream, t).ConfigureAwait(false);
+                if (payload.Length >= 4 && ReadU32(payload, 0) == xid) return payload;
+                // Someone else's answer, arriving late. Nothing here wants it.
+            }
+        }, TimeoutMs, $"{Host} did not answer {ProcName(proc)}", ct).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// One whole RPC message — every fragment of it — with the record markers stripped.
+    ///
+    /// Abandoning this part way through is what the xid check above cannot repair: the bytes
+    /// already taken are the front of a message whose tail would then be read as the next
+    /// message's record marker, and nothing downstream could tell. That state is recorded
+    /// rather than papered over, and the link says so until it is reconnected.
+    /// </summary>
+    private async Task<byte[]> ReadReplyAsync(NetworkStream stream, CancellationToken ct)
+    {
+        var payload = new List<byte>();
+        bool started = false;
+        try
+        {
+            while (true)
+            {
+                byte[] mk = await ReadExactAsync(stream, 4, ct).ConfigureAwait(false);
+                started = true;
                 uint marker = ReadU32(mk, 0);
                 bool last = (marker & 0x80000000u) != 0;
                 int len = (int)(marker & 0x7FFFFFFF);
                 if (len > 0)
-                    payload.AddRange(await ReadExactAsync(stream, len, t).ConfigureAwait(false));
-                if (last) break;
+                    payload.AddRange(await ReadExactAsync(stream, len, ct).ConfigureAwait(false));
+                if (last) return payload.ToArray();
             }
-            return payload.ToArray();
-        }, TimeoutMs, $"{Host} did not answer {ProcName(proc)}", ct).ConfigureAwait(false);
+        }
+        catch when (started)
+        {
+            _outOfStep = true;
+            throw;
+        }
     }
 
     /// <summary>
@@ -356,13 +437,24 @@ public sealed class Vxi11Client : IInstrumentClient
         _                => $"VXI-11 procedure {proc}",
     };
 
-    private static async Task<byte[]> ReadExactAsync(NetworkStream stream, int count, CancellationToken ct)
+    private async Task<byte[]> ReadExactAsync(NetworkStream stream, int count, CancellationToken ct)
     {
         var buf = new byte[count];
         int read = 0;
         while (read < count)
         {
-            int n = await stream.ReadAsync(buf.AsMemory(read, count - read), ct).ConfigureAwait(false);
+            int n;
+            try
+            {
+                n = await stream.ReadAsync(buf.AsMemory(read, count - read), ct).ConfigureAwait(false);
+            }
+            catch when (read > 0)
+            {
+                // Cut short with part of a record marker or a fragment already taken: the
+                // bytes left behind cannot be lined up again. Say so rather than read on.
+                _outOfStep = true;
+                throw;
+            }
             if (n <= 0) throw new IOException("Connection closed by instrument.");
             read += n;
         }
@@ -387,6 +479,19 @@ public sealed class Vxi11Client : IInstrumentClient
         if (acceptStat != 0) throw new IOException($"RPC call failed (accept_stat={acceptStat}).");
 
         return off + 4;
+    }
+
+    /// <summary>
+    /// A 32-bit field out of a reply, or a sentence saying the reply was too short for it.
+    ///
+    /// Reading past the end used to raise "Index was outside the bounds of the array", which
+    /// tells whoever meets it nothing at all about an instrument or a link.
+    /// </summary>
+    private static uint Field(byte[] reply, int offset)
+    {
+        if (offset + 4 > reply.Length)
+            throw new IOException("Malformed VXI-11 reply: it ends part way through a field.");
+        return ReadU32(reply, offset);
     }
 
     private static string DescribeError(uint code) => code switch
@@ -452,13 +557,13 @@ public sealed class Vxi11Client : IInstrumentClient
                 AddU32(localArgs, 0);              // flags
                 AddU32(localArgs, 0);              // lock_timeout
                 AddU32(localArgs, (uint)TimeoutMs); // io_timeout
-                byte[] localFrame = BuildCallFrame(VxiCoreProgram, VxiCoreVersion, ProcDeviceLocal, localArgs);
+                byte[] localFrame = BuildCallFrame(VxiCoreProgram, VxiCoreVersion, ProcDeviceLocal, localArgs, out _);
                 _stream.Write(localFrame, 0, localFrame.Length);
 
                 // Release the link so the instrument doesn't hold it (some allow only one).
                 var destroyArgs = new List<byte>();
                 AddU32(destroyArgs, (uint)_linkId);
-                byte[] destroyFrame = BuildCallFrame(VxiCoreProgram, VxiCoreVersion, ProcDestroyLink, destroyArgs);
+                byte[] destroyFrame = BuildCallFrame(VxiCoreProgram, VxiCoreVersion, ProcDestroyLink, destroyArgs, out _);
                 _stream.Write(destroyFrame, 0, destroyFrame.Length);
             }
             catch { /* ignore — we're tearing the socket down regardless */ }
