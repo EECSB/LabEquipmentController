@@ -13,6 +13,28 @@ test.beforeEach(async ({ page, request }) => {
     await freshBench(page, request);
 });
 
+test.describe('the title bar', () => {
+    ///
+    ///The bench is the app, not one of its windows, so it adds nothing to the app's name - which is
+    ///all `MainForm`'s title bar carries. It used to read "— SCPI over Ethernet", a strapline the
+    ///desktop build has nowhere (UI-SPEC §2).
+    ///
+    test('carries the app name alone on the bench', async ({ page }) => {
+        await expect(page.locator('.titlebar .name')).toHaveText('Lab Equipment Controller');
+        await expect(page.locator('.titlebar .sub')).toHaveCount(0);
+        await expect(page).toHaveTitle('Lab Equipment Controller');
+    });
+
+    ///
+    ///A page that is one of the windows names itself, the way that window's own title bar does.
+    ///
+    test('names the window on a page that is one', async ({ page }) => {
+        await page.goto('/catalog');
+        await expect(page.locator('.titlebar .sub')).toHaveText('— Command Library');
+        await expect(page).toHaveTitle('Command Library — Lab Equipment Controller');
+    });
+});
+
 test.describe('network scan card', () => {
     ///
     ///Three labelled controls and the button that answers them, in that order.
@@ -81,6 +103,35 @@ test.describe('network scan card', () => {
         const box = await boxOf(page, '.group .cap .seg');
         const field = await boxOf(page, '#ports');
         expect(box.height).toBeLessThan(field.height);
+    });
+
+    ///
+    ///The chosen half is filled grey, as SegmentButton fills it on the desktop, and not in the
+    ///accent: nothing else on the card is accent coloured, and an accent-filled heading was the one
+    ///thing on screen pulling the eye. Both captions keep the heading's ink - which one is chosen is
+    ///the fill's to say - and hovering the chosen half leaves it as it is.
+    ///
+    test('fills the chosen half grey, as the desktop does', async ({ page }) => {
+        const seg = page.locator('.group .cap .seg button');
+        const paint = (b) => b.evaluate((el) => {
+            const s = getComputedStyle(el);
+            return { fill: s.backgroundColor, ink: s.color };
+        });
+        const theme = await page.evaluate(() => {
+            const s = getComputedStyle(document.documentElement);
+            return { seg: s.getPropertyValue('--seg-on').trim(), accent: s.getPropertyValue('--accent').trim() };
+        });
+        expect(theme.seg).not.toBe(theme.accent);
+
+        const chosen = await paint(seg.first());
+        const other = await paint(seg.last());
+        const [r, g, b] = chosen.fill.match(/\d+/g).map(Number);
+        expect(Math.max(r, g, b) - Math.min(r, g, b)).toBeLessThan(24);   // a grey, give or take a tint
+        expect(other.fill).toBe('rgba(0, 0, 0, 0)');
+        expect(other.ink).toBe(chosen.ink);
+
+        await seg.first().hover();
+        expect((await paint(seg.first())).fill).toBe(chosen.fill);
     });
 });
 

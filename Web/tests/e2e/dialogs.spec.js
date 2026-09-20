@@ -116,13 +116,16 @@ test.describe('the About box', () => {
     ///
     ///Every figure on it is read at runtime, so nothing on it can go stale while looking authoritative.
     ///
-    test('states the version, the build and the counted totals', async ({ page }) => {
+    test('states the version and the counted totals', async ({ page }) => {
         const sheet = page.locator('dialog.sheet[open]');
 
         await expect(sheet).toContainText('Lab Equipment Controller');
         await expect(sheet).toContainText(/Version \d+\.\d+\.\d+/);
-        await expect(sheet.locator('.pill')).toHaveText('web build');
         await expect(sheet.locator('dd').first()).toContainText(/SCPI commands across \d+ instrument/);
+
+        //And nothing beside the version saying which build this is. A "web build" pill said what
+        //the browser around it already says, and the desktop's About box has no badge for it.
+        await expect(sheet.locator('.pill')).toHaveCount(0);
     });
 
     ///
@@ -559,7 +562,8 @@ test.describe('Esc with one thing open inside another', () => {
     ///And when its script is used, the AI window shuts with the button that was pressed in it. The
     ///desktop leaves the caret at the start of what was written and the focus in the editor
     ///(Select(0, 0), then Focus()), and so does this: Enter opens a line above the script, and the
-    ///next Esc shuts the editor. The focus had gone with the button.
+    ///next Esc shuts the editor. The focus had gone with the button. Yes to the question about
+    ///the script already there, which the next group asks both ways.
     ///
     test('gives the editor the focus when the AI window\'s script is used', async ({ page, request }) => {
         await withStubModel(request, async () => {
@@ -571,6 +575,7 @@ test.describe('Esc with one thing open inside another', () => {
             const writer = page.locator('dialog.tool[open] dialog.tool[open]');
             await expect(writer.locator('.chat')).toBeVisible();
             await ask(page, 'anything', 1);
+            page.once('dialog', (d) => d.accept());
             await writer.getByRole('button', { name: /Use This Script/ }).click();
 
             await expect(writer).toHaveCount(0);
@@ -1192,12 +1197,110 @@ test.describe('the AI script window as a conversation', () => {
 
             //Press the older one. The script that lands in the editor is that one, not the
             //newest - which is the only claim worth making here.
+            page.once('dialog', (d) => d.accept());
             await writer.locator('.chat .turn').first().locator('.row.taketurn button').click();
 
             await expect(page.locator('dialog.tool[open] .chat')).toHaveCount(0);
-            expect(await scriptText(page)).toContain('# turn 1');
+            await expect.poll(() => scriptText(page)).toContain('# turn 1');
             expect(await scriptText(page)).not.toContain('# turn 2');
         });
+    });
+
+    ///
+    ///Over a script, Use This Script asks first, in the desktop's words, and only once the AI window
+    ///has shut: ScriptForm and SequenceForm both put the question after ScriptAiForm has closed. The
+    ///draft takes the whole editor, and what it replaces is gone.
+    ///
+    ///Cancel leaves the script where it was and the focus on Script with AI, where the desktop's is
+    ///left, and the draft is still in the conversation. Over an empty editor nothing is asked.
+    ///
+    test('asks before a draft replaces the script in the editor', async ({ page, request }) => {
+        await withStubModel(request, async () => {
+            await openWriter(page);
+            const editor = page.locator('dialog.tool[open]').first();
+            const before = await scriptText(page);
+            expect(before).not.toBe('');
+
+            const asked = [];
+            page.on('dialog', (d) => { asked.push(d.message()); return d.dismiss(); });
+
+            //Whether the AI window was still up when the question went up. Read in the page as the
+            //box is called for, because nothing can be read from a page while the box is open.
+            await page.evaluate(() => {
+                const confirm = window.confirm;
+                window.confirm = (text) => {
+                    window.__writerAtAsk = document.querySelectorAll('dialog.tool[open] .chat').length;
+                    return confirm.call(window, text);
+                };
+            });
+
+            await ask(page, 'set a 1 kHz sine at 2 Vpp', 1);
+            await page.locator('dialog.tool[open]').last().locator('.row.taketurn button').click();
+
+            await expect.poll(() => asked.length).toBe(1);
+            expect(asked[0]).toBe('Replace the script in the editor with the one that was written?\n\n'
+                                + 'Save it first if you want to keep it.');
+            expect(await page.evaluate(() => window.__writerAtAsk)).toBe(0);
+            await expect(page.locator('dialog.tool[open] .chat')).toHaveCount(0);
+            expect(await scriptText(page)).toBe(before);
+            await expect(editor.getByRole('button', { name: /Script with AI/ })).toBeFocused();
+
+            //Emptied, the same draft goes in without a word.
+            await editor.getByRole('button', { name: /^New$/ }).click();
+            expect(await scriptText(page)).toBe('');
+            await editor.getByRole('button', { name: /Script with AI/ }).click();
+            await page.locator('dialog.tool[open]').last().locator('.row.taketurn button').click();
+
+            await expect(page.locator('dialog.tool[open] .chat')).toHaveCount(0);
+            await expect.poll(() => scriptText(page)).toContain('# turn 1');
+            expect(asked).toHaveLength(1);
+        });
+    });
+
+    ///
+    ///From the multi-instrument editor, the writer is told the names the editor already uses whether
+    ///or not its script goes to be revised, as SequenceForm reads them from its editor either way; and
+    ///each meter under the part the binding table gives it. Two meters asked for by model bind neither,
+    ///so each is declared by its serial number.
+    ///
+    ///The meter picked for "left" is the one the rule would have given "right": on its own it hands the
+    ///names out in address order, so a pick that agreed with it would prove nothing.
+    ///
+    test('tells the writer the editor\'s names and the parts picked in the table', async ({ page, request }) => {
+        const second = await startInstrument({ identity: 'Siglent Technologies,SDM3065X,LEC-E2E-0002,1.00.00.00' });
+        const serialAt = { [instrument.address]: 'LEC-E2E-0001', [second.address]: 'LEC-E2E-0002' };
+        const [first, last] = [instrument.address, second.address].sort();
+        try {
+            await withStubModel(request, async (seen) => {
+                await connect(page, instrument.address);
+                await connect(page, second.address, { expectTabs: 2 });
+                await page.getByRole('button', { name: /Multi-Instrument Scripts/ }).click();
+                await editorReady(page);
+                await setScript(page, 'DEVICE left : SDM3065X\nDEVICE right : SDM3065X\nleft: MEAS:VOLT:DC?');
+
+                const tool = page.locator('dialog.tool[open]');
+                const row = (alias) => tool.locator('.bindings tbody tr')
+                    .filter({ has: page.locator(`td:text-is("${alias}")`) });
+                await expect(row('left')).toHaveClass(/unbound/);
+                const late = await row('left').locator('select option', { hasText: new RegExp(last.replace(/\./g, '\\.') + '$') })
+                    .getAttribute('value');
+                await row('left').locator('select').selectOption(late);
+                await expect(row('right')).not.toHaveClass(/unbound/);
+
+                await tool.getByRole('button', { name: /Script with AI/ }).click();
+                const writer = page.locator('dialog.tool[open] dialog.tool[open]');
+                await expect(writer.locator('.chat')).toBeVisible();
+                await writer.getByLabel('Revise the current script').uncheck();
+                await ask(page, 'read both meters', 1);
+
+                const sent = seen[0].messages[0].content;
+                expect(sent).toContain('Declare it as: DEVICE left : ' + serialAt[last]);
+                expect(sent).toContain('Declare it as: DEVICE right : ' + serialAt[first]);
+                expect(sent).not.toContain('left: MEAS:VOLT:DC?');   // the script itself stayed home
+            });
+        } finally {
+            await second.stop();
+        }
     });
 
     ///

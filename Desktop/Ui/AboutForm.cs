@@ -1,6 +1,7 @@
 using System;
 using System.Diagnostics;
 using System.Drawing;
+using System.Linq;
 using System.Reflection;
 using System.Runtime.InteropServices;
 using System.Windows.Forms;
@@ -184,16 +185,24 @@ namespace LabEquipmentController
         /// </summary>
         private static string CatalogLine()
         {
-            int families = 0, commands = 0;
+            int families = 0, commands = 0, verified = 0;
             foreach (InstrumentFamily f in Enum.GetValues<InstrumentFamily>())
             {
                 CommandReference? r = CommandReference.ForFamily(f);
                 if (r == null || r.Commands.Count == 0) continue;
                 families++;
                 commands += r.Commands.Count;
+                verified += r.Commands.Count(c => c.BenchVerified);
             }
+
+            // And how many of those are more than a transcription. A catalogued command is one
+            // read off a vendor's guide; a ticked one is a command a real instrument answered,
+            // which is the difference between believing the guide and knowing. The library
+            // shows that tick per command (CommandReferenceForm); this is the total, and the
+            // web build's About box has stated it since it was written.
             return $"{commands:N0} SCPI commands catalogued across {families} instrument families,\r\n"
-                 + "transcribed from vendor programming guides.";
+                 + "transcribed from vendor programming guides.\r\n"
+                 + $"{verified:N0} of them have been answered by an instrument on a bench.";
         }
     }
 }

@@ -21,7 +21,7 @@
    on every render. *@
 @if (!_detached)
 {
-    <PageTitle>@(_title == "SCPI over Ethernet"
+    <PageTitle>@(_title.Length == 0
         ? "Lab Equipment Controller"
         : $"{_title} — Lab Equipment Controller")</PageTitle>
 }
@@ -34,7 +34,12 @@
            own title, and on the web they are browser tabs: several of them open at once, all
            four bands identical, and nothing anywhere saying which is which. *@
         <span class="name">Lab Equipment Controller</span>
-        <span class="sub">— @_title</span>
+        @* The bench has no name of its own to add: it is the app, and MainForm's title bar is
+           the app's name and nothing else. Only the windows name themselves here. *@
+        @if (_title.Length > 0)
+        {
+            <span class="sub">— @_title</span>
+        }
         <span class="spacer"></span>
         @* Top right, where a window's own controls live and where the desktop app keeps the
            menus these came off — the far end of the strip, either way. One gear, and nothing
@@ -132,8 +137,9 @@
     private bool _detached;
     private string _where = "";
 
-    /// <summary>What this window is, for the title bar and for the browser's own tab strip.</summary>
-    private string _title = "SCPI over Ethernet";
+    /// <summary>What this window is, for the title bar and for the browser's own tab strip.
+    /// Empty on the bench, which is the app rather than one of its windows.</summary>
+    private string _title = "";
 
     private ErrorBoundary? _boundary;
 
@@ -231,11 +237,11 @@
         // buttons that open them here — rather than a description, because a title bar names a
         // thing and the status line below already says what it is for.
         //
-        // The bench keeps the strapline: it is not one of the windows, it is the app, and
-        // "Lab Equipment Controller — Bench" says the same word twice.
+        // The bench adds nothing: it is not one of the windows, it is the app, and MainForm's
+        // title bar carries the app's name alone.
         _title = _detached ? "detached console" : path switch
         {
-            "" => "SCPI over Ethernet",
+            "" => "",
             "console" => "Instrument Console",
             "sequences" => "Multi-Instrument Scripts",
             "catalog" => "Command Library",

@@ -31,6 +31,8 @@ namespace LabEquipmentController
         private readonly Button _insert = new();
         private readonly Button _copy = new();
         private readonly Label _source = new();
+        /// <summary>How many commands the filter has left, which is what the list is showing.</summary>
+        private readonly Label _showing = new();
         private readonly ToolTip _tips = new();
         private Panel? _bottom;
         private FlowLayoutPanel? _buttons;
@@ -119,6 +121,15 @@ namespace LabEquipmentController
             buttons.Controls.Add(_insert);
             buttons.Controls.Add(_copy);
 
+            // How many of them are listed, on the row with the buttons and to the left of
+            // them, as the web build's library says it. Worth saying because the filter is
+            // the point of this window: 1,200 commands narrowed to nine is the answer to
+            // whether the word you typed was the right one, and the list alone cannot tell
+            // you that without being scrolled to its end.
+            _showing.AutoSize = true;
+            _showing.ForeColor = SystemColors.GrayText;
+            buttons.Controls.Add(_showing);
+
             bottom.Controls.Add(buttons);
             bottom.Controls.Add(_source);
 
@@ -137,6 +148,7 @@ namespace LabEquipmentController
                                     + "command box, ready to send.");
             _tips.SetToolTip(_copy, "Copy the selected command to the clipboard.");
             _tips.SetToolTip(_source, "Where these commands were taken from.");
+            _tips.SetToolTip(_showing, "How many commands the filter has left.");
             _tips.SetToolTip(_list, "✓ confirmed on this bench   •  also found in an independent "
                                   + "open-source driver   ⚠ the guide looks misprinted here — hover the "
                                   + "entry   (blank) from the programming guide only.");
@@ -182,6 +194,12 @@ namespace LabEquipmentController
                 // value the designer-style initialiser gave it.
                 _buttons.Padding = new Padding(0, LogicalToDeviceUnits(10), 0, 0);
                 _buttons.Height = h + _buttons.Padding.Vertical;
+
+                // The count is a line of text beside two buttons, so it is nudged down to sit
+                // on their middle rather than on their top edge, and held off the one next to
+                // it by the gap the buttons keep from each other.
+                _showing.Margin = new Padding(0, Math.Max(0, (h - _showing.PreferredHeight) / 2),
+                                              LogicalToDeviceUnits(10), 0);
             }
 
             if (_bottom != null)
@@ -265,6 +283,7 @@ namespace LabEquipmentController
             }
 
             _list.EndUpdate();
+            _showing.Text = $"Showing {_list.Items.Count:N0}.";
             MeasureCommandColumn();   // what is listed now decides how wide Command needs to be
             FitColumns();
         }
