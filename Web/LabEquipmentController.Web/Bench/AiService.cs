@@ -159,8 +159,13 @@ public sealed class AiService
     /// For a sequence the whole bench goes in and the ticks say what is described, because a
     /// meter left unticked is still a second meter of that model, and naming the ticked one by
     /// model would bind neither. In address order, so which of two meters is dmm and which is
-    /// dmm2 does not depend on the order a dictionary hands them back in. Aliases are kept from
-    /// the script only when it is sent to be revised; the server sees no other copy of it.
+    /// dmm2 does not depend on the order a dictionary hands them back in.
+    ///
+    /// The names come from the editor whether or not its script is sent to be revised, as
+    /// SequenceForm reads them from its own; they were kept here only when it was, so an
+    /// unticked "Revise" renamed every device. And the table's picks are taken as given, as the
+    /// table itself is filled (<see cref="BenchService.BindSequence"/>): the part the writer is
+    /// told a meter plays is the part the table says it plays.
     /// </remarks>
     private IReadOnlyList<ScriptContextInstrument> Describe(AiScriptRequest req)
     {
@@ -168,8 +173,13 @@ public sealed class AiService
         if (!req.IsSequence)
             return chosen.Select(s => ScriptContext.ForScript(s.Identity, s.Address)).ToList();
 
+        var picked = new Dictionary<string, BenchService.Session>(StringComparer.OrdinalIgnoreCase);
+        foreach (var (alias, id) in req.Picks ?? new Dictionary<string, string>())
+            if (_bench.Raw(id) is { } s) picked[alias] = s;
+
         var bench = _bench.Raw().OrderBy(s => s.Address, StringComparer.OrdinalIgnoreCase).ToList();
-        return ScriptContext.ForSequence(bench, s => s.Identity, s => s.Host, req.CurrentScript, chosen);
+        return ScriptContext.ForSequence(bench, s => s.Identity, s => s.Host,
+                                         req.EditorScript ?? req.CurrentScript, chosen, picked);
     }
 
     /// <summary>

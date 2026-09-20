@@ -463,7 +463,16 @@ public enum AiTool
 /// </summary>
 public sealed record AiTurn(string Request, string Script, string Notes, IReadOnlyList<string> Undocumented);
 
-public sealed record AiScriptRequest(string Request, IReadOnlyList<string> SessionIds, bool IsSequence, string? CurrentScript, string? RecentOutput, IReadOnlyList<AiTurn>? History = null);
+/// <param name="CurrentScript">The script to revise, when it is sent to be: "Revise the current script".</param>
+/// <param name="EditorScript">
+/// What is in a multi-instrument editor, revised or not. Its DEVICE lines say what it already
+/// calls each instrument, and those names are kept, as SequenceForm keeps them from its own
+/// editor whether or not the script goes to the model. It does not go to the model itself.
+/// </param>
+/// <param name="Picks">The binding table's picks, alias to session id, so the writer is told what the table shows.</param>
+public sealed record AiScriptRequest(
+    string Request, IReadOnlyList<string> SessionIds, bool IsSequence, string? CurrentScript, string? RecentOutput,
+    IReadOnlyList<AiTurn>? History = null, string? EditorScript = null, IReadOnlyDictionary<string, string>? Picks = null);
 
 /// <param name="Notes">
 /// The model's own one-line account of what it did. The desktop has always shown this under

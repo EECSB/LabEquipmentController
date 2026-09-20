@@ -33,6 +33,7 @@ namespace LabEquipmentController
         private readonly TextBox _path = new();
         private readonly Button _browse = new();
         private readonly ComboBox _provider = new();
+        private readonly ComboBox _effort = new();
         private readonly CheckBox _extractLocally = new();
         private readonly Button _extract = new();
         private readonly Button _save = new();
@@ -64,7 +65,34 @@ namespace LabEquipmentController
             _apiKey = KeyFor(_connection.Id);
             _book.SelectedId = _connection.Id;
             AiBookStore.Select(_connection.Id);
+            ShowEffort();       // effort belongs to the connection, so it changes with it
             ApplyRules();
+        }
+
+        /// <summary>
+        /// How hard to work the model, from here on. Written back to the connection, as the AI
+        /// Connection box and the script writer write it: effort belongs to the connection, so
+        /// setting it here sets it everywhere, and the places that set it cannot disagree about
+        /// what is in force.
+        /// </summary>
+        private void OnEffortPicked(object? sender, EventArgs e)
+        {
+            if (_updating || _effort.SelectedIndex < 0) return;
+
+            AiEffort picked = Enum.GetValues<AiEffort>()[_effort.SelectedIndex];
+            _connection.Effort = picked;
+            AiBookStore.SetEffort(_connection.Id, picked);
+            if (_book.Find(_connection.Id) is { } mine) mine.Effort = picked;
+        }
+
+        /// <summary>Show the effort the current connection carries, without writing it back.</summary>
+        private void ShowEffort()
+        {
+            bool was = _updating;
+            _updating = true;
+            _effort.SelectedIndex =
+                Array.IndexOf(Enum.GetValues<AiEffort>(), _connection.Effort) is int at and >= 0 ? at : 0;
+            _updating = was;
         }
 
         /// <summary>True when commands were saved, so the caller can reload its reference.</summary>
@@ -138,16 +166,33 @@ namespace LabEquipmentController
             top.Controls.Add(new Label { Text = "Using:", AutoSize = true, Margin = new Padding(0, 8, 10, 0) }, 0, 1);
             top.Controls.Add(_provider, 1, 1);
 
+            // And how hard to work it, under which one. Which model and how hard are one decision
+            // taken twice, and a window offering the first without the second sends you to the
+            // settings box for the other half — the script writer carries both, and the web's
+            // datasheet window did before this one. Reading commands out of a guide is
+            // transcription and rarely wants more than the default, but that is a choice to make
+            // looking at the file.
+            _effort.DropDownStyle = ComboBoxStyle.DropDownList;
+            _effort.DrawMode = DrawMode.OwnerDrawFixed;
+            _effort.DrawItem += (_, e) => ButtonStyle.DrawComboItem(_effort, e);
+            _effort.Width = 320;
+            _effort.Margin = new Padding(0, 4, 0, 0);
+            foreach (AiEffort effort in Enum.GetValues<AiEffort>()) _effort.Items.Add(AiSettingsForm.EffortLabel(effort));
+            ShowEffort();
+            _effort.SelectedIndexChanged += OnEffortPicked;
+            top.Controls.Add(new Label { Text = "Effort:", AutoSize = true, Margin = new Padding(0, 8, 10, 0) }, 0, 2);
+            top.Controls.Add(_effort, 1, 2);
+
             _extractLocally.Text = "Extract text locally before sending";
             _extractLocally.AutoSize = true;
             _extractLocally.Margin = new Padding(0, 6, 0, 6);
             // Ticking this sidesteps the upload caps entirely, so a size refusal has to clear
             // when it goes on. Guarded because ApplyRules sets Checked itself.
             _extractLocally.CheckedChanged += (_, _) => { if (!_updating) ApplyRules(); };
-            top.Controls.Add(_extractLocally, 1, 2);
+            top.Controls.Add(_extractLocally, 1, 3);
 
             ButtonStyle.Apply(_extract, "Extract", async (_, _) => await RunAsync());
-            top.Controls.Add(_extract, 2, 2);
+            top.Controls.Add(_extract, 2, 3);
 
             // --- results ---
             _list.Dock = DockStyle.Fill;
@@ -209,6 +254,10 @@ namespace LabEquipmentController
 
             _tips.AutoPopDelay = 30000;
             _tips.SetToolTip(_path, "The instrument's programming guide or datasheet.");
+            _tips.SetToolTip(_effort, "How hard to ask the model to think before answering. Higher "
+                                    + "is slower and costs more tokens. Copying commands out of a "
+                                    + "guide is transcription and rarely needs it; provider "
+                                    + "default sends nothing at all.");
             _tips.SetToolTip(_list, "Everything the model found. Untick anything that looks "
                                   + "wrong — these are extracted, not verified.");
             _tips.SetToolTip(_save, "Save the ticked commands for this instrument. They are "

@@ -45,35 +45,49 @@ public static class ScriptContext
     /// <param name="identity">An instrument's *IDN? reply.</param>
     /// <param name="host">An instrument's address, as a DEVICE line would write it.</param>
     /// <param name="script">
-    /// The script being revised, if there is one. What it already calls an instrument is kept,
-    /// so asking for a change to a working script does not rename its devices, and a DEVICE line
-    /// of it that binds is kept as it is written.
+    /// The script in the editor, if there is one, whether or not it is going to the model to be
+    /// revised. What it already calls an instrument is kept, so asking for a change to a working
+    /// script does not rename its devices, and a DEVICE line of it that binds is kept as it is
+    /// written.
     /// </param>
     /// <param name="only">
     /// The instruments to describe, when not all of them are wanted — the web's ticks. The rest
     /// still count: a meter left out of the prompt is still a second meter of that model on the
     /// bench, and naming the first by model would bind neither.
     /// </param>
+    /// <param name="picked">
+    /// Instruments chosen by hand for the script's aliases — the web's binding table — taken as
+    /// given, as <see cref="SequenceBinding"/> takes them, so the writer is told what the table
+    /// shows. A picked line keeps its alias. It keeps its text only where that text binds the
+    /// same instrument with nothing picked; otherwise it is declared by what does, so the draft
+    /// binds as it is written, wherever it is run.
+    /// </param>
     public static IReadOnlyList<ScriptContextInstrument> ForSequence<T>(
         IReadOnlyList<T> bench,
         Func<T, string> identity,
         Func<T, string> host,
         string? script = null,
-        IReadOnlyCollection<T>? only = null) where T : class
+        IReadOnlyCollection<T>? only = null,
+        IReadOnlyDictionary<string, T>? picked = null) where T : class
     {
         var alias = new Dictionary<T, string>(ReferenceEqualityComparer.Instance);
         var written = new Dictionary<T, string>(ReferenceEqualityComparer.Instance);
         var used = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
-        // What the script already calls each instrument, by the rule the strip binds it by. A
-        // line that binds keeps its alias and its text.
-        IReadOnlyList<DeviceBinding<T>> bound =
-            SequenceBinding.Bind(SequenceRunner.Requirements(script ?? ""), bench, identity, host);
-        foreach (DeviceBinding<T> b in bound)
+        // What the script already calls each instrument, by the rule the strip binds it by and
+        // with whatever was picked. A line that binds keeps its alias, and its text as well when
+        // the text is what binds it.
+        IReadOnlyList<(string Alias, string Model)> needs = SequenceRunner.Requirements(script ?? "");
+        IReadOnlyList<DeviceBinding<T>> bound = SequenceBinding.Bind(needs, bench, identity, host, picked);
+        IReadOnlyList<DeviceBinding<T>> alone = picked is { Count: > 0 }
+            ? SequenceBinding.Bind(needs, bench, identity, host)
+            : bound;
+        for (int i = 0; i < bound.Count; i++)
         {
+            DeviceBinding<T> b = bound[i];
             if (b.Instrument is not T t || alias.ContainsKey(t) || !used.Add(b.Alias)) continue;
             alias[t] = b.Alias;
-            written[t] = b.Model;
+            if (ReferenceEquals(alone[i].Instrument, t)) written[t] = b.Model;
         }
 
         // One that does not — two meters asked for by model — still lends its alias to an

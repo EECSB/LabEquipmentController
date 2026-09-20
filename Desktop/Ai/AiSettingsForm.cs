@@ -309,9 +309,11 @@ namespace LabEquipmentController
 
         /// <summary>
         /// What each step is called in the list. Only the first needs saying differently:
-        /// "Default" alone reads as a level of effort, which is the one thing it is not.
+        /// "Default" alone reads as a level of effort, which is the one thing it is not. The
+        /// script writer and the datasheet window read their pickers' words from here, so the
+        /// three places the setting is made cannot call it three things.
         /// </summary>
-        private static string EffortLabel(AiEffort effort)
+        internal static string EffortLabel(AiEffort effort)
             => effort == AiEffort.Default ? "Provider default" : effort.ToString();
 
         private static bool IsPlaceholderUrl(string url)

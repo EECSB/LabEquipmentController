@@ -319,7 +319,7 @@ public sealed class ScriptAiForm : Form
         // Core's own scale, spelled once. Each provider translates it its own way — a word for
         // Gemini and an OpenAI-compatible endpoint, a token budget for Anthropic, and nothing
         // at all for Default, which is why Default is the default.
-        foreach (AiEffort effort in Enum.GetValues<AiEffort>()) _effort.Items.Add(EffortLabel(effort));
+        foreach (AiEffort effort in Enum.GetValues<AiEffort>()) _effort.Items.Add(AiSettingsForm.EffortLabel(effort));
         ShowEffort();
         _effort.SelectedIndexChanged += (_, _) =>
         {
@@ -756,10 +756,6 @@ public sealed class ScriptAiForm : Form
     /// <summary>And the same words behind an emptied box, which is the one time they are
     /// needed again — said as an example there, because that is all a placeholder can be.</summary>
     private string Hint => "e.g. " + Example;
-
-    /// <summary>The effort scale in the settings box's words, so the two windows agree.</summary>
-    private static string EffortLabel(AiEffort effort)
-        => effort == AiEffort.Default ? "Provider default" : effort.ToString();
 
     /// <summary>Show the effort the current connection carries, without writing it back.</summary>
     private void ShowEffort()

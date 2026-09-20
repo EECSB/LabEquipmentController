@@ -112,6 +112,51 @@ public class AiScriptWriterTests : IAsyncLifetime
         Assert.Contains("Declare it as: DEVICE right : SDM3065X", _provider.Sent);
     }
 
+    /// <summary>
+    /// And when it is not being revised. SequenceForm reads the names from its editor whatever
+    /// "Revise the current script" says; here they were kept only when it was ticked, so asking for
+    /// a new script beside a working one renamed every device in it. The script itself still does
+    /// not go to the model.
+    /// </summary>
+    [Fact]
+    public async Task The_names_in_the_editor_are_kept_when_it_is_not_being_revised()
+    {
+        string a = await Connect("192.168.1.7", MeterA);
+        string b = await Connect("192.168.1.8", MeterB);
+
+        await _ai.WriteScriptAsync(new AiScriptRequest(
+            "read both, fresh", [a, b], IsSequence: true, CurrentScript: null, RecentOutput: null,
+            EditorScript: "DEVICE left : SDM36HCD801208\nDEVICE right : SDM3065X\nleft: MEASure:VOLTage:DC?"), default);
+
+        Assert.Contains("Declare it as: DEVICE left : SDM36HCD801208", _provider.Sent);
+        Assert.Contains("Declare it as: DEVICE right : SDM3065X", _provider.Sent);
+        Assert.DoesNotContain("left: MEASure:VOLTage:DC?", _provider.Sent);
+    }
+
+    /// <summary>
+    /// The binding table's picks reach the writer, so the part it is told a meter plays is the part
+    /// the table shows. Two meters asked for by model bind neither by the rule, and the rule on its
+    /// own would have named them the other way round.
+    /// </summary>
+    [Fact]
+    public async Task The_parts_picked_in_the_table_are_what_the_writer_is_told()
+    {
+        string a = await Connect("192.168.1.7", MeterA);
+        string b = await Connect("192.168.1.8", MeterB);
+        const string script = "DEVICE left : SDM3065X\nDEVICE right : SDM3065X";
+
+        await _ai.WriteScriptAsync(new AiScriptRequest(
+            "read both", [a, b], IsSequence: true, CurrentScript: null, RecentOutput: null,
+            EditorScript: script, Picks: new Dictionary<string, string> { ["left"] = b, ["right"] = a }), default);
+
+        Assert.Contains("Declare it as: DEVICE left : SDM36HCD801208", _provider.Sent);
+        Assert.Contains("Declare it as: DEVICE right : SDM36HCD801207", _provider.Sent);
+
+        // And what the table shows for the same picks is the same answer.
+        var rows = _bench.BindSequence(script, new Dictionary<string, string> { ["left"] = b, ["right"] = a });
+        Assert.Equal([b, a], rows.Select(r => r.SessionId));
+    }
+
     /// <summary>One instrument, so no alias — its lines carry no prefix — and no DEVICE line.</summary>
     [Fact]
     public async Task A_single_instrument_script_is_told_its_model_and_given_no_alias()

@@ -424,6 +424,12 @@ else if (!_status.Configured)
     /// <summary>What is in the editor, for "Revise the current script".</summary>
     [Parameter] public string? CurrentScript { get; set; }
 
+    /// <summary>
+    /// The multi-instrument editor's binding table, as picked by hand: alias to session id. The
+    /// writer is told what the table shows rather than what the rule would say without it.
+    /// </summary>
+    [Parameter] public IReadOnlyDictionary<string, string>? Picks { get; set; }
+
     /// <summary>What the last run printed, for "Include the last run's output".</summary>
     [Parameter] public string? RecentOutput { get; set; }
 
@@ -555,12 +561,15 @@ else if (!_status.Configured)
         {
             // The conversation goes with it. Sent from here rather than remembered on the
             // server: two script editors open at once are two conversations, and the server
-            // has no notion of a window to keep them apart with.
+            // has no notion of a window to keep them apart with. The editor's script goes up
+            // for its names whether or not it is to be revised, and the table's picks with it.
             var reply = await Bench.AiScriptAsync(new AiScriptRequest(
                 asked, _chosen.ToList(), IsSequence,
                 _revise ? CurrentScript : null,
                 _includeOutput ? RecentOutput : null,
-                _turns.ToList()));
+                _turns.ToList(),
+                EditorScript: IsSequence ? CurrentScript : null,
+                Picks: IsSequence ? Picks : null));
 
             if (reply.Error is not null) { _scriptError = reply.Error; _scriptStatus = "Failed."; return; }
 

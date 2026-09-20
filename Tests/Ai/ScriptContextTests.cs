@@ -20,8 +20,13 @@ public class ScriptContextTests
     private static readonly Box Scope = new("192.168.1.20", "RIGOL TECHNOLOGIES,DS2202A,DS2A000000,00.03");
 
     private static IReadOnlyList<ScriptContextInstrument> Describe(
-        IReadOnlyList<Box> bench, string? script = null, IReadOnlyCollection<Box>? only = null)
-        => ScriptContext.ForSequence(bench, b => b.Idn, b => b.Host, script, only);
+        IReadOnlyList<Box> bench, string? script = null, IReadOnlyCollection<Box>? only = null,
+        IReadOnlyDictionary<string, Box>? picked = null)
+        => ScriptContext.ForSequence(bench, b => b.Idn, b => b.Host, script, only, picked);
+
+    /// <summary>Picks as the web's table makes them: by alias, whatever its case.</summary>
+    private static Dictionary<string, Box> Picks(params (string Alias, Box Box)[] picks)
+        => picks.ToDictionary(p => p.Alias, p => p.Box, StringComparer.OrdinalIgnoreCase);
 
     /// <summary>
     /// The property all of this is for: declare every instrument the way the writer is told to,
@@ -122,6 +127,34 @@ public class ScriptContextTests
         Assert.Equal(["left", "right"], described.Select(i => i.Alias));
         Assert.Equal(["SDM36HCD801207", "SDM36HCD801208"], described.Select(i => i.Model));
         BindsAsWritten([MeterA, MeterB], described);
+    }
+
+    /// <summary>
+    /// Two meters asked for by model, and the table told which is which. The writer is told what
+    /// the table shows: each name on the meter picked for it, where the rule on its own would have
+    /// handed them out the other way round. Declared by serial number, because the model binds
+    /// neither, so the draft binds as it is written with nothing picked at all.
+    /// </summary>
+    [Fact]
+    public void A_part_picked_by_hand_is_described_as_the_instrument_picked()
+    {
+        var described = Describe([MeterA, MeterB], "DEVICE left : SDM3065X\nDEVICE right : SDM3065X",
+                                 picked: Picks(("LEFT", MeterB), ("right", MeterA)));
+
+        var byIdentity = described.ToDictionary(i => i.Identity);
+        Assert.Equal(("left", "SDM36HCD801208"), (byIdentity[MeterB.Idn].Alias, byIdentity[MeterB.Idn].Model));
+        Assert.Equal(("right", "SDM36HCD801207"), (byIdentity[MeterA.Idn].Alias, byIdentity[MeterA.Idn].Model));
+        BindsAsWritten([MeterA, MeterB], described);
+    }
+
+    /// <summary>A pick of what the line binds anyway changes nothing, and the line is kept as written.</summary>
+    [Fact]
+    public void A_picked_line_that_binds_by_itself_keeps_its_text()
+    {
+        var described = Describe([Gen, MeterA], "DEVICE meter : SDM3065X", picked: Picks(("meter", MeterA)));
+
+        var meter = described.Single(i => i.Identity == MeterA.Idn);
+        Assert.Equal(("meter", "SDM3065X"), (meter.Alias, meter.Model));
     }
 
     /// <summary>A name the script already uses is not handed out again to another instrument.</summary>
