@@ -13,10 +13,17 @@ namespace LabEquipmentController.Tests;
 /// </summary>
 public class Vxi11ClientTests
 {
+    // Connect generously, then tighten. The budget a test passes is for the query it is about to
+    // make too slow, and setting it before the link is opened spends it on the VXI-11 handshake as
+    // well: a loaded machine then fails at setup, for a reason the test is not about. The macOS
+    // runner did exactly that on 2026-09-21 — "127.0.0.1 did not answer create_link within 150 ms"
+    // — and passed on a re-run with nothing changed, which is the shape of a test that measures
+    // the machine it runs on rather than the thing it names.
     private static async Task<Vxi11Client> ConnectedTo(FakeVxi11Instrument inst, int timeoutMs = 3000)
     {
-        var client = new Vxi11Client("127.0.0.1") { TimeoutMs = timeoutMs };
+        var client = new Vxi11Client("127.0.0.1") { TimeoutMs = 3000 };
         await client.OpenCoreAsync(inst.Port, CancellationToken.None);
+        client.TimeoutMs = timeoutMs;
         return client;
     }
 
