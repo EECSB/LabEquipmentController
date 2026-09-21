@@ -74,7 +74,13 @@ public class Vxi11ClientTests
     [Fact]
     public async Task The_link_recovers_even_if_the_late_reply_arrives_mid_call()
     {
-        using var inst = new FakeVxi11Instrument { SlowCommand = ":SLOW?", SlowMs = 400 };
+        // 150 against 1500 is a margin, not a measurement. The answer has to be later than the
+        // client's patience, and nothing here depends on how much later: while the instrument is
+        // still asleep the client gives up, asks *IDN?, and the stale answer lands ahead of the
+        // fresh one either way. It was 400, and on a loaded Windows runner the 150 ms deadline
+        // fired late enough that the answer arrived first and no timeout was thrown at all
+        // (2026-09-21) -- a test that reports on the runner's thread pool rather than on the link.
+        using var inst = new FakeVxi11Instrument { SlowCommand = ":SLOW?", SlowMs = 1500 };
         using Vxi11Client client = await ConnectedTo(inst, timeoutMs: 150);
 
         await Assert.ThrowsAsync<TimeoutException>(() => client.QueryAsync(":SLOW?"));
