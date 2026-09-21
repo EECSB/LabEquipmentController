@@ -335,10 +335,15 @@ api.MapGet("/runs/{runId}", (string runId, RunService runs)
 api.MapPost("/sequence/requirements", (SequenceRunRequest req, BenchService bench)
     => bench.BindSequence(req.Script, req.Bindings));
 
-// What a script takes from outside, read without running it. The page parses the same lines in
-// the browser to draw its boxes; this is for a host that keeps the script as a released
-// procedure and has to store what it takes along with it.
-api.MapPost("/sequence/inputs", (SequenceRunRequest req) => SequenceRunner.Inputs(req.Script));
+// Everything a script declares, read without running it: the instruments it names, the values it
+// takes and the columns it records. The page parses the same lines in the browser to draw its own
+// boxes; this is for a host that keeps the script as a released procedure and has to store what it
+// takes and what it records along with it. One call rather than three, because a host asking three
+// questions about one script is three round trips to learn one thing.
+api.MapPost("/sequence/declares", (SequenceRunRequest req) => new SequenceDeclarationDto(
+    SequenceRunner.Requirements(req.Script).Select(r => r.Model).Distinct(StringComparer.OrdinalIgnoreCase).ToList(),
+    SequenceRunner.Inputs(req.Script),
+    SequenceRunner.Columns(req.Script)));
 
 // The script language explained. Two languages, so a flag: the multi-instrument one by
 // default, which is what the desktop app's Help ▸ Script Language… opens.

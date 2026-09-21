@@ -259,6 +259,20 @@ public sealed record SequenceRunRequest(
     double? TimeoutSeconds = null);
 
 /// <summary>
+/// Everything a script says about itself, read without running it: the instrument models its DEVICE
+/// lines name, the values its INPUT lines take, and the columns its COLUMNS line records.
+/// </summary>
+/// <remarks>
+/// For a host that keeps a script as a released procedure. It has to store what the script takes and
+/// what it records beside the script itself, and the parser that answers this is the one the run will
+/// use — which is the whole reason it asks rather than reading the lines itself.
+/// </remarks>
+public sealed record SequenceDeclarationDto(
+    IReadOnlyList<string> Models,
+    IReadOnlyList<SequenceInput> Inputs,
+    IReadOnlyList<string> Columns);
+
+/// <summary>
 /// One DEVICE line of a script, and what it is bound to on the bench right now — a row of the
 /// table over the editor, worked out on the server by the rule the desktop's strip uses.
 /// </summary>

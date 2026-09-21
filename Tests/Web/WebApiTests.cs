@@ -174,6 +174,40 @@ public class WebApiTests : IClassFixture<WebFactory>
         Assert.NotNull(reply!.Error);
     }
 
+    /// <summary>
+    /// One call for everything a script says about itself, which is what a host keeping it as a
+    /// released procedure has to store beside it.
+    /// </summary>
+    [Fact]
+    public async Task A_script_says_what_it_needs_takes_and_records_without_running()
+    {
+        var client = _factory.CreateClient();
+        const string script = """
+            INPUT vset : number V = 5 (0 TO 30)
+            INPUT serial : text
+            DEVICE gen : SDG2042X
+            DEVICE scope : DS2202
+            COLUMNS Frequency, Vout
+            """;
+
+        var response = await client.PostAsJsonAsync("/api/sequence/declares",
+            new SequenceRunRequest(script, new Dictionary<string, string>()));
+        var declared = await response.Content.ReadFromJsonAsync<SequenceDeclarationDto>();
+
+        Assert.NotNull(declared);
+        Assert.Equal(["SDG2042X", "DS2202"], declared!.Models);
+        Assert.Equal(["Frequency", "Vout"], declared.Columns);
+        Assert.Equal(["vset", "serial"], declared.Inputs.Select(i => i.Name));
+
+        var vset = declared.Inputs[0];
+        Assert.Equal("number", vset.Kind);
+        Assert.Equal("V", vset.Unit);
+        Assert.Equal("5", vset.Default);
+        Assert.Equal(30, vset.Max);
+        Assert.False(vset.Required);
+        Assert.True(declared.Inputs[1].Required);
+    }
+
     [Fact]
     public async Task A_sequence_reports_the_instruments_it_needs()
     {

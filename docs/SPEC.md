@@ -444,8 +444,10 @@ Rules:
   one with a default may be left alone. The values are given per run — the desktop asks for
   them in a box as the run starts, the web puts them in the strip over the editor beside the
   instruments, `lec seq --input <name>=<value>` takes them one at a time, and a host sends them
-  with the run. `POST /api/sequence/inputs` reads a script's declarations without running it,
-  which is how a host stores what a saved script takes along with it.
+  with the run. `POST /api/sequence/declares` reads a script's instruments, inputs and columns
+  without running it — one call, because a host asking three questions about one script is three
+  round trips to learn one thing — which is how a host stores what a saved script takes and
+  records along with it.
 - **Every value is bound and checked before the first command is sent**, ahead of the `DEVICE`
   lines, because a value that is not what it was declared to be needs no bench to discover: a
   number that is not a number, a whole number with a fraction, one outside its range, a missing
