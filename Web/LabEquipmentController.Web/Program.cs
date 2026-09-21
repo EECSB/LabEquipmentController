@@ -48,6 +48,16 @@ if (app.Environment.IsDevelopment()) app.UseWebAssemblyDebugging();
 // one caller with exactly one token, and a scheme would be an identity system for a bench.
 var service = app.Services.GetRequiredService<ServiceMode>();
 if (service.PathBase.Length > 0) app.UsePathBase(service.PathBase);
+
+// Routing runs HERE, and saying so is the whole point of this line. Without an explicit
+// UseRouting, WebApplication inserts one at the very START of the pipeline — before the
+// UsePathBase above — so the endpoint is chosen from the path as it arrived, /base/api/…, which
+// no API route matches and the page-shell fallback does. The bench then answers every authorized
+// API call with its own index.html: the token is still checked correctly, the page still loads,
+// and nothing else works at all. Found on 2026-09-20 by Treeality's Instruments plugin, the first
+// caller to serve this server below a path.
+app.UseRouting();
+
 app.Use(async (context, next) =>
 {
     if (service.Enabled

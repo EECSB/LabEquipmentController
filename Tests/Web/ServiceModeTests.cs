@@ -145,6 +145,39 @@ public class ServiceModeTests
 
         var api = await client.GetAsync("/instruments/bench/api/catalogs");
         Assert.Equal(HttpStatusCode.OK, api.StatusCode);
+
+        // And it is the API that answered. The status code alone cannot tell: the page shell
+        // answers 200 to anything routing did not match, so an API call that fell through to it
+        // looks exactly like a success and arrives as HTML.
+        Assert.Equal("application/json", api.Content.Headers.ContentType?.MediaType);
+    }
+
+    [Fact]
+    public async Task Below_a_path_an_authorized_api_call_reaches_the_api_rather_than_the_page()
+    {
+        // This is the one the release of 2026-09-20 shipped broken, and it is worth saying how it
+        // hid. Without an explicit UseRouting, WebApplication inserts routing at the START of the
+        // pipeline — before UsePathBase — so the endpoint is chosen from the path as it arrived,
+        // /instruments/bench/api/… , which no API route matches and the fallback does. The token
+        // middleware sits after the strip, so it kept working perfectly: 401 without a token, and
+        // with one, the page's own HTML at 200. Treeality's Instruments plugin found it the next
+        // day, the first time anything served this server below a path for real.
+        using var factory = new ServiceFactory(Token, "/instruments/bench");
+        var client = factory.CreateClient();
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", Token);
+
+        var api = await client.GetAsync("/instruments/bench/api/catalogs");
+
+        Assert.Equal(HttpStatusCode.OK, api.StatusCode);
+        Assert.Equal("application/json", api.Content.Headers.ContentType?.MediaType);
+
+        string body = await api.Content.ReadAsStringAsync();
+        Assert.DoesNotContain("<!DOCTYPE html>", body);
+
+        // The hub is below the path too, and refusing it for the right reason — a 401 rather than
+        // a page — is the same question asked of the other half.
+        var hub = await client.GetAsync("/instruments/bench/hub/bench");
+        Assert.NotEqual("text/html", hub.Content.Headers.ContentType?.MediaType);
     }
 
     // ------------------------------------------------------------ the bench
