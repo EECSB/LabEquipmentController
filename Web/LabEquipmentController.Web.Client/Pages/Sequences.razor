@@ -13,7 +13,7 @@
    the editor's own status line, in Snippets, and in the Script Language Reference. *@
 
 <ScriptEditor IsSequence="true" Script="@_script" ScriptChanged="Typed" Examples="_examples"
-              Running="_running" CanRun="@AllBound"
+              Running="_running" CanRun="@(AllBound && InputsGiven)"
               OnRun="Run" OnStop="Stop"
               Status="@_status" StatusChanged="s => _status = s"
               RecentOutput="@OutputText" Picks="_picks" OnScriptReplaced="Resolve">
@@ -58,6 +58,38 @@
                     }
                 </tbody>
             </table>
+        }
+
+        @* The values the script takes, beside the instruments it takes. Both are things the run
+           needs and neither is in the script's text, so both belong in the same strip -- and a
+           box that is empty and required greys out Run for the same reason an unbound alias
+           does. Parsed here rather than asked of the server: an INPUT line needs no bench to
+           read, and it is the same Core parser the server would run. *@
+        @if (_inputs.Count > 0)
+        {
+            <table class="bindings">
+                <thead><tr><th>Input</th><th>Value</th><th>What it takes</th></tr></thead>
+                <tbody>
+                    @foreach (var input in _inputs)
+                    {
+                        <tr class="@(Filled(input) ? null : "unbound")">
+                            <td class="mono">@input.Name</td>
+                            <td>
+                                <input class="value" value="@Typed(input)"
+                                       placeholder="@(input.Default ?? "required")"
+                                       @onchange="e => SetInput(input.Name, e.Value?.ToString())"
+                                       title="@($"The value {input.Name} has for this run. $" + input.Name + " below stands for it.")" />
+                            </td>
+                            <td class="muted">@Takes(input)</td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+
+            @if (InputProblem is { } problem)
+            {
+                <p class="devices muted">@problem</p>
+            }
         }
     </Strip>
 </ScriptEditor>
@@ -184,7 +216,7 @@
     /// words for the first of its three states. The other two are the table's now: an alias
     /// with a connection against it, and one with nothing playing the part.
     /// </summary>
-    private const string DeviceLine = "No instruments declared \u2014 start with  DEVICE gen : SDG2042X";
+    private const string DeviceLine = "No instruments declared — start with  DEVICE gen : SDG2042X";
 
     /// <summary>
     /// Whether every DEVICE line has an instrument behind it.
@@ -194,6 +226,61 @@
     /// will refuse is refused by name, which says more than a greyed-out button.
     /// </summary>
     private bool AllBound => _requirements.All(r => r.SessionId is not null);
+
+    /// <summary>The INPUT lines of the script as it stands, in the order they are written.</summary>
+    private IReadOnlyList<SequenceInput> _inputs = [];
+
+    /// <summary>
+    /// What has been typed for each, by name. Deliberately not kept between visits: a default
+    /// lives in the script and comes back with it, and a voltage typed last week silently
+    /// reused is the wrong kind of convenience.
+    /// </summary>
+    private readonly Dictionary<string, string> _values = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>Whether every input has a value its own declaration accepts.</summary>
+    private bool InputsGiven
+        => SequenceRunner.TryBindInputs(_script, _values, out _, out _);
+
+    /// <summary>What is wrong with the values, as a sentence, or null while they are fine.</summary>
+    private string? InputProblem
+    {
+        get
+        {
+            SequenceRunner.TryBindInputs(_script, _values, out _, out string? why);
+            return why;
+        }
+    }
+
+    /// <summary>What has been typed into one box, or the empty string.</summary>
+    private string Typed(SequenceInput input)
+        => _values.TryGetValue(input.Name, out string? v) ? v : "";
+
+    /// <summary>True when this input has a value: one typed, or the default it declared.</summary>
+    private bool Filled(SequenceInput input)
+        => Typed(input).Trim().Length > 0 || !input.Required;
+
+    /// <summary>The declaration in a few words, for the column beside the box.</summary>
+    private static string Takes(SequenceInput input)
+    {
+        var said = new List<string> { input.Kind };
+
+        if (input.Unit.Length > 0) said.Add(input.Unit);
+
+        if (input.Min is { } low && input.Max is { } high) said.Add($"{low:0.##########} to {high:0.##########}");
+        else if (input.Min is { } only) said.Add($"{only:0.##########} or more");
+        else if (input.Max is { } most) said.Add($"up to {most:0.##########}");
+
+        if (input.Required) said.Add("required");
+
+        return string.Join(", ", said);
+    }
+
+    /// <summary>A value typed into one box. An emptied box goes back to the declared default.</summary>
+    private void SetInput(string name, string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value)) _values.Remove(name);
+        else _values[name] = value;
+    }
 
     /// <summary>
     /// A choice made in the table, and the table asked again with it.
@@ -310,6 +397,15 @@
         // by: a model binds only when one instrument answers to it that no other alias has. So
         // the common case of three from three still fills itself, and two of a kind are asked.
         _requirements = await Bench.RequirementsAsync(_script, _picks);
+
+        // And what the script takes from outside. A value typed for an input the script no
+        // longer declares is dropped here rather than sent: the server refuses a value nobody
+        // declared, and an edit that removes an INPUT line would otherwise make Run stop
+        // working with nothing on screen to say why.
+        _inputs = SequenceRunner.Inputs(_script);
+        foreach (string name in _values.Keys.ToList())
+            if (!_inputs.Any(i => i.Name.Equals(name, StringComparison.OrdinalIgnoreCase)))
+                _values.Remove(name);
     }
 
     /// <summary>
@@ -343,6 +439,15 @@
                 return;
             }
 
+            // Checked here as well as by the button, for the same reason the bindings are: F5
+            // comes straight to Run, and a value is as able to stop a script half way as an
+            // unbound alias is.
+            if (!SequenceRunner.TryBindInputs(_script, _values, out _, out string? badInput))
+            {
+                _status = "Not run — " + badInput;
+                return;
+            }
+
             _output.Clear();
             _rows.Clear();
 
@@ -353,7 +458,7 @@
             var bindings = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
             foreach (var r in bound)
                 if (r.SessionId is { } id) bindings.TryAdd(r.Alias, id);
-            var summary = await Bench.RunSequenceAsync(_script, bindings);
+            var summary = await Bench.RunSequenceAsync(_script, bindings, _values);
             if (summary.Failed) { _status = "Script failed: " + summary.Error; return; }
 
             _runId = summary.RunId;

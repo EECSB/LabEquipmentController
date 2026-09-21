@@ -172,6 +172,73 @@ public class WebSequenceRunTests
     /// The server's bench and run services, over a hub that keeps what it would have told the
     /// page watching the run.
     /// </summary>
+    /// <summary>
+    /// The values a script takes, over the API: what the page sends with a run, and what a host
+    /// driving this server sends instead.
+    /// </summary>
+    [Fact]
+    public async Task A_value_sent_with_a_run_reaches_the_instrument_it_is_written_into()
+    {
+        await using var server = new Server();
+        var gen = Instrument(Generator);
+
+        var bindings = new Dictionary<string, string> { ["gen"] = await server.ConnectAsync("192.168.1.5", gen) };
+        int before = gen.Log.Count;
+
+        var (failed, error) = await server.RunAsync("""
+            INPUT f : number Hz = 1000
+            DEVICE gen : SDG2042X
+            gen: C1:BSWV FRQ,$f
+            """, bindings, new Dictionary<string, string> { ["f"] = "20k" });
+
+        Assert.False(failed, error);
+        Assert.Equal(["SEND:C1:BSWV FRQ,20000"], gen.Log.Skip(before));
+    }
+
+    [Fact]
+    public async Task A_run_with_no_values_uses_what_the_script_declared()
+    {
+        await using var server = new Server();
+        var gen = Instrument(Generator);
+
+        var bindings = new Dictionary<string, string> { ["gen"] = await server.ConnectAsync("192.168.1.5", gen) };
+        int before = gen.Log.Count;
+
+        var (failed, error) = await server.RunAsync("""
+            INPUT f : number Hz = 1000
+            DEVICE gen : SDG2042X
+            gen: C1:BSWV FRQ,$f
+            """, bindings);
+
+        Assert.False(failed, error);
+        Assert.Equal(["SEND:C1:BSWV FRQ,1000"], gen.Log.Skip(before));
+    }
+
+    /// <summary>
+    /// Refused before the instrument is even looked up, so nothing is held and nothing is sent.
+    /// A host that got a value wrong should find the bench exactly as it left it.
+    /// </summary>
+    [Fact]
+    public async Task A_value_its_declaration_refuses_is_refused_without_taking_an_instrument()
+    {
+        await using var server = new Server();
+        var gen = Instrument(Generator);
+
+        var bindings = new Dictionary<string, string> { ["gen"] = await server.ConnectAsync("192.168.1.5", gen) };
+        int before = gen.Log.Count;
+
+        RunSummary summary = server.Start("""
+            INPUT f : number Hz (100 TO 1000)
+            DEVICE gen : SDG2042X
+            gen: C1:BSWV FRQ,$f
+            """, bindings, new Dictionary<string, string> { ["f"] = "20k" });
+
+        Assert.True(summary.Failed);
+        Assert.Contains("is above 1000", summary.Error);
+        Assert.Empty(gen.Log.Skip(before));
+        Assert.Empty(server.Start("INPUT f : number\nDEVICE gen : SDG2042X", bindings).RunId);
+    }
+
     private sealed class Server : IAsyncDisposable
     {
         public readonly Watcher Page = new();
@@ -198,10 +265,16 @@ public class WebSequenceRunTests
         public IReadOnlyList<SequenceRequirement> Bind(string script, Dictionary<string, string>? picks = null)
             => _bench.BindSequence(script, picks ?? new());
 
+        /// <summary>Ask for a run without watching it: for the refusals, which never start.</summary>
+        public RunSummary Start(string script, Dictionary<string, string> bindings,
+                                Dictionary<string, string>? inputs = null)
+            => _runs.StartSequence(new SequenceRunRequest(script, bindings, inputs));
+
         /// <summary>Start a sequence, watch it the way the page does, and wait for it to end.</summary>
-        public async Task<(bool Failed, string? Error)> RunAsync(string script, Dictionary<string, string> bindings)
+        public async Task<(bool Failed, string? Error)> RunAsync(string script, Dictionary<string, string> bindings,
+                                                                 Dictionary<string, string>? inputs = null)
         {
-            var summary = _runs.StartSequence(new SequenceRunRequest(script, bindings));
+            var summary = Start(script, bindings, inputs);
             Assert.False(summary.Failed, summary.Error);
 
             // What BenchHub.Watch does once the page has joined the run's group. Without it the

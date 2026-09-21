@@ -41,8 +41,8 @@ public static class CommandLine
     /// <summary>Options that take a value; everything else is a flag.</summary>
     private static readonly HashSet<string> ValueOptions = new(StringComparer.OrdinalIgnoreCase)
     {
-        "range", "ports", "timeout", "limit", "family", "device", "out", "port", "interface",
-        "every", "count", "channel",
+        "range", "ports", "timeout", "limit", "family", "device", "input", "out", "port",
+        "interface", "every", "count", "channel", "max-time",
     };
 
     public static ParsedCommand Parse(IReadOnlyList<string> args)
@@ -51,10 +51,14 @@ public static class CommandLine
 
         var operands = new List<string>();
         var options = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-        // --device is the one option that may be repeated (one per instrument in a
-        // sequence), so its values are collected into a single semicolon-joined string
-        // rather than the last one silently winning.
-        var repeated = new List<string>();
+        // --device and --input may each be repeated -- one per instrument, one per value a
+        // sequence takes -- so their values are collected into a single semicolon-joined
+        // string rather than the last one silently winning.
+        var repeated = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["device"] = new(),
+            ["input"] = new(),
+        };
         string verb = "";
 
         for (int i = 0; i < args.Count; i++)
@@ -86,7 +90,7 @@ public static class CommandLine
                             return new ParsedCommand { Error = $"--{name} needs a value." };
                         value = args[++i];
                     }
-                    if (name.Equals("device", StringComparison.OrdinalIgnoreCase)) repeated.Add(value);
+                    if (repeated.TryGetValue(name, out var many)) many.Add(value);
                     else options[name] = value;
                 }
                 else
@@ -102,7 +106,8 @@ public static class CommandLine
             else operands.Add(a);
         }
 
-        if (repeated.Count > 0) options["device"] = string.Join(";", repeated);
+        foreach (var (name, many) in repeated)
+            if (many.Count > 0) options[name] = string.Join(";", many);
         if (verb.Length == 0) return new ParsedCommand { Verb = "help" };
 
         return new ParsedCommand { Verb = verb.ToLowerInvariant(), Operands = operands, Options = options };
@@ -147,7 +152,10 @@ public static class CommandLine
           --interface <ip>   Which local interface's subnet to scan.
           --ports <list>     Ports to probe, comma-separated. Default: 5025,111,5555.
           --timeout <ms>     Per-operation timeout. Default: 5000 (2000 while scanning).
+          --max-time <span>  A deadline for a whole sequence: 90s, 5m, 1h. The script's own
+                             TIMEOUT line applies too, and the shorter one runs.
           --device <a=addr>  Bind a sequence alias to an address. Repeat per instrument.
+          --input <n=value>  A value for a sequence's INPUT line. Repeat per value.
           --every <interval> How often to poll while watching: 500ms, 2s, 1m. Default: 1s.
           --count <n>        Stop watching after n readings. Default: until Ctrl+C.
           --channel <n>      Which scope channel to capture. Default: 1.
@@ -167,6 +175,7 @@ public static class CommandLine
           lec run 192.168.1.20 sweep.scpi --out readings.csv
           lec run 192.168.1.20 sweep.scpi --stream | tee live.csv
           lec seq filter.seq --device gen=192.168.1.21 --device scope=192.168.1.20
+          lec seq board.seq --device psu=192.168.1.24 --input vset=12 --input serial=A7
           lec watch 192.168.1.22 "MEASure:VOLTage:DC?" --every 500ms --out log.csv
           lec screenshot 192.168.1.20 --out screen.png
           lec capture 192.168.1.20 --channel 1 --svg --out trace.svg

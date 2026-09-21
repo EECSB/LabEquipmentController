@@ -97,6 +97,13 @@ public sealed class RunService
 
     public RunSummary StartSequence(SequenceRunRequest req)
     {
+        // Before an instrument is looked at, let alone held: a value that is not what its own
+        // INPUT line declared is the caller's mistake, and nothing on the bench has to be
+        // touched to say so. The runner checks it again, so a caller that reaches past this
+        // does not reach past the check.
+        if (!SequenceRunner.TryBindInputs(req.Script, req.Inputs, out _, out string? inputError))
+            return new RunSummary("", [], true, inputError);
+
         var required = SequenceRunner.Requirements(req.Script);
         var clients = new Dictionary<string, IInstrumentClient>(StringComparer.OrdinalIgnoreCase);
         foreach (var (alias, sessionId) in req.Bindings)
@@ -125,7 +132,8 @@ public sealed class RunService
         Launch(runId, "sequence", columns, async (output, record, ct) =>
             await SequenceRunner.RunAsync(req.Script,
                 (alias, _) => clients.TryGetValue(alias, out var c) ? c : null,
-                output, record, ct),
+                output, record, ct, req.Inputs,
+                req.TimeoutSeconds is > 0 ? TimeSpan.FromSeconds(req.TimeoutSeconds.Value) : null),
             [.. req.Bindings.Values]);
         return new RunSummary(runId, columns, false, null);
     }

@@ -63,6 +63,66 @@ public class CliSequenceTests
     }
 
     /// <summary>
+    /// A value given with <c>--input</c> reaches the command it stands in, and the flag may be
+    /// repeated the way <c>--device</c> is.
+    /// </summary>
+    [Fact]
+    public async Task Values_given_with_input_reach_the_instrument()
+    {
+        using var bench = new Bench();
+        var psu = bench.At("1.1.1.1");
+
+        int code = await bench.RunAsync("""
+            INPUT vset : number V = 5 (0 TO 30)
+            INPUT serial : text
+            DEVICE psu : SPD3303X
+            PRINT Testing $serial
+            psu: CH1:VOLTage $vset
+            """, "--device", "psu=1.1.1.1", "--input", "vset=12", "--input", "serial=A7");
+
+        Assert.True(code == Commands.Ok, bench.Stderr.ToString());
+        Assert.Equal(["SEND:CH1:VOLTage 12"], psu.Log);
+        Assert.Contains("Testing A7", bench.Stderr.ToString());
+    }
+
+    /// <summary>
+    /// And a value the script would refuse stops it before a socket is opened. The fake bench
+    /// would answer, so the instrument having heard nothing is the whole assertion: on a real
+    /// bench this is a connection not made and an instrument not touched.
+    /// </summary>
+    [Fact]
+    public async Task A_value_outside_its_range_stops_the_run_before_anything_is_connected()
+    {
+        using var bench = new Bench();
+        var psu = bench.At("1.1.1.1");
+
+        int code = await bench.RunAsync("""
+            INPUT vset : number V = 5 (0 TO 30)
+            DEVICE psu : SPD3303X
+            psu: CH1:VOLTage $vset
+            """, "--device", "psu=1.1.1.1", "--input", "vset=99");
+
+        Assert.Equal(Commands.Misused, code);
+        Assert.Contains("is above 30", bench.Stderr.ToString());
+        Assert.Empty(psu.Log);
+    }
+
+    [Fact]
+    public async Task An_input_with_no_default_and_no_value_is_refused_by_name()
+    {
+        using var bench = new Bench();
+        bench.At("1.1.1.1");
+
+        int code = await bench.RunAsync("""
+            INPUT serial : text
+            DEVICE psu : SPD3303X
+            """, "--device", "psu=1.1.1.1");
+
+        Assert.Equal(Commands.Misused, code);
+        Assert.Contains("No value for \"serial\"", bench.Stderr.ToString());
+    }
+
+    /// <summary>
     /// <c>lec seq</c> over a script file, with every <c>--device</c> address answered by the fake
     /// instrument registered at it rather than by a socket.
     /// </summary>

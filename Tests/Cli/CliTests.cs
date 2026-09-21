@@ -66,6 +66,9 @@ public class CliTests
     [Fact]
     public void Device_bindings_accumulate_rather_than_overwrite()
     {
+        var d = CommandLine.Parse(["seq", "f.seq", "--input", "vset=12", "--input", "serial=A7"]);
+        Assert.Equal("vset=12;serial=A7", d.Value("input"));
+
         var c = CommandLine.Parse(["seq", "f.seq", "--device", "gen=1.1.1.1", "--device", "dmm=1.1.1.2"]);
         Assert.Equal("gen=1.1.1.1;dmm=1.1.1.2", c.Value("device"));
     }

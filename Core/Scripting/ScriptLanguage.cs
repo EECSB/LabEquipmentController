@@ -107,8 +107,8 @@ public sealed class ScriptLanguage
         { "DELAY", "WAIT", "PRINT", "ECHO", "LOG", "REPEAT", "END" };
 
     private static readonly string[] SequenceKeywords =
-        { "DEVICE", "WITH", "FOR", "RECORD", "COLUMNS",
-          "DELAY", "WAIT", "PRINT", "ECHO", "LOG", "REPEAT", "END" };
+        { "INPUT", "TIMEOUT", "DEVICE", "WITH", "FOR", "RECORD", "COLUMNS",
+          "DELAY", "WAIT", "PRINT", "ECHO", "LOG", "REPEAT", "FINALLY", "ALWAYS", "END" };
 
     private static readonly string[] SequenceInner = { "TO", "STEP", "POINTS", "LOG" };
 
@@ -132,6 +132,13 @@ public sealed class ScriptLanguage
     {
         new("device", "DEVICE", "Name an instrument. Must come before the alias is used.",
             "DEVICE «alias» : «MODEL»\n"),
+        new("input", "INPUT", "Take a value from outside the script, and use it as $name.",
+            "INPUT «name» : number «unit» = «default»\n"),
+        new("timeout", "TIMEOUT", "Give the whole run a deadline. 90s, 5m, 1h.",
+            "TIMEOUT «5m»\n"),
+        new("finally", "FINALLY … END",
+            "Lines that run at the end however it ended — where the outputs go off.",
+            "FINALLY\n    «alias»: «output off»\nEND\n"),
         new("with", "WITH … END", "Send a whole block to one instrument.",
             "WITH «alias»\n    «command»\nEND\n"),
         new("for", "FOR … STEP … END", "Sweep a value in equal steps.",
@@ -318,10 +325,13 @@ public sealed class ScriptLanguage
     public static IReadOnlyList<string> DeclaredAliases(string script)
         => SequenceRunner.Requirements(script).Select(r => r.Alias).Distinct().ToList();
 
-    /// <summary>Names bound by <c>-&gt; name</c>, plus FOR loop variables.</summary>
+    /// <summary>Names bound by <c>-&gt; name</c>, plus FOR loop variables and INPUT lines.</summary>
     public static IReadOnlyList<string> CapturedNames(string script)
     {
         var names = new List<string>();
+
+        foreach (SequenceInput input in SequenceRunner.Inputs(script))
+            names.Add(input.Name);
 
         foreach (Match m in Regex.Matches(script, @"->\s*(\w+)"))
             names.Add(m.Groups[1].Value);

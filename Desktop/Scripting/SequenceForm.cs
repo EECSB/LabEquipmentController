@@ -53,6 +53,16 @@ public sealed class SequenceForm : Form
     private string? _path;
     private bool _loadingExample;
 
+    /// <summary>
+    /// What was typed into the values box last time, to fill it again.
+    ///
+    /// Kept for the window's lifetime and no longer: a measurement is usually run several
+    /// times over while something is adjusted, and retyping the same serial number each time
+    /// is the sort of friction that gets a value edited into the script instead.
+    /// </summary>
+    private IReadOnlyDictionary<string, string> _inputs =
+        new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+
     public SequenceForm(SessionRegistry sessions)
     {
         _sessions = sessions ?? throw new ArgumentNullException(nameof(sessions));
@@ -560,6 +570,21 @@ public sealed class SequenceForm : Form
             return;
         }
 
+        // The values the script takes, asked for here: after the instruments are known, so a
+        // run that cannot bind is refused without a box appearing, and before anything is sent,
+        // because a value is part of what the run is. A script declaring none asks nothing.
+        if (SequenceRunner.Inputs(_editor.Text).Count > 0)
+        {
+            using var ask = new SequenceInputsForm(_editor.Text, _inputs);
+            if (ask.ShowDialog(this) != DialogResult.OK)
+            {
+                _status.Text = "Not run — no values given.";
+                return;
+            }
+
+            _inputs = ask.Values;
+        }
+
         var used = new List<InstrumentSession>();
         foreach (DeviceBinding<InstrumentSession> b in bound)
             if (b.Instrument is { } s && !used.Contains(s)) used.Add(s);
@@ -585,7 +610,8 @@ public sealed class SequenceForm : Form
                     ?.Instrument?.Client,
                 (text, kind) => OnUi(() => Append(text, kind)),
                 row => OnUi(() => _results.AddRow(row)),
-                _runCts.Token);
+                _runCts.Token,
+                _inputs);
 
             _status.Text = $"Finished in {clock.Elapsed.TotalSeconds:0.0} s — "
                          + $"{_results.RowCount - before} row(s) recorded.";

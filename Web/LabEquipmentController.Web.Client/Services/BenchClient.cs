@@ -230,9 +230,14 @@ public sealed class BenchClient(HttpClient http) : IAsyncDisposable
                ?? new RunSummary("", [], true, "No reply from the server.");
     }
 
-    public async Task<RunSummary> RunSequenceAsync(string script, IReadOnlyDictionary<string, string> bindings)
+    /// <param name="inputs">A value for each INPUT line the script declares, or null for none.</param>
+    public async Task<RunSummary> RunSequenceAsync(
+        string script,
+        IReadOnlyDictionary<string, string> bindings,
+        IReadOnlyDictionary<string, string>? inputs = null)
     {
-        var response = await http.PostAsJsonAsync("api/runs/sequence", new SequenceRunRequest(script, bindings));
+        var response = await http.PostAsJsonAsync("api/runs/sequence",
+            new SequenceRunRequest(script, bindings, inputs));
         return await response.Content.ReadFromJsonAsync<RunSummary>()
                ?? new RunSummary("", [], true, "No reply from the server.");
     }

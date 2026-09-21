@@ -107,6 +107,19 @@ public static class ScriptGuide
               + "DEVICE left : SDM36HCD801207\n"
               + "DEVICE right : SDM3065X\n"),
 
+            new("Values from outside",
+                "INPUT declares a value the script is given when it is run, and $name uses it "
+              + "anywhere below. A kind after the colon says what may be given — number, "
+              + "integer or text — with the unit after it, a default after '=', and a range "
+              + "in brackets. An input with no default has to be given one, and nothing is sent "
+              + "to any instrument until every value has been checked. It is what makes one "
+              + "script two runs rather than two scripts.",
+                "INPUT vset : number V = 5 (0 TO 30)\n"
+              + "INPUT serial : text\n"
+              + "\n"
+              + "PRINT Testing $serial at $vset V\n"
+              + "psu: VOLT $vset\n"),
+
             new("Addressing a line",
                 "A command has to say which instrument it is for — by prefix, or by sitting "
               + "inside a WITH block. A line that does not is an error, not a default: guessing "
@@ -137,6 +150,22 @@ public static class ScriptGuide
               + "scope: :MEASure:VRMS? CHANnel1 -> vout\n"
               + "RECORD $f, $vout\n"),
         };
+
+        sequence.Add(new ScriptGuideSection(
+            "Leaving the bench safe",
+            "FINALLY runs its block at the end of the run, however the run ended — finished, "
+          + "failed, timed out, or stopped by the Stop button. It is where the outputs go off. "
+          + "Without it a generator set to 10 V by a run that died on the next line stays at "
+          + "10 V until somebody walks over to it. ALWAYS is the same word. TIMEOUT gives the "
+          + "whole run a deadline, which is not the same as the one each command already has: "
+          + "an instrument that answers slowly forever, or a DELAY written with three noughts "
+          + "too many, ends the run rather than holding the bench. The unit is required.",
+            "TIMEOUT 5m\n"
+          + "\n"
+          + "FINALLY\n"
+          + "    gen: C1:OUTP OFF\n"
+          + "    psu: OUTPut CH1,OFF\n"
+          + "END\n"));
 
         sequence.AddRange(common);
 

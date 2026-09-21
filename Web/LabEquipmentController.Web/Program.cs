@@ -335,6 +335,11 @@ api.MapGet("/runs/{runId}", (string runId, RunService runs)
 api.MapPost("/sequence/requirements", (SequenceRunRequest req, BenchService bench)
     => bench.BindSequence(req.Script, req.Bindings));
 
+// What a script takes from outside, read without running it. The page parses the same lines in
+// the browser to draw its boxes; this is for a host that keeps the script as a released
+// procedure and has to store what it takes along with it.
+api.MapPost("/sequence/inputs", (SequenceRunRequest req) => SequenceRunner.Inputs(req.Script));
+
 // The script language explained. Two languages, so a flag: the multi-instrument one by
 // default, which is what the desktop app's Help ▸ Script Language… opens.
 api.MapGet("/script-guide", (bool? sequence) =>

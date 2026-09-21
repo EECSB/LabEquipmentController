@@ -242,7 +242,21 @@ public sealed record ScriptRunRequest(string SessionId, string Script);
 /// A multi-instrument script and its bindings, alias to session id. To run it, every alias the
 /// script declares; to ask what it binds to, only what has been picked by hand in the table.
 /// </summary>
-public sealed record SequenceRunRequest(string Script, IReadOnlyDictionary<string, string> Bindings);
+/// <param name="Inputs">
+/// A value for each of the script's INPUT lines, by name. Null or absent leaves every input at
+/// the default its own line declared, and an input that declared none refuses the run rather
+/// than running at nothing.
+/// </param>
+/// <param name="TimeoutSeconds">
+/// A deadline the caller imposes on the whole run. The script's own TIMEOUT line applies as
+/// well, and the shorter of the two is what runs. For a host driving this server: a run nobody
+/// is watching must not be able to hold a bench forever.
+/// </param>
+public sealed record SequenceRunRequest(
+    string Script,
+    IReadOnlyDictionary<string, string> Bindings,
+    IReadOnlyDictionary<string, string>? Inputs = null,
+    double? TimeoutSeconds = null);
 
 /// <summary>
 /// One DEVICE line of a script, and what it is bound to on the bench right now — a row of the

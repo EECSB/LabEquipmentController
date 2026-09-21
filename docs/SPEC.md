@@ -391,10 +391,13 @@ swept filter response sets a frequency on the generator, waits, reads the meter,
 — two instruments alternating inside one loop, which a script belonging to one instrument
 cannot express at all.
 
-It is the §9 language plus five forms:
+It is the §9 language plus eight forms:
 
 | Form | Meaning |
 |---|---|
+| `INPUT <name> : <kind> <unit> = <default> (<from> TO <to>)` | Take a value from outside, used as `$name` |
+| `TIMEOUT <span>` | A deadline for the whole run: `90s`, `5m`, `1h` |
+| `FINALLY` … `END` | Lines that run at the end however it ended. `ALWAYS` is the same word |
 | `DEVICE <alias> : <model>` | Bind a name to a connected instrument |
 | `<alias>: <command>` | Send this line to that instrument |
 | `WITH <alias>` … `END` | Set the target for a block |
@@ -432,6 +435,56 @@ Rules:
   `DEVICE left : SDM3065X` and `DEVICE right : SDM3065X` are two meters.
 - **Every `DEVICE` is resolved before the first command is sent.** A sweep that dies three
   lines in has already changed the instrument's state.
+- **`INPUT` is what makes one script two runs rather than two scripts.** A measurement taken
+  at 5 V and the same measurement at 12 V differ by a number, and editing that number into the
+  text makes a second script that has to be kept in step with the first. Everything after the
+  name is optional: a kind after the colon (`number`, `integer` or `text`, and `text` is what
+  no kind means), a unit after the kind, a default after `=`, and a range in brackets. A range
+  with no kind written makes it a number. An input with **no default must be given a value**;
+  one with a default may be left alone. The values are given per run — the desktop asks for
+  them in a box as the run starts, the web puts them in the strip over the editor beside the
+  instruments, `lec seq --input <name>=<value>` takes them one at a time, and a host sends them
+  with the run. `POST /api/sequence/inputs` reads a script's declarations without running it,
+  which is how a host stores what a saved script takes along with it.
+- **Every value is bound and checked before the first command is sent**, ahead of the `DEVICE`
+  lines, because a value that is not what it was declared to be needs no bench to discover: a
+  number that is not a number, a whole number with a fraction, one outside its range, a missing
+  value for an input with no default, or a value for a name nobody declared. That last one is a
+  typo in whoever sent it — taken silently, `vlot=12` would look like it worked and the whole
+  measurement would run at the default instead.
+- **A value can only ever be a value.** Substitution puts it inside a command line, so a line
+  break in one would end that command and begin another of somebody else's choosing. Control
+  characters are refused in every value, whatever its kind. This is why values are *seeded* into
+  `$name` rather than the script's text being templated before it is sent: text templating would
+  rest entirely on validating every value strictly enough that none could smuggle a line break.
+- **A number is bound as an instrument will read it.** `10k` becomes `10000`, and a machine set
+  to a decimal comma never puts one into a command.
+- **A sweep over a name an `INPUT` declared gives it back when the loop ends,** rather than
+  dropping it: dropped, every later `$name` would be sent as the five letters `$vset`, which is
+  the "value nobody chose" hazard above with the value removed rather than mistyped.
+- **`FINALLY` is where the outputs go off.** Its block runs when the run ends, **however it
+  ended** — finished, failed on a line, cut off by its deadline, or stopped by the Stop
+  button. Without it a generator set to 10 V by a run that died on the next line stays at 10 V
+  until somebody walks over to it, and nothing in the language could say otherwise. `ALWAYS` is
+  the same word. It may be written anywhere and runs last wherever it is written, so the safe
+  state can stand at the top where whoever reads the script sees it first; several blocks run
+  in the order they are written.
+- **The safe state runs on a token of its own**, because the run's has just been cancelled in
+  the case this exists for: the press that means *stop driving my board* must not be the press
+  that stops the outputs being switched off. Bounded at 30 seconds all the same, so Stop still
+  means stopped soon. It addresses **every instrument the script declared**, not only those the
+  run reached, because a run that died before the generator's `DEVICE` line still has to be
+  able to switch that generator off.
+- **`TIMEOUT` gives the whole run a deadline**, which is not the one each exchange already has
+  (§6): an instrument that answers slowly forever, or a `DELAY` written with three noughts
+  too many, would otherwise hold a bench until somebody noticed. A caller may impose its own as
+  well — `lec seq --max-time`, or `timeoutSeconds` on the API, which is what a host driving
+  this server uses — and **the shorter of the two is what runs**. **The unit is required**:
+  `DELAY`'s bare number is milliseconds, so `TIMEOUT 90` meaning a minute and a half to the
+  runner and a tenth of a second to its author is not a difference anybody finds in time.
+- **Timing out is not stopping.** A run cut off by its deadline says so as an error and ends
+  *failed*; one the Stop button ended raises the cancellation its caller is waiting for and is
+  recorded as *stopped*. Both run the `FINALLY` block first.
 - A sweep accepts engineering suffixes (`1k`, `2.5M`). `POINTS n LOG` spaces points per
   decade, which is how a filter response is read — a linear sweep from 100 Hz to 100 kHz
   puts almost every point above 10 kHz and skims the corner.

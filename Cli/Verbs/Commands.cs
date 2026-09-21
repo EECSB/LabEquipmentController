@@ -282,7 +282,7 @@ public static class Commands
     internal static async Task<int> Sequence(ParsedCommand cmd, TextWriter stdout, TextWriter stderr,
                                              Func<Endpoint, int, IInstrumentClient> open, CancellationToken ct)
     {
-        if (cmd.Operands.Count < 1) return Fail(stderr, "Usage: lec seq <script-file> --device <alias>=<address> ...", Misused);
+        if (cmd.Operands.Count < 1) return Fail(stderr, "Usage: lec seq <script-file> --device <alias>=<address> ... [--input <name>=<value> ...]", Misused);
         string path = cmd.Operands[0];
         if (!File.Exists(path)) return Fail(stderr, $"No such script: {path}", Misused);
         if (!cmd.TryInt("timeout", 5000, out int timeout))
@@ -311,6 +311,29 @@ public static class Commands
                 string.Join(", ", missing.Select(m => $"{m.Alias} ({m.Model})")) +
                 ".\nGive each one with --device <alias>=<address>.", Misused);
 
+        // The values the script's INPUT lines take, checked before a single socket is opened:
+        // a run refused because a number is not a number should cost nobody a connection, and
+        // on a bench it should not have taken an instrument to find out.
+        var inputs = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        foreach (string given in (cmd.Value("input") ?? "").Split(';', StringSplitOptions.RemoveEmptyEntries))
+        {
+            int eq = given.IndexOf('=');
+            if (eq <= 0) return Fail(stderr, $"--input wants <name>=<value>, got '{given}'.", Misused);
+            inputs[given[..eq].Trim()] = given[(eq + 1)..];
+        }
+
+        if (!SequenceRunner.TryBindInputs(script, inputs, out _, out string? inputError))
+            return Fail(stderr, inputError + "\nValues are given with --input <name>=<value>.", Misused);
+
+        TimeSpan? limit = null;
+        if (cmd.Value("max-time") is { } span)
+        {
+            if (!SequenceRunner.TryParseSpan(span, out TimeSpan given, out string? why))
+                return Fail(stderr, $"--max-time: {why}", Misused);
+
+            limit = given;
+        }
+
         var clients = new Dictionary<string, IInstrumentClient>(StringComparer.OrdinalIgnoreCase);
         var columns = SequenceRunner.Columns(script);
         var rows = new List<IReadOnlyList<string>>();
@@ -336,7 +359,9 @@ public static class Commands
                     else if (!cmd.Has("quiet")) stderr.Write(line + "\n");
                 },
                 row => { rows.Add(row.Values); stream.Write(row.Values); },
-                ct);
+                ct,
+                inputs,
+                limit);
         }
         catch (Exception ex) { return Fail(stderr, ex.Message, Failed); }
         finally

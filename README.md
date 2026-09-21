@@ -60,7 +60,10 @@ voltage commands, next to page 1 of the 158-page guide those entries were transc
 **One script, several instruments.** `DEVICE` binds an alias to a model, the header shows
 what each resolved to on this bench, and `WITH`/`FOR`/`RECORD` interleave the generator and
 the scope inside one loop — which is the measurement a single-instrument script cannot
-express.
+express. `INPUT` takes the numbers that change between runs — a voltage, a serial number —
+so measuring the next board is a value typed into a box rather than a second copy of the
+script, and `FINALLY` is where the outputs go off however the run ended, including the way
+it ends when somebody presses Stop.
 
 This is the shipped example, run as it comes: it sets the generator to a 2 Vpp sine, sets
 the scope up to look at the band, then walks 20 MHz to 35 MHz in 100 kHz steps, reading
