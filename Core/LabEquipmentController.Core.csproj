@@ -48,7 +48,7 @@
       here can never be reused or deleted, so nothing should publish one without a person
       deciding to.
     -->
-    <Version>1.2.1</Version>
+    <Version>1.3.0</Version>
     <Authors>EECSB</Authors>
     <Company>The EECS Blog</Company>
     <Product>Lab Equipment Controller</Product>
