@@ -40,29 +40,43 @@ namespace LabEquipmentController
         /// <summary>Width the Command column needs for its longest listed entry; 0 until measured.</summary>
         private int _commandWidth;
 
+        /// <summary>The filter row, fitted to its box in OnLoad.</summary>
+        private Panel? _top;
+
         public CommandReferenceForm(CommandReference reference, Action<string> onInsert)
         {
             _reference = reference;
             _onInsert = onInsert;
 
+            // Layout suspended across the whole build, as the designer does it, so the
+            // auto-scale pass runs once over the finished window rather than over an empty
+            // form as AutoScaleMode is set. The numbers in BuildUi are logical pixels.
+            SuspendLayout();
             AutoScaleDimensions = new SizeF(7F, 15F);
             AutoScaleMode = AutoScaleMode.Font;
             Font = new Font("Segoe UI", 9f);   // the app's font, so this window scales like the rest
             Text = "Command Reference — " + reference.Instrument;
-            // Twice the old 860x560 in each direction. This window is a list to read down
-            // and a Description column to read across, and both were the first thing anyone
-            // had to resize. OnLoad clamps it to the screen it opens on.
-            ClientSize = new Size(1720, 1120);
-            MinimumSize = new Size(560, 380);
             StartPosition = FormStartPosition.CenterParent;
 
             BuildUi();
             Populate("");
+            ResumeLayout(false);
+            PerformLayout();
+
+            // Twice the old 860x560 in each direction. This window is a list to read down
+            // and a Description column to read across, and both were the first thing anyone
+            // had to resize. OnLoad clamps it to the screen it opens on. After the pass and
+            // scaled by the DPI: both sizes were chosen on a 175% screen, where these come
+            // out as the 1720x1120 and 560x380 they were.
+            ClientSize = LogicalToDeviceUnits(new Size(983, 640));
+            MinimumSize = LogicalToDeviceUnits(new Size(320, 217));
         }
 
         private void BuildUi()
         {
+            // Its height is provisional, like the bottom strip's: OnLoad fits it to the box.
             var top = new Panel { Dock = DockStyle.Top, Height = 42, Padding = new Padding(10, 8, 10, 6) };
+            _top = top;
             _filterLabel.Text = "Filter:";
             _filterLabel.AutoSize = true;
             _filterLabel.Location = new Point(10, 12);
@@ -83,9 +97,11 @@ namespace LabEquipmentController
             _list.MultiSelect = false;
             _list.HideSelection = false;
             _list.ShowItemToolTips = true;
-            _list.Columns.Add("✓", 34);          // provenance mark, see MarkFor
-            _list.Columns.Add("Command", 270);
-            _list.Columns.Add("Description", 480);
+            // Column widths are the one size here the auto-scale pass does not reach. The mark's
+            // is the 34 screen pixels it had on a 175% screen.
+            _list.Columns.Add("✓", LogicalToDeviceUnits(20));          // provenance mark, see MarkFor
+            _list.Columns.Add("Command", LogicalToDeviceUnits(270));
+            _list.Columns.Add("Description", LogicalToDeviceUnits(480));
             _list.DoubleClick += (_, _) => InsertSelected();
             _list.KeyDown += (_, e) =>
             {
@@ -183,6 +199,19 @@ namespace LabEquipmentController
                 _filter.Left = _filterLabel.Right + LogicalToDeviceUnits(8);
                 _filter.Width = host.ClientSize.Width - _filter.Left - LogicalToDeviceUnits(12);
             }
+
+            // The filter row fitted to the box, and its label centred on it. The scaling pass
+            // stretches heights by the font's height, which grows faster than a text box does,
+            // so the scaled 42 stood well clear of the box and the label sat below its middle.
+            if (_top != null)
+            {
+                _filterLabel.Top = _filter.Top + (_filter.Height - _filterLabel.Height) / 2;
+                _top.Height = _filter.Bottom + _top.Padding.Bottom;
+            }
+
+            // One line of the source, measured from its font. A flat 26 cut the descenders off
+            // at 175%.
+            _source.Height = TextRenderer.MeasureText("Ag", _source.Font).Height + LogicalToDeviceUnits(4);
 
             ButtonStyle.SetDrawnIcon(this, _insert, "insert");
             ButtonStyle.SetDrawnIcon(this, _copy, "copy");

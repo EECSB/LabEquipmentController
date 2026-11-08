@@ -30,8 +30,24 @@ internal sealed class ResultsPanel : UserControl
     /// Top and bottom insets of the console's command row, which sits alongside this panel's
     /// button strip in the same window. Kept here as one value both can be measured against
     /// rather than as a number repeated in two files that drifted apart.
+    ///
+    /// Logical pixels, scaled by whichever control uses it: neither this panel nor the
+    /// console is ever reached by a form's scaling pass (SPEC §14).
     /// </summary>
     internal static readonly Padding CommandRowInset = new(6, 4, 6, 6);
+
+    /// <summary>
+    /// What a cell needs beyond its text, in logical pixels: the list's own inset either side,
+    /// and enough over that for the text not to end in "…".
+    /// </summary>
+    private const int CellPadding = 16;
+
+    /// <summary>
+    /// The widest thing in each column so far, its heading included, in device pixels. Kept
+    /// as rows arrive rather than measured afresh, so a run of thousands of rows costs one
+    /// measurement a cell.
+    /// </summary>
+    private readonly List<int> _widest = new();
 
     /// <summary>Stem of the suggested CSV file name — the script's name, usually.</summary>
     // Never placed from the designer, so it has nothing to serialise; saying so is what
@@ -68,6 +84,11 @@ internal sealed class ResultsPanel : UserControl
         _results.FullRowSelect = true;
         _results.GridLines = true;
 
+        // The last column out to the edge again whenever the list changes width, and every
+        // column measured again when the font changes, which is what a new display does.
+        _results.SizeChanged += (_, _) => LayoutColumns();
+        _results.FontChanged += (_, _) => MeasureColumns();
+
         // Table and plot are the same data twice, so they share one space rather than
         // splitting it: the numbers are what gets exported and the curve is what gets read,
         // and neither is worth half a pane while you are looking at the other.
@@ -94,12 +115,16 @@ internal sealed class ResultsPanel : UserControl
         // Results sit on the line Clear Log and Save Log do. With no bottom inset they were
         // flush against the edge of the pane and read as half a row lower than the pair
         // beside them.
-        _tools.Padding = new Padding(0, CommandRowInset.Top, 0, CommandRowInset.Bottom);
+        _tools.Padding = this.Scaled(0, CommandRowInset.Top, 0, CommandRowInset.Bottom);
 
+        // ButtonStyle's margin brought to this display, as the console does with its own:
+        // this panel is added to its window after any scaling pass that window has.
         ButtonStyle.Apply(_btnClear, "Clear Results", (_, _) => Clear());
+        _btnClear.Margin = this.Scaled(_btnClear.Margin);
         _tools.Controls.Add(_btnClear);
 
         ButtonStyle.Apply(_btnSaveCsv, "Save CSV", (_, _) => SaveCsv());
+        _btnSaveCsv.Margin = this.Scaled(_btnSaveCsv.Margin);
         _tools.Controls.Add(_btnSaveCsv);
 
         // Fill first, then docked edges (this project's convention for docking order).
@@ -147,7 +172,9 @@ internal sealed class ResultsPanel : UserControl
         if (_results.Items.Count > 0) return;
 
         _results.Columns.Clear();
-        foreach (string c in columns) _results.Columns.Add(c, 160);
+        _widest.Clear();
+        foreach (string c in columns) AddColumn(c);
+        LayoutColumns();
     }
 
     public void AddRow(SequenceRow row)
@@ -155,11 +182,13 @@ internal sealed class ResultsPanel : UserControl
         // A run need not declare COLUMNS; if it did not, number them from the first row
         // rather than dropping the data on the floor.
         while (_results.Columns.Count < row.Values.Count)
-            _results.Columns.Add($"Column {_results.Columns.Count + 1}", 160);
+            AddColumn($"Column {_results.Columns.Count + 1}");
 
         var item = new ListViewItem(row.Values.Count > 0 ? row.Values[0] : "");
         for (int i = 1; i < row.Values.Count; i++) item.SubItems.Add(row.Values[i]);
         _results.Items.Add(item);
+        Widen(row.Values);
+        LayoutColumns();
         _results.EnsureVisible(_results.Items.Count - 1);
         _rows.Add(row);
 
@@ -182,7 +211,58 @@ internal sealed class ResultsPanel : UserControl
     {
         _results.Items.Clear();
         _rows.Clear();
+        MeasureColumns();   // back to the headings: the readings that widened them are gone
         _plot.Show(_results.Columns.Cast<ColumnHeader>().Select(c => c.Text).ToList(), _rows);
+    }
+
+    private void AddColumn(string heading)
+    {
+        _results.Columns.Add(heading);
+        _widest.Add(Measure(heading));
+    }
+
+    /// <summary>Every column measured again, from its heading and the rows it holds.</summary>
+    private void MeasureColumns()
+    {
+        for (int i = 0; i < _widest.Count; i++) _widest[i] = Measure(_results.Columns[i].Text);
+        foreach (SequenceRow row in _rows) Widen(row.Values);
+        LayoutColumns();
+    }
+
+    private void Widen(IReadOnlyList<string> values)
+    {
+        for (int i = 0; i < values.Count && i < _widest.Count; i++)
+            _widest[i] = Math.Max(_widest[i], Measure(values[i]));
+    }
+
+    private int Measure(string text)
+        => TextRenderer.MeasureText(text, _results.Font).Width + LogicalToDeviceUnits(CellPadding);
+
+    /// <summary>
+    /// Every column as wide as the widest thing in it, and the last out to the list's edge
+    /// (UI-SPEC §4.7), as the device list's Identity column is (MainForm.LayoutDeviceColumns).
+    /// A fixed width is too narrow for one reading and too wide for the next: the 160 logical
+    /// pixels every column had until 2026-11-08 still cut a long command short.
+    /// </summary>
+    private void LayoutColumns()
+    {
+        int n = Math.Min(_results.Columns.Count, _widest.Count);
+        if (n == 0) return;
+
+        int used = 0;
+        for (int i = 0; i < n - 1; i++)
+        {
+            if (_results.Columns[i].Width != _widest[i]) _results.Columns[i].Width = _widest[i];
+            used += _widest[i];
+        }
+
+        // The vertical scrollbar's gutter is kept free even while it is hidden, as the device
+        // list keeps it: it appears as the rows fill the list, and a last column that reached
+        // under it would raise a horizontal scrollbar too, for the sake of a few pixels.
+        int gutter = Math.Max(SystemInformation.VerticalScrollBarWidth, LogicalToDeviceUnits(17));
+        int rest = _results.ClientSize.Width - gutter - LogicalToDeviceUnits(4) - used;
+        int last = Math.Max(_widest[n - 1], rest);
+        if (_results.Columns[n - 1].Width != last) _results.Columns[n - 1].Width = last;
     }
 
     /// <summary>

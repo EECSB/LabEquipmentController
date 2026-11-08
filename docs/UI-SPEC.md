@@ -129,7 +129,7 @@ Save Log act on the log above:
 
 | | Desktop | Web |
 |---|---|---|
-| Command box ▸ Send | 0 | 6 px |
+| Command box ▸ Send | 6 | 6 px |
 | Send ▸ Clear Log | 40, shrinking toward 6 to keep 140 px of box | 52 px, and the row wraps instead |
 | Clear Log ▸ Save Log | 6 | 6 px |
 
@@ -201,6 +201,7 @@ is its floor.
 | Live readout | `MultimeterReadoutForm` | tool window, `Tools/Readout.razor` |
 | AI datasheet extraction | `DatasheetExtractForm` | tool window, `Tools/Ai.razor` |
 | AI script writing | `ScriptAiForm` | same tool window, other half |
+| AI assistant | `AssistantForm` | tool window, `Tools/Assistant.razor` |
 | AI connection | `AiSettingsForm` | modal, `AiSettingsDialog.razor` |
 | About | `AboutForm` | modal, `AboutDialog.razor` |
 
@@ -268,6 +269,7 @@ are drawn along, and it is why the command library sits under Help.
 |---|---|
 | — | **Theme** — light / dark / system, settled in place |
 | `Tools ▸ Multi-Instrument Scripts…` | on the Instrument Consoles caption row, not in the menu |
+| `Tools ▸ AI Assistant…` | **AI assistant…** |
 | `Tools ▸ AI Connection…` | **AI settings…** |
 | `Help ▸ Command Library…` | **Help ▸ Command library…** |
 | `Help ▸ Script Language…` | **Help ▸ Script language…** |
@@ -375,7 +377,9 @@ In both modes `Scan` becomes `Stop` while running, with the stop square. One but
 
 Row 2: a determinate progress bar, then the status text. **Both are always present**, with
 `Ready.` in the text when nothing is running — a row that appears when Scan is pressed shoves
-the list below it down at the moment you have started watching it.
+the list below it down at the moment you have started watching it. On a desktop window too
+narrow for both, the bar gives way first, down to a stub that still shows a sweep moving, and the
+text then ends in `…` with the whole of it on hover; neither is laid out past the card's edge.
 
 A card that can find nothing says so **and says what to do about it**: no usable network
 interface, or no serial ports, each with the Docker fix named (`network_mode: host`,
@@ -510,6 +514,13 @@ again — and shows plainly that it is not what you are looking at.
 The desktop puts `Not connected.` / `1 instrument connected.` on the address row, right of
 Connect. The web puts it in a status bar along the foot of the window, with the catalog
 totals and the name of the page. See §9.
+
+On a desktop window too narrow for it, the row's slack gives way before the text does: the 52
+before `Connect` and the 20 after it close down to 8, then the address box narrows, no further
+than a full IPv4 address needs, and its hint drops to `192.168.1.50` alone so neither example is
+cut. The room is measured against `2 instruments connected.`, not the current text, so nothing
+moves when an instrument connects. At the window's narrowest that leaves the text room at both
+100% and 175%; at any wider size the row is as §3.3 lays it out.
 
 ### 3.6 How long the bench lives
 
@@ -670,12 +681,13 @@ Each column is **as wide as the widest thing in it, and the last takes the rest*
 panel’s edge — the rule `MainForm.LayoutDeviceColumns` settles for the device list, where the
 narrow columns are fixed and Identity is given “whatever room is left over”. Three short columns
 each taking a third of a wide panel puts a hand’s width of nothing between a time and its
-reading.
+reading. The desktop measures each cell as its row arrives (`ResultsPanel.LayoutColumns`); until
+2026-11-08 it gave every column a fixed 160, which still cut a long command short.
 
 The picker strip is as short as ResultPlotPanel makes it: no gap between the three switches, and
-the column list 150×62 — four rows in sixty-two pixels, so a row is a checkbox tall rather than a
-line of prose tall. Its own comment says why: that column is the tallest thing in the strip, and
-the strip's height comes off the curve.
+the column list 150 wide and three rows tall, sized from the list's own row height, so a row is a
+checkbox tall rather than a line of prose tall. Its own comment says why: that column is the
+tallest thing in the strip, and the strip's height comes off the curve.
 
 **Plot** — the curve first, the pickers under it: `X:` and `X Unit:` in a column, the `Y:`
 checklist beside them, then `Log X` / `Log Y` / `Points`, then the camera at the right, which
@@ -719,8 +731,8 @@ They are **windows, not panels**, and everything that follows from that holds in
   row it holds. Shares of the remainder rather than percentages of the window: written as
   percentages the two of them ask for the whole body between them and the toolbar becomes an
   overflow, which on a short window pushed the status line out of the bottom. Those open large, as
-  `ScriptForm` and `SequenceForm` do (1960×1640 and 1990×1400, both clamped to the screen). The
-  rest size to their content and scroll.
+  `ScriptForm` and `SequenceForm` do (1120×937 and 1137×800, which is 1960×1640 and 1990×1400 on
+  a 175% screen, both clamped to the screen). The rest size to their content and scroll.
 
   **The reference fills the same way, and both of its halves do.** `CommandReferenceForm` docks
   its list `Fill`, and `CommandLibraryForm` docks the viewer `Fill` in the panel beside it — so
@@ -733,14 +745,16 @@ They are **windows, not panels**, and everything that follows from that holds in
 - **A filling window opens at the size its own desktop form asks for.** Filling is not one size:
   `MultimeterReadoutForm` asks for 980×520 and `DatasheetExtractForm` for 980×620, and either
   one given the editors' 1480×1040 is a window with nothing in the bottom half of it. The
-  reference goes the other way — `CommandReferenceForm` opens at **1720×1120** and clamps it to
-  the working area, which on most screens is the whole of it: several hundred commands beside
-  the page they were transcribed from is not a window worth opening small.
+  reference goes the other way — `CommandReferenceForm` opens at **983×640** (1720×1120 on a 175%
+  screen) and clamps it to the working area: several hundred commands beside the page they were
+  transcribed from is not a window worth opening small.
   `ToolWindow.OpenWidth` / `OpenHeight` carry the desktop's client size, clamped to the viewport
   the way the stylesheet clamps its own, and the corner overrides both. The sizes are in
-  `ConsoleTools.Opens`, except the AI script window's 1320×920 which is set where that window
-  is opened. A filling window with no size of its own quietly took the editors' — which is what
-  the datasheet extractor was doing, opening at the whole viewport for a drop box and a grid.
+  `ConsoleTools.Opens`, except the AI script window's which is set where that window is opened.
+  Two of them are the desktop's old screen-pixel numbers, 1720×1120 and 1320×920, kept on
+  purpose — see *Known differences* in §9. A filling window with no size of its own quietly took
+  the editors' — which is what the datasheet extractor was doing, opening at the whole viewport
+  for a drop box and a grid.
 - **A window that fills in late is pulled back on screen.** A catalog of 24,000 commands and a
   language reference both arrive a moment after their window does, and one pinned where it was
   centred while still empty grows downwards off the bottom of the screen.
@@ -762,7 +776,7 @@ They are **windows, not panels**, and everything that follows from that holds in
 | **Waveform** | the same shape, and **three groups on its control row**: `Channels` ▸ a chip per channel, then `Capture Waveform`, then `Run` · `every N ms`. Then the trace, then along the foot the point count, a Vpp per captured channel and the span on the left, with `Save CSV…` and a **camera** at the right — the same glyph and the same gesture the plot carries, aimed at the trace as drawn here rather than at the instrument's own screen, which is the other window. The dark ground is drawn inside the SVG, not applied to it, so it survives being serialised into the image |
 | **Readout** | **One card filling the window**, as `MultimeterReadoutForm` is docked: `Measure:` picker · `shown in` unit picker · `every` N `ms` ▸ `Start` / `Stop` along the top, on that form's own distances (§1); the large value and the run figures under it; the plot taking everything left; and `Clear` · `Save CSV…` at the end of the plot's picker strip, beside the button that saves the picture — the desktop has one row of actions along the foot of the window, and a second row of two buttons under a strip that already ends in empty space is a row spent saying nothing. **No caption**: the title bar says `Readout` and says which instrument as well. Opens 980×520 |
 | **AI Datasheet Extraction** | the file on the left, what will read it on the right: a **drop box** of 18 rem by 6, and beside it a column carrying `Using:` (a picker of the connections), `Effort:` (a picker in both builds, as the script writer has), `Extract text locally before sending`, and `Extract` / `Stop`. The two stand in a frame of their own and the box is as tall as the frame — the column sets the height and the target fills it, because they are one control between them: a file, and what will be done with it. A wider gap between the two than the ordinary one between two controls, and air under the switch, so `Extract` reads as the end of the column rather than the third thing in a list. Then the grid — tick · `Command` · `Category` · `Description` — **always there, filling the window**; status and `Save Ticked` along the foot. The box is the web's answer to the desktop's path box: a browser will not be talked out of drawing its own control on a file input, so the input is hidden and the box stands in its place — dashed while empty, solid once it holds a name, and lit while a file is over the window. It is a target rather than a strip because that is what it is for, and there is **no `Browse…`** beside it: the box is the button, and a second control opening the same picker only asks which one to press |
-| **Write a Script with AI** | what the model is being given, as a sentence and a bullet per instrument (`ScriptAiForm.ContextSummary`); then what the conversation costs — `N turn(s) — about X kB of transcript goes with every request` — and under that line **the conversation** itself, with `Clear` **in its own top-right corner**, over the first line of it, which is the nearest thing the pane has to a header. The window is a chat: every exchange stays on screen, oldest first, each carrying what was asked, what was written, a `Use This Script` of its own, and what the catalog check made of it — and **all of it goes back with the next request**, which is what makes "now do the same at 5 V" a request at all rather than a sentence about nothing. `Clear` forgets the lot, and the figure above it is characters rather than tokens — nothing here can count tokens and no two providers count them alike — but deciding whether to clear is the whole reason a number is there at all. **`Use This Script` belongs to the answer, not to the window**: under the script it takes, right-aligned, one per turn. A single one at the foot could only ever mean the newest, which in a conversation is the wrong one as often as it is the right one — you ask for a change, the change is worse, and the draft you wanted is three inches up the transcript with nothing to press. Then the composer, **under** the transcript the way a chat is laid out, and a clear step below it rather than against it: the request box is **one line, and as many as the text needs** — a pasted script or a Shift+Enter grows it to a ceiling, after which it scrolls inside itself rather than eating the transcript. **Enter sends; Shift+Enter starts a new line**, which is what Enter does in a chat. Sending empties the box, because what was in it is now in the transcript above. It **opens on a worked request, written in rather than greyed behind it** — a placeholder cannot be edited, selected or sent, and it goes the moment you type over it, so the one hint about how much detail helps is read by nobody; written, it is a request that already works. The same words stand behind the box once it is empty, as an example, which is all a placeholder can be. The options row is: `Using:` (a picker of the connections) **over** `Effort:`, `Revise the current script` **over** `Include the last run's output`, and `Write Script` at the end. Two stacks rather than one long line — five things do not fit the width of the request box, and a row that wraps puts its own button on a line of its own beside a field of nothing. **Both pickers, as the datasheet window has both** — which model and how hard to work it are one decision taken twice, and a window offering the first without the second sends you to the settings box for the other half. This is where the second half earns its keep: a sweep with a `WITH` block and a `FOR` in it is not transcription. The transcript is **there from the moment the window opens**, empty. **Everything runs the full width of the window** — transcript, box and both rows, edge to edge and lined up with each other. It was held to a 52rem measure, on the argument that a line of prose that long is hard to read back; asked for directly the other way, because this window is dragged to the width its reader wants and half of it standing empty is the worse answer. **The transcript takes the window and the composer keeps its own height**: the history scrolls and the box you type in does not move. Then, at the foot, the status line and nothing else. The conversation **outlives the window**: this one closes the moment a draft is used, so a history kept inside it would be a chat of exactly one turn — the desktop keeps a static keyed on the language, the web a `ScriptChats` service, and reopening opens on what it was closed with. The window opens at **1320×920**, which is what `ScriptAiForm` asks for; it is two text boxes and a row of switches and does not want the screen. **No instrument picker**: a console's script runs on that console's instrument, and the desktop asks nobody — `ScriptForm` hands over the one, `SequenceForm` the bench. The web keeps ticks in the multi-instrument editor only, where choosing among several catalogs is the point |
+| **Write a Script with AI** | **Laid out as the AI assistant is** (*The AI assistant*, below), because it is the same kind of window and two AI windows that put the same controls in different places are two layouts to learn for one job. Across the top, what the model is being given, as a sentence and a bullet per instrument (`ScriptAiForm.ContextSummary`). Then **the conversation**, in the assistant's sunken pane and as its cards: each exchange is the question, `You` and the words, on the window's own white, and under it the answer, with the script in a code box (every line up to twenty, then it scrolls), a `Use This Script` of its own, and what the catalog check made of it in small grey, or in the warning colour where a line is in no catalog. The window is a chat: every exchange stays on screen, oldest first, and **all of it goes back with the next request**, which is what makes "now do the same at 5 V" a request at all rather than a sentence about nothing. **`Use This Script` belongs to the answer, not to the window**: under the script it takes, one per turn. A single one at the foot could only ever mean the newest, which in a conversation is the wrong one as often as it is the right one. Then the composer, as the assistant's: the request box is **one line, and as many as the text needs**, up to a ceiling after which it scrolls inside itself. **Enter sends; Shift+Enter starts a new line.** Sending empties the box, because what was in it is now in the transcript above. It **opens on a worked request, written in rather than greyed behind it**; the same words stand behind the box once it is empty, as an example. Under the box, **one row, as the assistant's**: `Using:` (a picker of the connections), `Effort:`, `Revise the current script`, `Include the last run's output` and `Clear`, wrapping onto another line in a narrow window rather than cutting its end off, and **`Write Script` at the far right**, which reads **`Stop`** while a request is out, as the assistant's `Send` does. **Both pickers**, as the datasheet window has both: which model and how hard to work it are one decision taken twice. Under the row, in small grey where the assistant says what its next question costs, what the conversation costs: `N turn(s): about X kB of transcript goes with every request`. Characters rather than tokens, since nothing here can count tokens and no two providers count them alike, but deciding whether to `Clear` is the whole reason a number is there. `Clear` forgets the lot. Then, at the foot, the status line and nothing else. The transcript is **there from the moment the window opens**, empty, and **everything runs the full width of the window**. **The transcript takes the window and the composer keeps its own height**: the history scrolls and the box you type in does not move. The conversation **outlives the window**: this one closes the moment a draft is used, so a history kept inside it would be a chat of exactly one turn; the desktop keeps a static keyed on the language, the web a `ScriptChats` service, and reopening opens on what it was closed with. The window opens at **754×526**, which is what `ScriptAiForm` asks for (1320×920 on a 175% screen, which is what the web opens it at: see *Known differences* in §9). **No instrument picker**: a console's script runs on that console's instrument, and the desktop asks nobody; `ScriptForm` hands over the one, `SequenceForm` the bench. The web keeps ticks in the multi-instrument editor only, where choosing among several catalogs is the point |
 
 The script toolbar is **three groups** — the file pair; the three ways a script comes into being,
 an example or a snippet or a model writing one; and running it — with a wider gap between groups
@@ -922,6 +936,77 @@ slice** with 8% of air above and below — zooming into a ripple riding on a 5 V
 to zoom at all, and a fixed scale would leave it a flat line along the top. The times at the ends
 of what is drawn are on the plot.
 
+### The AI assistant
+
+The bench's window, not a console's: it works every instrument open (SPEC §11d), so it hangs off
+`Tools ▸ AI Assistant…` on the desktop and the gear's **AI assistant…** on the web, beside the
+connection it spends, and its title bar is `AI Assistant` with no instrument in it. **One window,
+hidden rather than closed**, as GDS Viewer's floating window is: the conversation, the files
+waiting and what was spent outlive closing it, and asking again shows the same window. Only New
+Chat starts another conversation. It opens at **1100×860** (`AssistantForm`), clamped to the screen.
+
+Three columns, as the AI guide lays them out. Each side panel is **closed by the cross at its top
+right**, and while it is closed **an arrow in the window's margin on its side** opens it again,
+the whole margin being the button; the files' arrow carries how many files the conversation has
+sent. The margin is **32** wide and the arrow sits **in its middle, top to bottom**, bold at twice
+the window's text size and in the text's colour, so it reads as something to press. Open or shut is the person's to choose and holds across conversations. A window too narrow
+for both and the conversation between them (under 240 + 260 + 620) keeps the files and **folds the
+chats to their arrow while it is that narrow**, without changing the choice: wider again, they
+come back. Pressed then, the chats' arrow chooses them over the files, which shut to make the
+room; an arrow that opened nothing would be a control that does not work. The desktop measures
+the window as it is resized; the page asks the stylesheet (a container query on the row the three
+share).
+
+| Part | Controls, in order |
+|---|---|
+| **Chats** (left, open to begin with) | `Chats` · `New Chat` · ✕; a grey line saying where they are kept, *Kept on this computer.* or *Kept by the bench's server.*; then a row per kept chat, the one kept last first: its title (the first question, cut to a row) in bold while it is the chat on screen, and under it when it was kept and the bench it was about (`gen SDG2042X, dmm SDM3065X`) with `Save` and `Delete` at the end. A press on a row opens that chat and carries it on. `Delete` asks **in the row** (`Delete it?` `Delete` `Keep`), never in a dialog; deleting the chat on screen starts a new one. **Nothing is switched while an answer is coming**: New Chat greys out and a press on a row only says why, in the status line and in the row's tooltip |
+| **The conversation** (middle) | the context line, what the model will be told about (*Working on the 2 instruments open: …*); the transcript, which takes the height; under it the **suggestion to compact**, only once it is worth it, priced both ways (*Every question now sends about 24,000 tokens of history again (about $0.072 each time). Compacting puts a briefing in its place, for about $0.080 once.*) with `Compact` and `Not Now`; then the composer: the chips of the files waiting, each with ✕; the reason Send waits, in red, when there is one; **the command list** while a slash starts the box; the box; the row; the estimate (*The next question sends about 6,100 tokens (about $0.018 to read), and again with every round of tool calls.*) |
+| **The row** | `Using:` (the connections) · `Effort:` (per question, never saved, its default saying what it is) · `Changes:` (the rung: `Ask before every step`, `Ask before changes`, `Change without asking`, on the middle one at every start and never remembered) · `Attach Files…` · `Screenshot` · `Tools…` (a count of what is off when anything is), wrapping onto more lines as the window narrows, each label kept with its list; **`Send`** at the right end, which is **`Stop`** while an answer comes. A double-click on Send does not stop what it sent |
+| **Files** (right, shut to begin with) | `Files` · ✕; **In this conversation**: a tick per file a question has sent (or a briefing keeps), with its size, the question it went with in its tooltip. Unticked, it is left out of every question after and stops counting against the conversation's budget; ticking one back is held to that budget, and a refusal is said under the list. **With the next question**: the files waiting, each with ✕. Under both, what the ticked files add to every question, in tokens |
+| **Cards** | `You` and the words, with the files it carried (`left out` on one unticked); an answer, with what it was billed under it (`3 requests · 9,360 tokens in · 288 out · $0.032`); a call: its name and arguments on one line in the code face, then `ran without asking`, `approved`, `declined` (red) or `waits for you: this changes the instrument` on a yellow card with **`Approve and Send`** and `Decline` (a read that waits has `Approve`), then what the model was told, the instrument's screen when it took one, and **a proposed script in a read-only box with `Use This Script`**, which puts it in that instrument's script editor or the multi-instrument editor and runs nothing; a pause at the limit on rounds, yellow, with `Continue`; a briefing, `Briefing: the conversation above, compacted. The model is sent this in its place.`, with the files it keeps unticked; and the app's own lines in grey: where a chat was opened again (*This chat was opened again on 7 November 2026 at 17:56. It was about psu E36313A; open now: none.*) and where the conversation started afresh. Over a briefing, **`Show the N turns before the briefing`** shows what it folded away, dimmed, and hides it again |
+| **Foot** | the status line: what is being asked, what ended it, and what has been spent since the app started |
+
+**The keys.** Enter sends and Shift+Enter starts a new line. A paste of a picture or of files from
+Explorer attaches them, unless there is text on the clipboard as well, which is pasted. Files
+dropped anywhere on the window attach. **A slash at the start of the box lists the window's
+commands**, narrowed as the name is typed; the arrows move through it, Enter or a press runs the
+one marked, Tab writes its name out so words can follow, and Esc puts the list away until the
+words change. Esc with no list up closes the window, which keeps the conversation. Written out in
+full, a command runs on Enter or Send without the list; a name that is no command is sent as
+written.
+
+| Command | What it does |
+|---|---|
+| `/new` | New Chat |
+| `/compact` | compacts the conversation now, suggested or not |
+| `/export` | saves the conversation on screen as text, as a row's `Save` does |
+| `/tools` | opens `Tools…` |
+| `/screenshot` | presses `Screenshot` |
+| `/settings` | opens AI Connection (the web: AI settings) |
+| `/status` | asks what is open and what each instrument reads now, with any words after it added |
+| `/errors` | asks for every instrument's error queue, read and explained, likewise |
+| `/script` | puts *Write a script that* in the box to be finished |
+
+One that cannot run now **stays listed, dimmed, saying why**: an answer still coming, nothing to
+compact, no connection.
+
+**`Screenshot`** takes the screen the window is on: the desktop's window steps aside for the
+moment it takes, so the picture is of the bench behind it; the web asks the browser, which offers
+a screen, a window or a tab, and a picker closed without a choice attaches nothing and says
+nothing (§9, 10). Either way it is a PNG named for when it was taken, scaled to 1,568 pixels on its
+long side, and goes in as any attached picture does: on the web through the window's one file
+input, as a paste and a drop do, so every check a chosen file meets they meet too.
+
+**`Use This Script`** puts an instrument's script in that console's script editor and a sequence
+in the multi-instrument editor, each opened or raised, asking first over a script already there
+(`Replace the script in the editor with the one that was written?`) as the script writer's own
+does, and running nothing. On the web the editors belong to the bench page: from a console open
+in a tab of its own, or with the bench page not open in that tab, the card says to copy the script
+instead. `Tools…` is a checklist of the tools grouped as
+**Reading**, **Changing an instrument** and **Proposing**, kept open while ticks change, with
+`Every tool on` and `Compact the conversation` under them; the tools switched off stay off through
+New Chat.
+
 ---
 
 ## 6. Modal boxes
@@ -949,7 +1034,12 @@ rather than a dead one, which is the same rule the rest of the box is held to.
 
 **AI Connection** — `Connection:` (a picker, with `New` and `Delete`) · `Name:` ·
 `Provider:` · `Endpoint:` · `Model:` · `Effort:` · `API key:` · `Timeout (s):` ·
-`PDF extraction:` (the `Extract text locally before sending` checkbox) · `Apply`. The key is
+`Rates (US$/M):` (`Input`, `Cached` and `Output`, a small box each) ·
+`PDF extraction:` (the `Extract text locally before sending` checkbox) · `Apply`. **The rates**
+are what a million tokens cost on that connection's model, for the AI assistant to say what
+each answer cost (SPEC §11d); a box left blank means the provider's published rate, which
+stands in it greyed where the app's dated table has one, and a model with neither shows tokens
+and no cost — a guessed price read as fact is worse than an empty space. The key is
 never shown back once stored; the desktop says so in the placeholder (`A key is stored. Type
 to replace it.`). `New` and `Delete` are marks rather than words, and sit on the row
 with the picker they act on: two labelled buttons under a dropdown read as a second row of
@@ -1121,7 +1211,17 @@ Only these. Each is something a browser forces, not a preference.
    Connection box shows one sentence in place of its fields — the connection comes from the host
    with each request — and its foot says *each person's own key* where it said *one key,
    shared*. The desktop has one person and one key and nothing to say about it; the web, in
-   that mode, has neither.
+   that mode, has neither. **Dialing out (SPEC §19) changes none of this**, and deliberately:
+   the connection arrives inside a request the host proxies, and nothing proxies a bench that
+   dials out — its page is the console for whoever is standing at it, AI box and all.
+10. **The AI assistant's screen and its kept chats.** `Screenshot` (and `/screenshot`) takes the
+    screen the desktop's window is on, stepping aside for it; a page cannot see the screen without
+    asking, so the browser's own picker offers a screen, a window or a tab, and the command says
+    *a picture of a screen, a window or a tab*. The chats are kept *on this computer* by the
+    desktop and *by the bench's server* on the web, beside `ai.json`, which is where the page's
+    connections and key are too; the line under `Chats` says which. And the window is taken out
+    of the page when it shuts, where the desktop's is hidden, so what it holds is kept beside it
+    for the tab's life (`AssistantState`) and comes back with it.
 
 Everything else on the web that has no desktop counterpart is a debt, not a feature. The
 inventory taken on 2026-08-21 was settled on **2026-09-20**, and nothing from it is
@@ -1172,6 +1272,16 @@ Found while writing the tests, and recorded rather than quietly kept:
   it again finds the script, the log and the results; the web asks nothing and opens afresh.
   Found while porting the two `FormClosing`s. Looked at on 2026-09-19 and kept as it is:
   neither build changes for it.
+
+- **Two opening sizes taken from screen pixels.** Until 2026-11-07 the code-built desktop
+  windows scaled their fonts and not their sizes (SPEC §14), and the sizes that were chosen by
+  eye were chosen on this bench's 175% screen, in its pixels. They are logical pixels now, at the
+  same size on that screen: `ScriptAiForm` asks for 754×526 and `CommandReferenceForm` for 983×640
+  where they used to say 1320×920 and 1720×1120. The web copied the old numbers as CSS pixels
+  (`ScriptEditor.razor`, and `ConsoleTools.Opens` for the reference), so it opens those two windows
+  1.75 times the desktop's size at any scale. Kept that way, decided on 2026-11-07: at that size
+  everything in the two windows is in view when they open. Neither build changes for it. The other
+  sizes it copied (980×520, 980×620, 1100×860) were logical already and agree.
 
 The others found that way are closed, and described where they belong rather than here: the
 console not locking during a run (§7, held by `Web/tests/e2e/lock.spec.js`); the scan switch's

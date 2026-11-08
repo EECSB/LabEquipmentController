@@ -96,7 +96,7 @@ public sealed class ScriptAuthor
     /// </summary>
     public int MaxCommandsPerInstrument { get; init; } = 240;
 
-    private const string SingleInstrumentLanguage = """
+    internal const string SingleInstrumentLanguage = """
         The script language, one instruction per line:
           <SCPI>                a command. One containing '?' is a query and its reply is shown
           # text                a comment; // also works
@@ -106,7 +106,7 @@ public sealed class ScriptAuthor
         There are no variables, no arithmetic, no conditionals. Nothing else is valid.
         """;
 
-    private const string SequenceLanguage = """
+    internal const string SequenceLanguage = """
         The script language, one instruction per line:
           DEVICE <alias> : <model>   name an instrument, exactly as its "Declare it as" line
                                      below says. Must come before it is used

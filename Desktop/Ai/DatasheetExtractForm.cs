@@ -108,6 +108,11 @@ namespace LabEquipmentController
             _instrumentKey = instrumentKey;
             _instrumentTitle = instrumentTitle;
 
+            // Layout suspended across the whole build, as the designer does it, so the
+            // auto-scale pass runs once over the finished window rather than over an empty
+            // form as AutoScaleMode is set. Without it a 175% screen got 175% fonts in a
+            // window, list and pickers still sized for 96 DPI. Logical pixels throughout.
+            SuspendLayout();
             AutoScaleDimensions = new SizeF(7F, 15F);
             AutoScaleMode = AutoScaleMode.Font;
             Font = new Font("Segoe UI", 9f);
@@ -118,6 +123,8 @@ namespace LabEquipmentController
 
             BuildUi();
             ApplyRules();
+            ResumeLayout(false);
+            PerformLayout();
         }
 
         /// <summary>
@@ -160,7 +167,12 @@ namespace LabEquipmentController
             _provider.DropDownStyle = ComboBoxStyle.DropDownList;
             _provider.DrawMode = DrawMode.OwnerDrawFixed;
             _provider.DrawItem += (_, e) => ButtonStyle.DrawComboItem(_provider, e);
+            // A minimum, not just a width: the table lays each control out as it is added,
+            // while the table is still at its default size and before the window has scaled,
+            // and cuts a plain width down to the cell it finds then. The scaling pass then
+            // scales what is left, which came out as no box at all at 175%.
             _provider.Width = 320;
+            _provider.MinimumSize = new Size(320, 0);
             _provider.Margin = new Padding(0, 4, 0, 0);
             _provider.SelectedIndexChanged += OnConnectionPicked;
             top.Controls.Add(new Label { Text = "Using:", AutoSize = true, Margin = new Padding(0, 8, 10, 0) }, 0, 1);
@@ -176,6 +188,7 @@ namespace LabEquipmentController
             _effort.DrawMode = DrawMode.OwnerDrawFixed;
             _effort.DrawItem += (_, e) => ButtonStyle.DrawComboItem(_effort, e);
             _effort.Width = 320;
+            _effort.MinimumSize = new Size(320, 0);   // see _provider's
             _effort.Margin = new Padding(0, 4, 0, 0);
             foreach (AiEffort effort in Enum.GetValues<AiEffort>()) _effort.Items.Add(AiSettingsForm.EffortLabel(effort));
             ShowEffort();
@@ -200,9 +213,10 @@ namespace LabEquipmentController
             _list.CheckBoxes = true;
             _list.FullRowSelect = true;
             _list.GridLines = true;
-            _list.Columns.Add("Command", 300);
-            _list.Columns.Add("Category", 150);
-            _list.Columns.Add("Description", 460);
+            // Column widths are the one size here the auto-scale pass does not reach.
+            _list.Columns.Add("Command", LogicalToDeviceUnits(300));
+            _list.Columns.Add("Category", LogicalToDeviceUnits(150));
+            _list.Columns.Add("Description", LogicalToDeviceUnits(460));
 
             var listHost = new Panel { Dock = DockStyle.Fill, Padding = new Padding(12, 0, 12, 0) };
             listHost.Controls.Add(_list);

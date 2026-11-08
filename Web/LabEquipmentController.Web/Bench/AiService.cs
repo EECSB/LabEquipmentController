@@ -70,7 +70,9 @@ public sealed class AiService
             AiConnection one = book.Items[i];
             connections.Add(new AiConnectionDto(
                 one.Id, labels[i], one.Name, one.Info.Label, one.EffectiveModel,
-                _settings.ConfiguredFor(one.Id)));
+                _settings.ConfiguredFor(one.Id),
+                one.Provider.ToString(), one.EffectiveBaseUrl, one.ExtractTextLocally,
+                one.InputPrice, one.CachedPrice, one.OutputPrice));
         }
 
         return new AiStatus(

@@ -27,7 +27,7 @@
     <Product>Lab Equipment Controller CLI</Product>
     <AssemblyTitle>Lab Equipment Controller CLI</AssemblyTitle>
     <Description>Discover and control lab instruments over Ethernet or RS-232 using SCPI, from a terminal.</Description>
-    <Version>1.3.0</Version>
+    <Version>1.4.0</Version>
     <!-- Shipped as a published binary, not as a package. -->
     <IsPackable>false</IsPackable>
 
@@ -40,6 +40,15 @@
 
   <ItemGroup>
     <ProjectReference Include="..\Core\LabEquipmentController.Core.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!--
+      lec mcp: the official C# SDK's Core package (Apache-2.0 and MIT), not ModelContextProtocol,
+      which adds hosting and dependency injection a server on standard input and output does not
+      need. The same package and version GDS Viewer's gds mcp uses.
+    -->
+    <PackageReference Include="ModelContextProtocol.Core" Version="2.2.0" />
   </ItemGroup>
 
   <ItemGroup>

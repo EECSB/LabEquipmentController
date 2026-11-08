@@ -633,6 +633,67 @@ public static class Commands
         return Emit(cmd, Output.Render(cmd, ["Item", "Value"], rows), stdout);
     }
 
+    // ------------------------------------------------------------------- mcp
+
+    /// <summary>
+    /// Serves the instruments on the command line to an MCP client — Claude Code, Claude Desktop
+    /// — over standard input and output, with the tools the app's assistant window has.
+    /// </summary>
+    /// <remarks>
+    /// Standard output is the protocol's from the first byte: everything a person running it by
+    /// hand would want to read goes to standard error, which clients keep as the server's log. One
+    /// stray line on standard output and the client sees a broken server.
+    ///
+    /// There is no approval gate here. The client the model runs in asks the person before each
+    /// call it has not been allowed, and a second gate would be two questions about one thing —
+    /// so <c>--read-only</c> is how a bench is served that nothing may change.
+    /// </remarks>
+    public static async Task<int> Mcp(ParsedCommand cmd, TextWriter stderr, CancellationToken ct)
+    {
+        if (cmd.Operands.Count < 1)
+            return Fail(stderr, "Usage: lec mcp <address> [<address>...] [--read-only] [--timeout <ms>]", Misused);
+        if (!cmd.TryInt("timeout", 5000, out int timeout))
+            return Fail(stderr, "--timeout must be a positive number of milliseconds.", Misused);
+
+        var addresses = new List<Endpoint>();
+        foreach (string typed in cmd.Operands)
+        {
+            if (!Endpoint.TryParse(typed, out var ep, out string error)) return Fail(stderr, $"{typed}: {error}", Misused);
+            if (!addresses.Contains(ep)) addresses.Add(ep);
+        }
+
+        await using var bench = new McpBench(addresses, timeout, stderr);
+        await bench.ConnectAsync(ct);
+
+        bool readOnly = cmd.Has("read-only");
+        var tools = new BenchToolRunner(new RetryingBench(bench))
+        {
+            AllowEdits = !readOnly,
+            HowProposalsAreTaken = "Nothing here runs it: the script follows this answer, for you to give to the person, "
+                                 + "who can save it and run it with lec run (one instrument) or lec seq (a sequence) - tell them "
+                                 + "what it does and what to check before they do.",
+        };
+
+        await stderr.WriteAsync($"lec mcp: serving {addresses.Count} address{(addresses.Count == 1 ? "" : "es")}"
+                              + $"{(readOnly ? ", read-only" : "")}, on standard input and output.\n");
+        await McpServing.RunAsync(tools, McpInstructions(addresses, readOnly), new ModelContextProtocol.Server.StdioServerTransport("lec"), ct);
+        return Ok;
+    }
+
+    /// <summary>What the client is told at the handshake: what it can reach, then the bench's conventions.</summary>
+    internal static string McpInstructions(IReadOnlyList<Endpoint> addresses, bool readOnly)
+    {
+        var text = new StringBuilder();
+        text.Append("lec serves the instruments it was started for, and only those: ");
+        text.Append(string.Join(", ", addresses.Select(a => a.ToString())));
+        text.Append(". An instrument that was off when the server started is tried again whenever the instruments are listed.\n\n");
+        text.Append(BenchToolRunner.Conventions);
+        text.Append(readOnly
+            ? "\nThis server was started read-only: nothing here can change an instrument, and send is not offered. Say so if a change is asked for."
+            : "\nYour client asks the person before each call it has not been allowed to make, and that is the only approval there is: a send it lets through happens at once.");
+        return text.ToString();
+    }
+
     private static int Fail(TextWriter stderr, string message, int code)
     {
         stderr.Write(message.TrimEnd() + "\n");

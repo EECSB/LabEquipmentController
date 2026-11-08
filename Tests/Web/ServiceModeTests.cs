@@ -341,8 +341,12 @@ public class ServiceModeTests
         Assert.Equal(["+1.000E+00"], Assert.Single(ended.Rows).Values);
         Assert.NotEmpty(ended.Output);
 
-        // Listed, newest first, and gone from the list of what is active.
-        Assert.Contains(runs.Records(), r => r.RunId == started.RunId);
+        // Listed, newest first, and gone from the list of what is active. The list says how much a
+        // run said and recorded and not what: that is a read of the run itself, since every run's
+        // record at once could be two hundred runs' worth of disk.
+        var listed = Assert.Single(runs.Records(), r => r.RunId == started.RunId);
+        Assert.Equal(1, listed.RowsKept);
+        Assert.Empty(listed.Rows);
         Assert.DoesNotContain(started.RunId, runs.Active);
     }
 

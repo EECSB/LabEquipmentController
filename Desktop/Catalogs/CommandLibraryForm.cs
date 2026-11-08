@@ -68,10 +68,26 @@ namespace LabEquipmentController
 
         public CommandLibraryForm()
         {
+            // Layout suspended across the build, as the designer does it, so the auto-scale
+            // pass runs once over the finished window rather than over an empty form as
+            // AutoScaleMode is set. The numbers in BuildUi are logical pixels.
+            SuspendLayout();
             AutoScaleDimensions = new SizeF(7F, 15F);
             AutoScaleMode = AutoScaleMode.Font;
             Font = new Font("Segoe UI", 9f);
             Text = "Command Library";
+            StartPosition = FormStartPosition.CenterParent;
+
+            // Falls back to the repository's own datasheets/ when nothing is set, so a
+            // development build finds the guides without anyone configuring it.
+            _datasheetFolder = SettingsStore.Load().EffectiveDatasheetFolder();
+
+            LoadCatalogs();
+            BuildUi();
+            BuildTree("");
+            ResumeLayout(false);
+            PerformLayout();
+
             // Wide enough for three columns — tree, commands, guide — since the guide now
             // sits beside the commands rather than under them. Clamped in OnLoad, because
             // this is more than the working area of a 1366x768 laptop.
@@ -83,17 +99,11 @@ namespace LabEquipmentController
             // Now the size this window was actually being dragged to before anyone could use
             // it: a guide page is only readable when the third column is wide enough to show
             // it at something near its own width, and 1600 was not.
-            ClientSize = new Size(2948, 1344);
-            MinimumSize = new Size(820, 500);
-            StartPosition = FormStartPosition.CenterParent;
-
-            // Falls back to the repository's own datasheets/ when nothing is set, so a
-            // development build finds the guides without anyone configuring it.
-            _datasheetFolder = SettingsStore.Load().EffectiveDatasheetFolder();
-
-            LoadCatalogs();
-            BuildUi();
-            BuildTree("");
+            //
+            // Those are pixels on a 175% screen, where these logical sizes come out as the
+            // 2948x1344 and 820x500 chosen there; set after the pass so they scale by the DPI.
+            ClientSize = LogicalToDeviceUnits(new Size(1685, 768));
+            MinimumSize = LogicalToDeviceUnits(new Size(469, 286));
         }
 
         // ------------------------------------------------------------------------- data
@@ -133,6 +143,9 @@ namespace LabEquipmentController
             _tree.HideSelection = false;
             _tree.ShowNodeToolTips = true;
             _tree.AfterSelect += (_, e) => Select(e.Node?.Tag as Entry);
+            // The count under the tree wraps at the tree's width, so the strips are levelled
+            // again whenever that changes, not only when the middle column does.
+            _tree.SizeChanged += (_, _) => LevelBottomStrips();
 
             // Under the tree, stacked: the folder this window reads from, and then what it
             // found there. Both are about the collection as a whole rather than about the
@@ -166,10 +179,12 @@ namespace LabEquipmentController
             // is the one reachable with nothing connected, so it is where a catalog is most
             // likely to be browsed — a flag that only appears in the other window is a flag
             // most readers never see.
-            _list.Columns.Add("✓", 34);
-            _list.Columns.Add("Command", 300);
-            _list.Columns.Add("Category", 150);
-            _list.Columns.Add("Description", 400);
+            // Column widths are the one size here the auto-scale pass does not reach. The mark's
+            // is the 34 screen pixels it had on a 175% screen; FitColumns shares out the rest.
+            _list.Columns.Add("✓", LogicalToDeviceUnits(20));
+            _list.Columns.Add("Command", LogicalToDeviceUnits(300));
+            _list.Columns.Add("Category", LogicalToDeviceUnits(150));
+            _list.Columns.Add("Description", LogicalToDeviceUnits(400));
             // Description takes whatever is left, so the list never needs a horizontal
             // scrollbar — one costs a row, and this list is the point of the window.
             _list.SizeChanged += (_, _) => FitColumns();
@@ -681,7 +696,12 @@ namespace LabEquipmentController
             // The count wraps inside the tree's column now rather than running the width of
             // the window, and it is long enough to need to: at the old full-width bar it fit
             // on one line, and under the tree the filter it names was simply cut off.
-            _count.MaximumSize = new Size(Math.Max(LogicalToDeviceUnits(120), _tree.Width), 0);
+            //
+            // Less its own margin, which it stands in from the strip's edge by: allowed the
+            // tree's whole width, a count within a margin of that measured as one line here
+            // and was then wrapped by the strip to two, the second cut off below it.
+            _count.MaximumSize = new Size(Math.Max(LogicalToDeviceUnits(120),
+                                                   _tree.Width - _count.Margin.Horizontal), 0);
 
             int tallest = Math.Max(_leftBottom.PreferredSize.Height, _guidePanel.PreferredSize.Height);
             if (tallest <= 0) return;

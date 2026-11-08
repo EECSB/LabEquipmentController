@@ -699,16 +699,15 @@ textarea.prompt {
    — a line of prose that long is hard to read back — but this window is dragged to the width its
    reader wants, and half of it standing empty is the worse answer. */
 :root { --prompt-w: 100%; }
-.row.promptrow { max-width: var(--prompt-w); margin-top: .4rem; align-items: center; }
-
-/* A column inside a row: two controls that answer one question, kept together and kept narrow.
-   The row holds two of them and the button that acts on all four — across, that is five things
-   in the width of the request box, and it wrapped onto a second line with the button alone on
-   it beside a field of nothing. */
-.row.promptrow > .stack { display: flex; flex-direction: column; gap: .3rem; align-items: start; }
-/* And the two labels are one width, so the pickers under each other start in the same place
-   rather than stepping in and out with the word in front of them. */
-.row.promptrow > .stack > .row.tight > .muted { min-width: 3.3rem; }
+/* The script writer's row under the box, as the assistant's: the pickers, the two switches and
+   Clear, wrapping in a narrow window, and Write Script at the far end. */
+.row.promptrow {
+    max-width: var(--prompt-w); margin-top: .4rem;
+    display: flex; flex-wrap: wrap; align-items: center; gap: .35rem .5rem;
+}
+.row.promptrow > .pair { display: inline-flex; align-items: center; gap: .35rem; margin-right: .6rem; }
+.row.promptrow > .check { margin-right: .6rem; }
+.row.promptrow > .spacer { flex: 1 1 auto; }
 
 /* ---- glyphs -------------------------------------------------------------- */
 
@@ -1367,21 +1366,21 @@ table.results th:last-child, table.results td:last-child { width: auto; }
 .plotpick .ylabel { color: var(--muted); margin-top: .3rem; }
 
 /* A checked list rather than a second dropdown: a sweep that records two readings wants both
-   curves on one pair of axes, which is the comparison the measurement was for. Scrolls at
-   four columns rather than growing the strip, as the desktop's does. */
+   curves on one pair of axes, which is the comparison the measurement was for. Scrolls past
+   three columns rather than growing the strip, as the desktop's does. */
 .plotpick .ylist {
     display: flex; flex-direction: column; gap: 0;
-    /* 150×62, which is what the desktop gives it. Taller than three switches and no taller
-       than it has to be; past that it scrolls rather than pushing the picture up. */
+    /* The desktop's is 150 wide and three of its rows tall. This holds three of these rows
+       with a little to spare; past that it scrolls rather than pushing the picture up. */
     min-width: 9rem; max-height: 3.9rem; overflow: auto;
     padding: .2rem .35rem;
     border: 1px solid var(--line); border-radius: 4px;
     background: var(--panel);
 }
-/* Rows a checkbox tall, not a line of prose tall. The desktop gives its column list 62 pixels and
-   puts four items in it — about sixteen each — and its three switches below sit at zero margin for
-   the same reason: this strip is a set of small controls, and the space between them is space the
-   curve above them does not get. Ordinary line spacing made each row a fifth taller than the box
+/* Rows a checkbox tall, not a line of prose tall. The desktop sizes its column list from the list's
+   own item height, three of them, and its three switches below sit at zero margin for the same
+   reason: this strip is a set of small controls, and the space between them is space the curve
+   above them does not get. Ordinary line spacing made each row a fifth taller than the box
    it holds. */
 .plotpick .check { display: block; white-space: nowrap; line-height: 1.15; }
 .plotpick .check input { vertical-align: -.1em; margin: 0 .35rem 0 0; }
@@ -1555,6 +1554,8 @@ dialog.sheet::backdrop { background: rgba(8, 12, 20, .45); }
 .sheet .fields input[type=password],
 .sheet .fields select { width: 100%; }
 .sheet .fields input[type=number] { width: 5rem; }
+/* The three rates, a number each: the desktop's 64-pixel boxes, not the row's whole width. */
+.sheet .fields input[type=text].rate { width: 5rem; }
 
 /* Except on the row that has buttons beside it. A select told to be the whole width is a select
    that pushes whatever follows it onto the next line, which is how New and Delete ended up
@@ -1749,62 +1750,47 @@ dialog.tool[open]:has(> .tool-body.fill) {
    resizable here for the same reason.
 
    Both are the same measure across — the transcript is read the way the request is written. */
+/* The script writer, laid out as the assistant is: the context across the top, the conversation
+   as cards in a sunken pane that takes the window, and the box, its row and the cost line under
+   it. The rules are the assistant's own (.assistant .transcript, .turn, .estimate). */
+.scriptchat > .context { margin: 0 0 .45rem; }
+.scriptchat > .bullets { margin-top: -.25rem; }
 .group.tall > .chatwrap {
     flex: 1 1 0; min-height: 8rem; max-width: var(--prompt-w);
-    display: flex; flex-direction: column; position: relative;
-    /* And a clear step down to the box you type in, rather than the two touching. */
-    margin-bottom: .85rem;
+    display: flex; flex-direction: column;
+    margin-bottom: .6rem;
 }
 .chatwrap > .chat {
     flex: 1 1 0; min-height: 0; overflow-y: auto;
-    border: 1px solid var(--line); border-radius: 6px; padding: .55rem .7rem;
-    background: var(--panel-2);
+    border: 1px solid var(--line); border-radius: 4px; background: var(--panel-2);
+    padding: .5rem .6rem;
 }
 .group.tall > textarea.prompt { flex: 0 0 auto; }
 
-/* Clear in the transcript's own top corner, over the first line of it — which is the nearest
-   thing the pane has to a header. On the wrapper rather than inside the scroller, so it stays
-   put at the bottom of a long conversation. */
-.chatwrap > .clearchat { position: absolute; top: .4rem; right: .5rem; z-index: 2; }
-/* And the two things that can reach that corner keep out of its way. Only those two: a script
-   line indented for a button three inches above it would be the tail wagging the dog. */
-.chat > .muted.empty,
-.chat > .turn:first-child > .who:first-child { padding-right: 7.5rem; }
+/* One exchange: the question on the panel's colour, the answer under it. */
+.chat .card { padding: .45rem .6rem; margin-bottom: .4rem; border-radius: 4px; }
+.chat .card.you { background: var(--panel); }
+.chat .card .who { font-weight: 600; }
+.chat .card .words { white-space: pre-wrap; overflow-wrap: anywhere; }
+.chat .card p { margin: .35rem 0 0; }
+.chat .small, .chat .note { font-size: 12px; color: var(--muted); }
+.chat .small.bad { color: var(--bad); }
+.chat > .note.empty { margin: 0; padding: .45rem .6rem; }
 
-/* The row above it: what the transcript costs. */
-.row.chathead { max-width: var(--prompt-w); align-items: center; padding-bottom: .35rem; }
-
-/* One exchange. The rule between turns rather than around each: a box per turn is a stack of
-   cards inside a card, and what is actually wanted is to see where one answer stops. */
-.chat > .turn + .turn { border-top: 1px solid var(--line); margin-top: .7rem; padding-top: .7rem; }
-.chat > .turn > p { margin: 0 0 .35rem; }
-.chat > .turn > p:last-child { margin-bottom: 0; }
-
-/* The button that takes this answer's script, under the script and at its right edge — where
-   the eye ends up having read it. */
-.row.taketurn { margin: 0 0 .5rem; }
-
-/* Who is speaking, small and quiet — it is a label on the paragraph under it, not a heading. */
-.chat .who {
-    font-size: 11px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase;
-    color: var(--muted);
-}
-.chat .said { white-space: pre-wrap; }
-
-/* The script itself. Wrapped rather than scrolled sideways: a transcript that scrolls in two
-   directions hides half of what it is for. */
+/* The script, as the assistant's proposed script: its own lines, scrolling past twenty. */
 .chat pre.code {
-    margin: 0 0 .45rem; padding: .45rem .6rem; border-radius: 5px;
-    background: var(--bg); border: 1px solid var(--line);
-    font-family: ui-monospace, Consolas, monospace; font-size: 12.5px; line-height: 1.45;
-    white-space: pre-wrap; overflow-wrap: anywhere;
+    max-height: 22.5rem; overflow: auto; margin: 0;
+    border: 1px solid var(--line-soft); border-radius: 4px; background: var(--panel);
+    padding: .35rem .5rem; font-family: ui-monospace, Consolas, monospace; font-size: 13px;
 }
 
-.chat > .muted.empty { margin: 0; }
+/* The button that takes this answer's script, under the script it takes. */
+.row.taketurn { margin: .35rem 0 0; }
 
-/* And the row that takes the draft sits under the draft — the width of the box it acts on, as
-   the request's row is, and against it rather than out at the foot of an empty card. */
-.row.userow { max-width: var(--prompt-w); padding-top: .55rem; }
+.scriptchat > .estimate { margin: .35rem 0 0; color: var(--muted); font-size: 12px; max-width: var(--prompt-w); }
+
+/* The status, under everything. */
+.row.userow { max-width: var(--prompt-w); padding-top: .4rem; }
 /* The grid starts a card's distance under the row that fills it, rather than against it. */
 .group.tall > .scroll.fill { margin-top: .5rem; }
 .tool-body > .group:last-child, .tool-body > .panel:last-child { margin-bottom: 0; }
@@ -1843,3 +1829,136 @@ dialog.tool[open]:has(> .tool-body.fill) {
 /* The exception's own words, kept but kept small: "TypeError: Failed to fetch" is the truth and
    it is not the sentence anyone needs first. */
 .offline p.muted { font-size: 12px; overflow-wrap: anywhere; }
+
+/* ---- the AI assistant (UI-SPEC §5, The AI assistant) ------------------------------------------
+
+   The desktop's AssistantForm in a tool window: the kept chats down the left, the conversation,
+   the conversation's files on the right, and the status line along the foot. Each side panel is
+   shut by its cross and opened by the arrow in its margin, the whole margin being the button. */
+.assistant-window { display: flex; flex-direction: column; flex: 1 1 auto; min-height: 0; }
+.assistant {
+    flex: 1 1 auto; min-height: 0; display: flex;
+    container: assistant / inline-size;
+    --waiting: #fff8e1;
+}
+:root[data-theme="dark"] .assistant { --waiting: #2c2715; }
+.assistant > .talk { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; padding: 0 .75rem; }
+
+.assistant .chats-panel {
+    flex: 0 0 240px; display: flex; flex-direction: column; min-height: 0;
+    border-right: 1px solid var(--line-soft); padding: .1rem .5rem .4rem 0;
+}
+.assistant .files-panel {
+    flex: 0 0 260px; overflow-y: auto;
+    border-left: 1px solid var(--line-soft); padding: .1rem 0 .4rem .6rem;
+}
+.assistant .panel-head { display: flex; align-items: center; gap: .35rem; }
+.assistant .panel-head .cap { font-weight: 600; }
+.assistant .panel-head .shut svg { width: 14px; height: 14px; }
+.assistant .kept, .assistant .hint { color: var(--muted); font-size: 12px; margin: .35rem 0 .45rem; }
+.assistant .files-panel .hint.foot { margin-top: .6rem; }
+.assistant .chat-rows { flex: 1 1 auto; overflow-y: auto; min-height: 0; }
+.assistant .chat-row { padding: .3rem .4rem; border-radius: 4px; cursor: pointer; }
+.assistant .chat-row:hover { background: var(--accent-soft); }
+.assistant .chat-row.on { background: var(--accent-soft); cursor: default; }
+.assistant .chat-row.on .title { font-weight: 600; }
+.assistant .chat-row.held { cursor: default; }
+.assistant .chat-row.held .title { color: var(--muted); }
+.assistant .chat-row .title { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.assistant .chat-row .foot { display: flex; align-items: baseline; gap: .3rem; font-size: 12px; }
+.assistant .chat-row .when { color: var(--muted); flex: 1 1 auto; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.assistant .chat-row .ask { white-space: nowrap; }
+.assistant .chat-row button.link { font-size: 12px; padding: 0 .1rem; text-decoration: none; }
+.assistant .chat-row button.link:hover:not(:disabled) { text-decoration: underline; background: none; }
+
+/* The arrow in the margin of a shut panel, the files' carrying how many the conversation has sent. */
+/* The arrow in the middle of its margin, top to bottom, twice the text size and in the text's
+   colour, as the desktop's window has it. */
+.assistant .margin-arrow {
+    flex: 0 0 32px; display: flex; flex-direction: column; align-items: center; justify-content: center;
+    gap: .2rem; border: 0; border-radius: 0; background: none; color: var(--ink);
+    padding: 0; font-size: 26px; font-weight: 700; line-height: 1;
+}
+.assistant .margin-arrow:hover:not(:disabled) { background: var(--accent-soft); border-color: transparent; }
+.assistant .margin-arrow .count { font-size: 14px; }
+.assistant .margin-arrow.fold { display: none; }
+/* Too narrow for both panels and the conversation between them: the files stay and the chats
+   fold to their arrow, without the choice changing. Wider again, they come back. */
+@container assistant (max-width: 1120px) {
+    .assistant.both > .chats-panel { display: none; }
+    .assistant.both > .margin-arrow.fold { display: flex; }
+}
+
+.assistant .context { margin: 0 0 .45rem; }
+.assistant .transcript {
+    flex: 1 1 auto; min-height: 0; overflow-y: auto;
+    border: 1px solid var(--line); border-radius: 4px; background: var(--panel-2);
+    padding: .5rem .6rem;
+}
+.assistant.dropping .transcript { outline: 2px dashed var(--accent); outline-offset: -2px; }
+.assistant .turn { padding: .45rem .6rem; margin-bottom: .4rem; border-radius: 4px; }
+.assistant .turn.you, .assistant .turn.tool, .assistant .turn.briefing { background: var(--panel); }
+.assistant .turn.waiting, .assistant .turn.paused { background: var(--waiting); }
+.assistant .turn.dim { opacity: .55; }
+.assistant .turn .who { font-weight: 600; }
+.assistant .turn .words { white-space: pre-wrap; overflow-wrap: anywhere; }
+.assistant .turn .small, .assistant .note { font-size: 12px; color: var(--muted); }
+.assistant .turn .bad, .assistant .problem { color: var(--bad); }
+.assistant .turn .call { font-family: ui-monospace, Consolas, monospace; font-size: 13px; overflow-wrap: anywhere; }
+.assistant .turn .row { margin-top: .35rem; display: flex; gap: .4rem; }
+.assistant .turn img.shot { display: block; max-width: min(100%, 640px); margin-top: .35rem; }
+.assistant .turn pre.script {
+    max-height: 22.5rem; overflow: auto; margin: .35rem 0 0;
+    border: 1px solid var(--line-soft); border-radius: 4px; background: var(--panel-2);
+    padding: .35rem .5rem; font-family: ui-monospace, Consolas, monospace; font-size: 13px;
+}
+.assistant .folded-link { margin-bottom: .4rem; }
+
+.assistant .compact-bar {
+    display: flex; align-items: center; gap: .5rem; flex-wrap: wrap;
+    margin-top: .5rem; padding: .4rem .6rem; border-radius: 4px; background: var(--waiting);
+}
+
+.assistant .composer { padding: .5rem 0 .2rem; }
+.assistant .chips { display: flex; flex-wrap: wrap; gap: .35rem; margin-bottom: .35rem; }
+.assistant .chip {
+    display: inline-flex; align-items: center; gap: .25rem;
+    border: 1px solid var(--line); border-radius: 4px; background: var(--panel);
+    padding: .1rem .15rem .1rem .45rem; font-size: 13px;
+}
+.assistant .chip button, .assistant .file-row button { padding: 0 .2rem; min-height: 0; }
+.assistant .chip svg, .assistant .file-row svg { width: 12px; height: 12px; }
+.assistant .problem { margin: 0 0 .35rem; }
+
+/* The window's commands, while a slash starts the box. */
+.assistant .slash {
+    list-style: none; margin: 0 0 .35rem; padding: 0;
+    border: 1px solid var(--line); border-radius: 4px; background: var(--panel);
+}
+.assistant .slash li { display: flex; gap: .75rem; padding: .25rem .5rem; cursor: pointer; }
+.assistant .slash li .name { font-weight: 600; min-width: 6.5rem; }
+.assistant .slash li .what { flex: 1 1 auto; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.assistant .slash li.held { color: var(--muted); }
+.assistant .slash li.on { background: var(--accent); color: var(--accent-ink); }
+
+/* The pickers and the file buttons in a row that wraps, each label kept with its list, and Send
+   at the end of it. */
+.assistant .assistant-row { display: flex; flex-wrap: wrap; align-items: center; gap: .35rem .5rem; margin-top: .4rem; }
+.assistant .assistant-row .pair { display: inline-flex; align-items: center; gap: .35rem; margin-right: .6rem; }
+.assistant .assistant-row .spacer { flex: 1 1 auto; }
+.assistant .estimate { margin: .35rem 0 0; color: var(--muted); font-size: 12px; }
+
+/* Tools…: a checklist hung over its button, shut by a press anywhere else or by Esc. */
+.assistant .tools-anchor { position: relative; }
+.assistant .tool-picker { top: auto; bottom: calc(100% + .35rem); left: 0; right: auto; min-width: 16rem; }
+.assistant .group-head { font-size: 12px; color: var(--muted); font-weight: 600; margin: .5rem 0 .2rem; }
+.assistant .tool-picker .group-head { margin: .35rem .5rem .15rem; }
+.assistant .tool-picker label.item { cursor: pointer; }
+.assistant .tool-picker label.item input { margin: 0; }
+
+.assistant .file-row { display: flex; align-items: center; gap: .35rem; padding: .15rem 0; }
+.assistant .file-row .name { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.assistant .file-row.off .name { text-decoration: line-through; color: var(--muted); }
+
+.assistant-status { border-top: 1px solid var(--line-soft); margin-top: .35rem; padding: .3rem .1rem 0; color: var(--muted); font-size: 12px; }
+.hidden-input { display: none; }

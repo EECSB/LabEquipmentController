@@ -3,6 +3,7 @@
 @inject BenchClient Bench
 @inject IJSRuntime JS
 @inject NavigationManager Nav
+@inject ScriptHandoff Handoff
 
 @* The desktop app's main window, in the same three bands and the same order: the scan
    controls, the grid of what answered, and then the consoles — one tab per connected
@@ -758,8 +759,34 @@
 
     private bool IsOut(string id) => _out.Contains(id);
 
+    /// <summary>
+    /// A script the AI assistant put forward, from its Use This Script (ScriptHandoff): an
+    /// instrument's into that console's script editor, a sequence into the multi-instrument
+    /// editor, as the desktop's MainForm routes them. Nothing runs until Run.
+    /// </summary>
+    private async Task<string?> TakeWrittenAsync(string? sessionId, string script)
+    {
+        if (sessionId is null)
+        {
+            if (_windows is null) return "The multi-instrument editor is not ready yet. Try again in a moment.";
+            await _windows.TakeWrittenSequenceAsync(script);
+            return null;
+        }
+        if (IsOut(sessionId))
+            return "That instrument's console is open in a tab of its own. Copy the script from the card into its editor there.";
+        if (!_tools.TryGetValue(sessionId, out ConsoleTools? tools))
+            return "That script's instrument is not open any more. Copy it from the card instead.";
+
+        _selected = sessionId;
+        StateHasChanged();
+        await tools.TakeWrittenAsync(script);
+        return null;
+    }
+
     protected override async Task OnInitializedAsync()
     {
+        Handoff.Take = TakeWrittenAsync;
+
         _interfaces = await Bench.InterfacesAsync();
         _interfaceAddress = _interfaces.FirstOrDefault(i => i.HasGateway)?.Address ?? _interfaces.FirstOrDefault()?.Address;
         InterfaceChanged();
@@ -1154,6 +1181,7 @@
         // here reaches the server: the stream ends, and the token it is running under trips.
         _scan?.Cancel();
         Bench.SessionsChanged -= OnBenchChanged;
+        if (Handoff.Take == TakeWrittenAsync) Handoff.Take = null;
 
         try { await JS.InvokeVoidAsync("lec.windows.forget"); }
         catch (JSDisconnectedException) { /* the page is going away; so is the listener */ }

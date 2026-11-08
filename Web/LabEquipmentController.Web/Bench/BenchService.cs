@@ -60,7 +60,7 @@ public sealed class BenchService : IAsyncDisposable
     public BenchService(ILogger<BenchService> log, IHubContext<BenchHub> hub, ServiceMode? service = null)
         => (_log, _hub, _service) = (log, hub, service);
 
-    private bool Service => _service?.Enabled == true;
+    private bool Service => _service?.Driven == true;
 
     /// <summary>
     /// In service mode an instrument a run holds is held against everything, not only against its

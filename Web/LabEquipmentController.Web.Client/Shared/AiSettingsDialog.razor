@@ -1,5 +1,6 @@
 @inject BenchClient Bench
 @inject IJSRuntime JS
+@inject WebAiService Assistant
 
 @* The desktop app's AI Connection box: provider, endpoint, model, key, timeout, and the one
    choice that decides how a PDF is sent. Same fields, same defaults, same Apply.
@@ -144,6 +145,22 @@
                 <input id="ai-timeout" type="number" min="15" max="900" step="15" @bind="_timeout"
                        title="How long to wait for one request. A whole programming guide takes longer than a page." />
                 <span class="muted">seconds for one request &mdash; a whole programming guide takes longer than a page</span>
+            </div>
+
+            @* What a million tokens cost on this model, for the assistant to say what each answer
+               cost - the desktop's row, in its order. Blank is the published rate, which stands
+               behind the empty box where the app knows one; a model with none shows no cost. *@
+            <label for="ai-rate-input">Rates (US$/M):</label>
+            <div class="row tight">
+                <span class="muted">Input</span>
+                <input id="ai-rate-input" type="text" class="rate" inputmode="decimal" @bind="_inputRate" placeholder="@Published(p => p.Input)"
+                       title="US dollars per million input tokens: everything the model reads. Leave blank for the provider's published rate, where the app knows one; a model with no rate shows tokens and no cost." />
+                <span class="muted">Cached</span>
+                <input id="ai-rate-cached" type="text" class="rate" inputmode="decimal" @bind="_cachedRate" placeholder="@Published(p => p.Cached)"
+                       title="US dollars per million input tokens read back from the provider's cache. Blank is charged as input." />
+                <span class="muted">Output</span>
+                <input id="ai-rate-output" type="text" class="rate" inputmode="decimal" @bind="_outputRate" placeholder="@Published(p => p.Output)"
+                       title="US dollars per million output tokens: everything the model writes, its thinking included." />
             </div>
 
             <label>PDF extraction:</label>
@@ -302,6 +319,33 @@
         _local = status.ExtractTextLocally;
         _effort = status.Efforts.Contains(status.Effort) ? status.Effort : status.Efforts.FirstOrDefault() ?? "Default";
         _name = status.Connections.FirstOrDefault(c => c.Id == status.SelectedId)?.Name ?? "";
+
+        AiConnectionDto? selected = status.Connections.FirstOrDefault(c => c.Id == status.SelectedId);
+        _inputRate = RateText(selected?.InputPrice);
+        _cachedRate = RateText(selected?.CachedPrice);
+        _outputRate = RateText(selected?.OutputPrice);
+    }
+
+    private string _inputRate = "";
+    private string _cachedRate = "";
+    private string _outputRate = "";
+
+    private static string RateText(decimal? rate)
+        => rate?.ToString("0.####", System.Globalization.CultureInfo.InvariantCulture) ?? "";
+
+    /// <summary>A rate as typed, or null for blank or anything that is not a number of dollars.</summary>
+    private static decimal? Rate(string typed)
+        => decimal.TryParse(typed.Trim().TrimStart('$'), System.Globalization.NumberStyles.Number,
+                            System.Globalization.CultureInfo.InvariantCulture, out decimal d) && d >= 0
+            ? d
+            : null;
+
+    /// <summary>The table's rate for the model in the box, behind an empty rate box — or nothing where the table has none.</summary>
+    private string Published(Func<LlmPrice, decimal> rate)
+    {
+        if (!Enum.TryParse(_provider, ignoreCase: true, out AiProvider provider)) return "";
+        LlmPrice? published = AiPricing.Published(_model, provider, DateOnly.FromDateTime(DateTime.Today));
+        return published is null ? "" : RateText(rate(published));
     }
 
     /// <summary>
@@ -364,6 +408,7 @@
             var reply = await what();
             if (reply.Error is not null) { _error = reply.Error; return; }
             if (reply.Status is not null) Load(reply.Status);
+            await Assistant.RaiseConnectionsChangedAsync();
         }
         catch (Exception ex) { _error = ex.Message; }
         finally { _busy = false; }
@@ -379,11 +424,14 @@
         {
             var reply = await Bench.AiApplyAsync(
                 new AiSettingsUpdate(_provider, _endpoint, _model, _local, _timeout, key, _effort,
-                                     _status?.SelectedId, _name));
+                                     _status?.SelectedId, _name,
+                                     new AiRates(Rate(_inputRate), Rate(_cachedRate), Rate(_outputRate))));
 
             if (reply.Error is not null) { _error = reply.Error; return; }
             if (reply.Status is not null) Load(reply.Status);
             _applied = true;
+            // The assistant's window picks again, as the desktop's does when AI Connection is applied.
+            await Assistant.RaiseConnectionsChangedAsync();
         }
         catch (Exception ex) { _error = ex.Message; }
         finally { _busy = false; }

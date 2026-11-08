@@ -1,0 +1,1099 @@
+@implements IAsyncDisposable
+@inject WebAiService Ai
+@inject AssistantState State
+@inject BenchClient Bench
+@inject ScriptHandoff Handoff
+@inject IJSRuntime JS
+
+@* The AI assistant (SPEC §11d): the port of the desktop's AssistantForm, control for control
+   (UI-SPEC §5, The AI assistant). A conversation with a model that works the bench through the
+   tools in BenchToolRunner: reads run as it asks, a send waits on its card for Approve on the
+   middle rung, and a script is only ever put forward, with a Use This Script of its own that
+   puts it in an editor where only Run runs it.
+
+   The conversation and everything the window holds between openings is AssistantState, a
+   scoped service: a tool window is taken out of the page when it shuts, where the desktop's is
+   only hidden, so what it holds lives there, an answer still coming included. Everything it
+   stands on (the connections, the relay, the server's kept chats) is WebAiService. *@
+
+<ToolWindow @ref="_window" Title="AI Assistant" Fill="true" OpenWidth="1100" OpenHeight="860" OnClosed="Closed">
+    <div class="assistant-window">
+        <div class="assistant @(State.ChatsOpen && State.FilesOpen ? "both" : null)" @ref="_zone">
+
+            @* ------------------------------------------------------------ the kept chats *@
+            @if (State.ChatsOpen)
+            {
+                <aside class="chats-panel" aria-label="Chats">
+                    <div class="panel-head">
+                        <span class="cap">Chats</span>
+                        <span class="spacer"></span>
+                        <button @onclick="NewChat" disabled="@Busy"
+                                title="@(Busy ? WhyBusy : "Start a new conversation. This one stays in the list below, and what was spent stays counted.")">New Chat</button>
+                        <button class="ghost shut" @onclick="() => State.ChatsOpen = false" title="Hide the chats" aria-label="Hide the chats"><Icon Name="close" /></button>
+                    </div>
+                    <p class="kept" title="Every chat is kept @Ai.KeptWhere from its first question on, after every answer, with its files.">Kept @Ai.KeptWhere.</p>
+                    <div class="chat-rows">
+                        @if (_chatList.Count == 0)
+                        {
+                            <p class="hint">No chats kept yet.</p>
+                        }
+                        @foreach (ChatSummary chat in _chatList)
+                        {
+                            bool current = chat.Id == State.ChatId;
+                            <div class="chat-row @(current ? "on" : null) @(Busy && !current ? "held" : null)" @key="chat.Id"
+                                 title="@(Busy ? WhyBusy : current ? "The chat on screen." : $"Open it and carry on: {chat.Title}")"
+                                 @onclick="() => OpenChatAsync(chat.Id)">
+                                <div class="title">@chat.Title</div>
+                                <div class="foot">
+                                    <span class="when">@When(chat.Updated)@(chat.Bench.Length > 0 ? " · " + chat.Bench : "")</span>
+                                    @if (_confirmingDelete == chat.Id)
+                                    {
+                                        <span class="ask">Delete it?</span>
+                                        <button class="link" @onclick="() => DeleteChatAsync(chat.Id)" @onclick:stopPropagation="true" title="Delete this chat for good">Delete</button>
+                                        <button class="link" @onclick="() => _confirmingDelete = null" @onclick:stopPropagation="true" title="Keep it">Keep</button>
+                                    }
+                                    else
+                                    {
+                                        <button class="link" @onclick="() => ExportAsync(chat.Id)" @onclick:stopPropagation="true" disabled="@Busy"
+                                                title="@(Busy ? WhyBusy : "Save this chat as text: every turn, each call with what it answered, and what each answer cost.")">Save</button>
+                                        <button class="link" @onclick="() => _confirmingDelete = chat.Id" @onclick:stopPropagation="true" disabled="@Busy"
+                                                title="@(Busy ? WhyBusy : "Delete this chat. It asks first, here in the row.")">Delete</button>
+                                    }
+                                </div>
+                            </div>
+                        }
+                    </div>
+                </aside>
+                @* Shown only on a window too narrow for both panels (the stylesheet's container query),
+                   where it chooses the chats over the files. *@
+                <button class="margin-arrow left fold" @onclick="ChatsOverFiles" title="Show the chats kept @Ai.KeptWhere">›</button>
+            }
+            else
+            {
+                <button class="margin-arrow left" @onclick="() => State.ChatsOpen = true" title="Show the chats kept @Ai.KeptWhere">›</button>
+            }
+
+            @* ------------------------------------------------------------ the conversation *@
+            <section class="talk">
+                <p class="context">@AssistantPrompt.Context(_benchNow)</p>
+
+                <div class="transcript" @ref="_transcript">
+                    @{
+                        IReadOnlyList<ChatTurn> turns = State.Chat.Turns;
+                        int folded = Math.Min(State.Chat.FoldedBefore, turns.Count);
+                    }
+                    @if (folded > 0)
+                    {
+                        <button class="link folded-link" @onclick="() => State.ShowFolded = !State.ShowFolded"
+                                title="What a compaction folded away: kept to read, and in the export, but no longer sent.">
+                            @(State.ShowFolded ? "Hide what came before the briefing" : $"Show the {folded} turns before the briefing")
+                        </button>
+                    }
+                    @for (int i = State.ShowFolded ? 0 : folded; i < turns.Count; i++)
+                    {
+                        ChatTurn turn = turns[i];
+                        bool dim = i < folded;
+                        bool waiting = AssistantPrompt.Waiting(turn);
+                        <div class="turn @KindOf(turn) @(dim ? "dim" : null) @(waiting ? "waiting" : null)" @key="turn">
+                            @switch (turn.Kind)
+                            {
+                                case ChatTurn.User:
+                                    <div class="who">You</div>
+                                    <div class="words">@turn.Text</div>
+                                    @if (turn.Attachments.Count > 0)
+                                    {
+                                        <div class="small">@string.Join("   ", turn.Attachments.Select(a => $"📎 {a.Name} ({AiAttachment.Size(a.Data.Length)}){(a.Excluded ? ", left out" : "")}"))</div>
+                                    }
+                                    break;
+
+                                case ChatTurn.Assistant:
+                                    <div class="words">@turn.Text</div>
+                                    <div class="small">@AiChat.UsageLine(turn)</div>
+                                    break;
+
+                                case ChatTurn.Tool:
+                                    <div class="call"><span>@turn.ToolName</span>&nbsp;&nbsp; <span>@AssistantPrompt.CallLine(turn.ArgumentsJson)</span></div>
+                                    @if (AssistantPrompt.CallState(turn) is { Length: > 0 } state)
+                                    {
+                                        <div class="small @(turn.Decision == false ? "bad" : null)">@state</div>
+                                    }
+                                    @if (waiting)
+                                    {
+                                        <div class="row">
+                                            <button class="@(turn.Changes ? "primary" : null)" @onclick="() => State.Chat.Decide(turn, true)">@(turn.Changes ? "Approve and Send" : "Approve")</button>
+                                            <button @onclick="() => State.Chat.Decide(turn, false)">Decline</button>
+                                        </div>
+                                    }
+                                    @if (turn.Result is string result)
+                                    {
+                                        <div class="words @(turn.ResultIsError ? "bad" : null)">@result</div>
+                                    }
+                                    @if (turn.Png is string png)
+                                    {
+                                        <img class="shot" src="data:image/png;base64,@png" alt="The instrument's screen, as the model was shown it." />
+                                    }
+                                    @if (turn.Proposal is string script)
+                                    {
+                                        <pre class="script">@script</pre>
+                                        <div class="row">
+                                            <button @onclick="() => UseScriptAsync(turn)"
+                                                    title="Put it in the script editor, to read and run there. Nothing runs until you press Run.">Use This Script</button>
+                                        </div>
+                                    }
+                                    break;
+
+                                case ChatTurn.Error:
+                                    <div class="words bad">@turn.Text</div>
+                                    <div class="small">@AiChat.UsageLine(turn)</div>
+                                    break;
+
+                                case ChatTurn.Paused:
+                                    <div class="words">@turn.Text</div>
+                                    <div class="row">
+                                        <button @onclick="() => SendAsync(ContinueWord, fromBox: false)"
+                                                disabled="@(Busy || !ReferenceEquals(turn, turns[^1]))"
+                                                title="Carry on for as many rounds again. Each round sends the conversation again.">Continue</button>
+                                    </div>
+                                    break;
+
+                                case ChatTurn.Summary:
+                                    <div class="who">Briefing: the conversation above, compacted. The model is sent this in its place.</div>
+                                    <div class="words">@turn.Text</div>
+                                    @if (turn.Attachments.Count > 0)
+                                    {
+                                        <div class="small">Kept from before it, unticked in the files panel: @string.Join(", ", turn.Attachments.Select(a => a.Name))</div>
+                                    }
+                                    <div class="small">@AiChat.UsageLine(turn)</div>
+                                    break;
+
+                                default:
+                                    <div class="small">@turn.Text</div>
+                                    break;
+                            }
+                        </div>
+                    }
+                    @if (turns.Count == 0)
+                    {
+                        <p class="small note">Nothing asked yet. Ask about the bench, attach a datasheet or a screenshot, ask for a script, or type / for the window's commands.</p>
+                    }
+                </div>
+
+                @if (WorthCompacting(out string suggestion))
+                {
+                    <div class="compact-bar">
+                        <span>@suggestion</span>
+                        <span class="spacer"></span>
+                        <button @onclick="CompactAsync"
+                                title="Put a briefing in place of the conversation so far. What it stands in for stays on screen, and is not sent again.">Compact</button>
+                        <button @onclick="() => State.Chat.CompactSuggestionDismissed = true"
+                                title="Put the suggestion away until the conversation is next compacted, or a new one starts.">Not Now</button>
+                    </div>
+                }
+
+                <div class="composer">
+                    @if (State.Chat.Pending is { Count: > 0 } waitingFiles)
+                    {
+                        <div class="chips">
+                            @foreach (AiAttachment file in waitingFiles)
+                            {
+                                <span class="chip">
+                                    @file.Name&nbsp; @AiAttachment.Size(file.Data.Length)
+                                    <button class="ghost" @onclick="() => Unattach(file)" title="Take it off the next question" aria-label="Take @file.Name off the next question"><Icon Name="close" /></button>
+                                </span>
+                            }
+                        </div>
+                    }
+                    @if (ProblemLine() is { Length: > 0 } problem)
+                    {
+                        <p class="problem">@problem</p>
+                    }
+                    @{ List<SlashCommand> listed = SlashShown(); }
+                    @if (listed.Count > 0)
+                    {
+                        <ul class="slash" role="listbox" aria-label="The window's commands">
+                            @for (int i = 0; i < listed.Count; i++)
+                            {
+                                SlashCommand command = listed[i];
+                                <li role="option" aria-selected="@(i == Marked(listed) ? "true" : "false")"
+                                    class="@(i == Marked(listed) ? "on" : null) @(command.WhyNot is null ? null : "held")"
+                                    @onmousedown:preventDefault="true" @onmousedown="() => RunSlashAsync(command, string.Empty)">
+                                    <span class="name">@command.Name</span>
+                                    <span class="what">@command.What@(command.WhyNot is null ? "" : "  " + command.WhyNot)</span>
+                                </li>
+                            }
+                        </ul>
+                    }
+                    <textarea class="prompt" @ref="_box" rows="1" @bind="State.Draft" @bind:event="oninput" @bind:after="Typed"
+                              data-slash-menu="@(listed.Count > 0 ? "open" : "closed")"
+                              placeholder="Ask about the bench, or type / for the window's commands"
+                              title="Enter sends, Shift+Enter starts a new line. A slash at the start lists the window's commands."
+                              aria-label="Ask the assistant"></textarea>
+
+                    <div class="assistant-row">
+                        <span class="pair">
+                            <span class="muted">Using:</span>
+                            <select @onchange="PickAsync" disabled="@Busy" title="Which saved AI connection answers. They are set up under AI settings… in the gear.">
+                                @{ IReadOnlyList<string> labels = _book.Labels(); }
+                                @if (_book.Items.Count == 0)
+                                {
+                                    <option value="" selected>No connection</option>
+                                }
+                                @for (int i = 0; i < _book.Items.Count; i++)
+                                {
+                                    AiConnection one = _book.Items[i];
+                                    <option value="@one.Id" selected="@(one.Id == _connection?.Id)">@labels[i]</option>
+                                }
+                            </select>
+                        </span>
+                        <span class="pair">
+                            <span class="muted">Effort:</span>
+                            <select @bind="State.Effort" disabled="@(AiModels.EffortLevels(_connection).Count == 0)"
+                                    title="How hard the model is asked to think, for this question only. Thinking is billed as output.">
+                                <option value="">@DefaultEffortLabel()</option>
+                                @foreach (string level in AiModels.EffortLevels(_connection))
+                                {
+                                    <option value="@level">@Cap(level)</option>
+                                }
+                            </select>
+                        </span>
+                        <span class="pair">
+                            <span class="muted">Changes:</span>
+                            <select @onchange="PickRung"
+                                    title="Ask before every step: every call waits for you, reads included. Ask before changes: reads run at once; each send waits for you. Change without asking: sends run at once too. There is no undo on an instrument.">
+                                @foreach (ToolApprovalMode mode in AssistantPrompt.Rungs)
+                                {
+                                    <option value="@mode" selected="@(mode == State.Chat.Mode)">@AssistantPrompt.RungLabel(mode)</option>
+                                }
+                            </select>
+                        </span>
+                        <button @onclick="PickFilesAsync"
+                                title="Attach pictures, PDFs or text files to the next question. A picture can be pasted into the box, and files dropped on the window.">Attach Files…</button>
+                        <button @onclick="ScreenshotAsync"
+                                title="Attach a picture of a screen, a window or a tab, which the browser asks you to choose."><Icon Name="camera" /> Screenshot</button>
+                        <span class="tools-anchor">
+                            <button @onclick="() => _toolsOpen = !_toolsOpen" disabled="@Busy" aria-expanded="@(_toolsOpen ? "true" : "false")"
+                                    title="Switch tools off for this conversation. A tool switched off is not offered, and the model is told so.">@ToolsLabel()</button>
+                            @if (_toolsOpen)
+                            {
+                                <div class="scrim" @onmousedown="() => _toolsOpen = false"></div>
+                                <div class="menu tool-picker" tabindex="-1" @ref="_toolCard"
+                                     @onkeydown="ToolKey" @onkeydown:stopPropagation="true">
+                                    @foreach (var (heading, tools) in ToolGroups())
+                                    {
+                                        <div class="group-head">@heading</div>
+                                        @foreach (LlmTool tool in tools)
+                                        {
+                                            <label class="item check" title="@tool.Description.Split('\n')[0]">
+                                                <input type="checkbox" checked="@(!State.Chat.ToolsOff.Contains(tool.Name))"
+                                                       @onchange="e => SwitchTool(tool.Name, e.Value is true)" />
+                                                @tool.Name
+                                            </label>
+                                        }
+                                    }
+                                    <div class="rule"></div>
+                                    <button class="item" @onclick="AllToolsOn" disabled="@(State.Chat.ToolsOff.Count == 0)">Every tool on</button>
+                                    <button class="item" @onclick="CompactFromMenuAsync" disabled="@(State.Chat.WhyNotCompact() is not null)"
+                                            title="@(State.Chat.WhyNotCompact() ?? "Put a briefing in place of the conversation so far.")">Compact the conversation</button>
+                                </div>
+                            }
+                        </span>
+                        <span class="spacer"></span>
+                        @* Send and Stop are one button, in one place: a double-click on Send must not stop
+                           what it sent, so a press counted as the second of a pair is let go. *@
+                        <button class="primary send" @onclick="SendOrStopAsync" disabled="@(!Busy && !CanSend)"
+                                title="Send the question (Enter). While an answer is coming, Stop."><Icon Name="ai" /> @(Busy ? "Stop" : "Send")</button>
+                    </div>
+                    <p class="estimate">@Estimate()</p>
+                </div>
+            </section>
+
+            @* ------------------------------------------------------------ the conversation's files *@
+            @if (State.FilesOpen)
+            {
+                List<(ChatTurn Question, AiAttachment File)> sent = State.Chat.SentFiles();
+                <aside class="files-panel" aria-label="Files">
+                    <div class="panel-head">
+                        <span class="cap">Files</span>
+                        <span class="spacer"></span>
+                        <button class="ghost shut" @onclick="() => State.FilesOpen = false" title="Hide the files" aria-label="Hide the files"><Icon Name="close" /></button>
+                    </div>
+                    <div class="group-head">In this conversation</div>
+                    @if (sent.Count == 0)
+                    {
+                        <p class="hint">None yet. A file sent with a question is listed here, to be left out of the questions after it.</p>
+                    }
+                    @foreach (var (question, file) in sent)
+                    {
+                        <label class="file-row @(file.Excluded ? "off" : null)" @key="(file, file.Excluded, _filesDrawn)"
+                               title="@((file.Excluded ? "Left out: not sent with the questions after it. " : "") + (question.Kind == ChatTurn.Summary ? "Kept from before the briefing. Ticked, it goes with every question again." : $"Sent with: {Cut(question.Text, 160)}"))">
+                            <input type="checkbox" checked="@(!file.Excluded)" disabled="@Busy" @onchange="e => Include(file, e.Value is true)" />
+                            <span class="name">@file.Name</span>
+                            <span class="muted">@AiAttachment.Size(file.Data.Length)</span>
+                        </label>
+                    }
+                    <div class="group-head">With the next question</div>
+                    @if (State.Chat.Pending.Count == 0)
+                    {
+                        <p class="hint">Nothing waiting. Attach Files…, a paste or a drop puts one here.</p>
+                    }
+                    @foreach (AiAttachment file in State.Chat.Pending)
+                    {
+                        <div class="file-row">
+                            <span class="name">@file.Name</span>
+                            <span class="muted">@AiAttachment.Size(file.Data.Length)</span>
+                            <span class="spacer"></span>
+                            <button class="ghost" @onclick="() => Unattach(file)" title="Take it off the next question" aria-label="Take @file.Name off the next question"><Icon Name="close" /></button>
+                        </div>
+                    }
+                    @if (_filesProblem.Length > 0)
+                    {
+                        <p class="problem">@_filesProblem</p>
+                    }
+                    <p class="hint foot">@FilesFoot(sent)</p>
+                </aside>
+            }
+            else
+            {
+                int count = State.Chat.SentFiles().Count;
+                <button class="margin-arrow right" @onclick="() => State.FilesOpen = true"
+                        title="@(count == 0 ? "Show the files panel. No file has gone with a question yet." : $"Show the files: {count} in this conversation.")">‹@if (count > 0) {<span class="count">@count</span>}</button>
+            }
+        </div>
+
+        <div class="assistant-status">@State.Status</div>
+        <InputFile @ref="_input" OnChange="AttachAsync" multiple class="hidden-input" tabindex="-1" aria-hidden="true" />
+    </div>
+</ToolWindow>
+
+@code {
+    /// <summary>The window has shut, by its ✕ or Esc. What it holds stays in AssistantState.</summary>
+    [Parameter] public EventCallback OnClosed { get; set; }
+
+    /// <summary>Asked for AI settings: <c>/settings</c>.</summary>
+    [Parameter] public EventCallback OnSettings { get; set; }
+
+    private const string NoConnection = "No AI connection is set up. AI settings… in the gear adds one.";
+    private const string WhyBusy = "Not while an answer is coming. Stop it first.";
+    private const string ContinueWord = "Continue";
+
+    /// <summary>One of the window's slash commands: its name, what it does, why it cannot run now (or null), and what it does with any words after its name.</summary>
+    private sealed record SlashCommand(string Name, string What, string? WhyNot, Func<string, Task> Run);
+
+    private ToolWindow? _window;
+    private ElementReference _zone;
+    private ElementReference _box;
+    private ElementReference _transcript;
+    private ElementReference _toolCard;
+    private InputFile? _input;
+    private DotNetObjectReference<Assistant>? _self;
+    private bool _disposed;
+
+    private AiConnections _book = new();
+    private AiConnection? _connection;
+    private IReadOnlyList<BenchInstrument> _benchNow = [];
+    private List<ChatSummary> _chatList = [];
+    private string? _confirmingDelete;
+    private string _attachProblem = "";
+    private string _filesProblem = "";
+    private int _filesDrawn;
+    private bool _toolsOpen;
+    private bool _toolsFocused;
+    private bool _focusBox = true;
+    private bool _caretToEnd;
+    private int _drawnTurns = -1;
+
+    /// <summary>The marked command in the list, and the words the list was put away at by Esc, until they change.</summary>
+    private int _slashMarked;
+    private string? _slashPutAwayFor;
+
+    private bool Busy => State.Chat.Generating;
+
+    /// <summary>Brings the window forward when it is asked for again.</summary>
+    public Task RaiseAsync() => _window?.RaiseAsync() ?? Task.CompletedTask;
+
+    protected override async Task OnInitializedAsync()
+    {
+        State.Chat.Changed += OnChatChanged;
+        State.Changed += OnStateChanged;
+        Ai.Chats.Changed += OnChatsChanged;
+        Ai.ConnectionsChanged += OnConnectionsChanged;
+        Bench.SessionsChanged += OnSessionsChanged;
+
+        // The box opens on a question that works as it stands, selected, so Enter sends it and the
+        // first key typed replaces it.
+        if (!State.OpenedBefore)
+        {
+            State.OpenedBefore = true;
+            if (State.Chat.Turns.Count == 0 && State.Draft.Length == 0) State.Draft = AssistantPrompt.StatusQuestion;
+        }
+
+        await PickConnectionAsync();
+        await ReadBenchAsync();
+        await ReadChatsAsync();
+    }
+
+    protected override async Task OnAfterRenderAsync(bool first)
+    {
+        if (_disposed) return;
+        if (first)
+        {
+            _self = DotNetObjectReference.Create(this);
+            await JS.InvokeVoidAsync("lec.assistant.box", _box, _input?.Element, _self);
+            await JS.InvokeVoidAsync("lec.assistant.drop", _zone, _input?.Element);
+        }
+        if (_focusBox)
+        {
+            _focusBox = false;
+            await JS.InvokeVoidAsync("lec.assistant.focusSelect", _box, State.Draft == AssistantPrompt.StatusQuestion);
+        }
+        if (_caretToEnd)
+        {
+            _caretToEnd = false;
+            await JS.InvokeVoidAsync("lec.assistant.caretToEnd", _box);
+        }
+        if (_toolsOpen && !_toolsFocused)
+        {
+            _toolsFocused = true;
+            await JS.InvokeVoidAsync("lec.focus", _toolCard);
+        }
+        if (!_toolsOpen) _toolsFocused = false;
+
+        int count = State.Chat.Turns.Count;
+        if (count != _drawnTurns)
+        {
+            _drawnTurns = count;
+            await JS.InvokeVoidAsync("lec.scrollToEnd", _transcript);
+        }
+        await JS.InvokeVoidAsync("lec.assistant.fit", _box);
+    }
+
+    // ------------------------------------------------------------------- what it is told
+
+    private async Task PickConnectionAsync()
+    {
+        try
+        {
+            _book = await Ai.LoadConnectionsAsync();
+        }
+        catch (Exception e) when (e is HttpRequestException or InvalidOperationException)
+        {
+            _book = new AiConnections();
+            State.Say("The connections could not be read: " + e.Message);
+        }
+        _connection = _book.Selected?.Clone();
+        if (State.Effort.Length > 0 && !AiModels.EffortLevels(_connection).Contains(State.Effort)) State.Effort = "";
+    }
+
+    private async Task ReadBenchAsync()
+    {
+        try
+        {
+            _benchNow = await State.BenchAsync();
+        }
+        catch (Exception e) when (e is HttpRequestException or InvalidOperationException)
+        {
+            _benchNow = [];
+        }
+    }
+
+    private async Task ReadChatsAsync()
+    {
+        try
+        {
+            _chatList = await Ai.Chats.ListAsync();
+        }
+        catch (Exception e) when (e is HttpRequestException or InvalidOperationException)
+        {
+            _chatList = [];
+            State.Say("The chats could not be read: " + e.Message);
+        }
+    }
+
+    private async Task PickAsync(ChangeEventArgs e)
+    {
+        if (Busy || e.Value is not string id || id.Length == 0) return;
+        await Ai.SelectAsync(id);
+        await PickConnectionAsync();
+    }
+
+    private void PickRung(ChangeEventArgs e)
+    {
+        // In force at once, an answer in the middle of coming included (AiChat.Mode).
+        if (Enum.TryParse(e.Value as string, out ToolApprovalMode mode)) State.Chat.Mode = mode;
+    }
+
+    private string DefaultEffortLabel()
+    {
+        string said = AiModels.DefaultEffort(_connection);
+        return said.Length == 0 ? "Default" : $"Default ({said})";
+    }
+
+    private static string Cap(string s) => s.Length == 0 ? s : char.ToUpperInvariant(s[0]) + s[1..];
+
+    /// <summary>Why a question cannot be asked now, or null: no connection, no key, or a file the connection cannot be sent.</summary>
+    private string? WhyNotAskNow()
+    {
+        if (_connection is null) return NoConnection;
+        return Ai.WhyNotAsk(_connection) ?? WhyNotSend();
+    }
+
+    /// <summary>Why Send waits, or null: a file in the box that the picked model cannot be sent.</summary>
+    private string? WhyNotSend()
+    {
+        if (_connection is null) return null;
+        foreach (AiAttachment file in State.Chat.Pending)
+        {
+            if (AiAttachment.NotSentTo(_connection, file) is string reason) return reason;
+        }
+        return null;
+    }
+
+    private bool CanSend
+    {
+        get
+        {
+            string text = State.Draft.Trim();
+            if (text.Length == 0) return false;
+            return text.StartsWith('/') || (_connection is not null && WhyNotSend() is null);
+        }
+    }
+
+    private string ProblemLine()
+    {
+        if (!Busy && WhyNotSend() is string cannot) return cannot;
+        return _attachProblem;
+    }
+
+    // ------------------------------------------------------------------- sending
+
+    [JSInvokable]
+    public async Task SendRequest()
+    {
+        if (!Busy) await SendFromBoxAsync();
+    }
+
+    private async Task SendOrStopAsync(MouseEventArgs e)
+    {
+        if (Busy)
+        {
+            if (e.Detail < 2) State.Chat.Cancel();
+            return;
+        }
+        await SendFromBoxAsync();
+    }
+
+    private async Task SendFromBoxAsync()
+    {
+        string text = State.Draft;
+        if (await TryRunSlashAsync(text)) return;
+        if (CanSend) await SendAsync(text, fromBox: true);
+    }
+
+    private async Task SendAsync(string text, bool fromBox)
+    {
+        if (Busy || string.IsNullOrWhiteSpace(text)) return;
+        if (WhyNotAskNow() is string why)
+        {
+            State.Say(why);
+            return;
+        }
+
+        if (fromBox) State.Draft = "";
+        _attachProblem = "";
+        ChatOutcome outcome = await State.SendAsync(text, _connection!);
+
+        // A question that failed gave its files back to the box; its words go back with them when
+        // the box is still empty, so asking again is one press.
+        if (outcome == ChatOutcome.Failed && State.Chat.GaveFilesBack && State.Draft.Length == 0)
+            State.Draft = text;
+        Redraw();
+    }
+
+    private async Task CompactAsync()
+    {
+        if (_connection is null || Ai.WhyNotAsk(_connection) is not null)
+        {
+            State.Say(WhyNotAskNow() ?? NoConnection);
+            return;
+        }
+        await State.CompactAsync(_connection);
+        Redraw();
+    }
+
+    private async Task CompactFromMenuAsync()
+    {
+        _toolsOpen = false;
+        await CompactAsync();
+    }
+
+    /// <summary>The suggestion to compact, when it is worth it, priced both ways.</summary>
+    private bool WorthCompacting(out string suggestion)
+    {
+        suggestion = "";
+        if (_connection is null || !State.Chat.WorthCompacting(_connection)) return false;
+
+        long history = State.Chat.HistoryTokens(_connection);
+        LlmPrice? price = AiPricing.For(_connection, DateOnly.FromDateTime(DateTime.Now));
+        string each = price is null ? "" : $" ({AiPricing.AboutMoney(price.CostOfInput(history))} each time)";
+        string once = AiChat.CompactCost(price, history) is decimal dollars ? $", for {AiPricing.AboutMoney(dollars)} once" : "";
+        suggestion = $"Every question now sends about {AiPricing.About(history)} tokens of history again{each}. "
+                   + $"Compacting puts a briefing in its place{once}.";
+        return true;
+    }
+
+    /// <summary>
+    /// What the next question will carry, before it is sent (the instructions, the tools, the
+    /// conversation and its files, the box), in tokens and, where the model has a rate, dollars.
+    /// </summary>
+    private string Estimate()
+    {
+        if (_connection is null) return NoConnection;
+        string system = AssistantPrompt.Build(_benchNow, State.Chat.Mode, State.Chat.ToolsOff, AssistantState.Where, DateTime.Now);
+        long tokens = State.Chat.EstimateTokens(system, State.Tools.Tools, _connection, State.Draft);
+        LlmPrice? price = AiPricing.For(_connection, DateOnly.FromDateTime(DateTime.Now));
+        string cost = price is null ? "" : $" ({AiPricing.AboutMoney(price.CostOfInput(tokens))} to read)";
+        return $"The next question sends about {AiPricing.About(tokens)} tokens{cost}, and again with every round of tool calls.";
+    }
+
+    // ------------------------------------------------------------------- slash commands
+
+    /// <summary>
+    /// The window's commands, built in one place from the state its buttons are enabled by, so a
+    /// command and its button cannot disagree. One that cannot run now stays listed, dimmed,
+    /// saying why. Nothing reaches the model by its slash: a name that is no command is sent as written.
+    /// </summary>
+    private List<SlashCommand> SlashCommands()
+    {
+        string? answering = Busy ? "Not while an answer is coming." : null;
+        string? asking = answering ?? WhyNotAskNow();
+        return
+        [
+            new("/new", "Start a new chat. This one stays in the chats list.", answering, none => { NewChat(); return Task.CompletedTask; }),
+            new("/compact", "Put a briefing in place of the conversation so far, to send less with every question.",
+                State.Chat.WhyNotCompact() ?? (_connection is null ? NoConnection : Ai.WhyNotAsk(_connection)), none => CompactAsync()),
+            new("/export", "Save this conversation as text.",
+                answering ?? (State.Chat.Turns.Count == 0 ? "Nothing has been said yet." : null), none => ExportAsync(null)),
+            new("/tools", "Choose the tools this conversation may use.", answering, none => { _toolsOpen = true; return Task.CompletedTask; }),
+            new("/screenshot", "Attach a picture of a screen, a window or a tab.", null, none => ScreenshotAsync()),
+            new("/settings", "Open AI settings, where the connections and their keys are kept.", null, none => OnSettings.InvokeAsync()),
+            new("/status", "Ask what is open and what each instrument reads now.", asking,
+                words => SendAsync(With(AssistantPrompt.StatusQuestion, words), fromBox: false)),
+            new("/errors", "Ask for every instrument's error queue, read and explained.", asking,
+                words => SendAsync(With(AssistantPrompt.ErrorsQuestion, words), fromBox: false)),
+            new("/script", "Start a request for a script, to finish in the box.", null,
+                none => { StartRequest(AssistantPrompt.ScriptStart); return Task.CompletedTask; }),
+        ];
+    }
+
+    private static string With(string question, string words)
+        => string.IsNullOrWhiteSpace(words) ? question : $"{question} {words.Trim()}";
+
+    /// <summary>The commands listed while a slash starts the box and nothing else has been typed after the name, narrowed as it is typed.</summary>
+    private List<SlashCommand> SlashShown()
+    {
+        string text = State.Draft;
+        bool typing = text.StartsWith('/') && !text.Any(char.IsWhiteSpace) && _slashPutAwayFor != text;
+        return typing ? [.. SlashCommands().Where(c => c.Name.StartsWith(text, StringComparison.OrdinalIgnoreCase))] : [];
+    }
+
+    private int Marked(List<SlashCommand> listed) => Math.Clamp(_slashMarked, 0, Math.Max(0, listed.Count - 1));
+
+    private void Typed()
+    {
+        if (_slashPutAwayFor is not null && _slashPutAwayFor != State.Draft) _slashPutAwayFor = null;
+    }
+
+    [JSInvokable]
+    public async Task SlashKey(string key)
+    {
+        List<SlashCommand> listed = SlashShown();
+        if (listed.Count == 0) return;
+        int marked = Marked(listed);
+        switch (key)
+        {
+            case "ArrowUp":
+                _slashMarked = (marked - 1 + listed.Count) % listed.Count;
+                break;
+            case "ArrowDown":
+                _slashMarked = (marked + 1) % listed.Count;
+                break;
+            case "Tab":
+                // The name written out, so words can follow it; the list goes as a space is typed.
+                State.Draft = listed[marked].Name + " ";
+                _caretToEnd = true;
+                break;
+            case "Escape":
+                _slashPutAwayFor = State.Draft;
+                break;
+            case "Enter":
+                await RunSlashAsync(listed[marked], "");
+                break;
+        }
+        StateHasChanged();
+    }
+
+    /// <summary>Runs the box's words as a command when they start with one written out in full; false when they are to be sent.</summary>
+    private async Task<bool> TryRunSlashAsync(string text)
+    {
+        string trimmed = text.Trim();
+        if (!trimmed.StartsWith('/')) return false;
+
+        int space = trimmed.IndexOfAny([' ', '\t', '\r', '\n']);
+        string name = space < 0 ? trimmed : trimmed[..space];
+        SlashCommand? command = SlashCommands().FirstOrDefault(c => string.Equals(c.Name, name, StringComparison.OrdinalIgnoreCase));
+        if (command is null) return false;
+
+        await RunSlashAsync(command, space < 0 ? "" : trimmed[(space + 1)..]);
+        return true;
+    }
+
+    private async Task RunSlashAsync(SlashCommand command, string words)
+    {
+        _slashMarked = 0;
+        if (command.WhyNot is string why)
+        {
+            State.Say($"{command.Name}: {why}");
+            return;
+        }
+        State.Draft = "";
+        _focusBox = true;
+        await command.Run(words);
+    }
+
+    private void StartRequest(string start)
+    {
+        State.Draft = start;
+        _caretToEnd = true;
+    }
+
+    // ------------------------------------------------------------------- the tool picker
+
+    private static IEnumerable<(string Heading, IEnumerable<LlmTool> Tools)> ToolGroups() =>
+    [
+        ("Reading", BenchToolRunner.All.Where(t => !t.Changes && !t.Proposes)),
+        ("Changing an instrument", BenchToolRunner.All.Where(t => t.Changes)),
+        ("Proposing", BenchToolRunner.All.Where(t => t.Proposes)),
+    ];
+
+    private void SwitchTool(string name, bool on)
+    {
+        if (Busy) return;
+        if (on) State.Chat.ToolsOff.Remove(name);
+        else State.Chat.ToolsOff.Add(name);
+    }
+
+    private void AllToolsOn()
+    {
+        State.Chat.ToolsOff.Clear();
+        _toolsOpen = false;
+    }
+
+    private void ToolKey(KeyboardEventArgs e)
+    {
+        if (e.Key == "Escape") _toolsOpen = false;
+    }
+
+    private string ToolsLabel() => State.Chat.ToolsOff.Count == 0 ? "Tools…" : $"Tools… ({State.Chat.ToolsOff.Count} off)";
+
+    // ------------------------------------------------------------------- kept chats
+
+    private void NewChat()
+    {
+        if (Busy) return;
+        State.NewChat();
+        _confirmingDelete = null;
+        _focusBox = true;
+    }
+
+    private async Task OpenChatAsync(string id)
+    {
+        if (Busy)
+        {
+            State.Say(WhyBusy);
+            return;
+        }
+        if (_confirmingDelete is not null) return;
+        string? why;
+        try
+        {
+            why = await State.OpenAsync(id);
+        }
+        catch (Exception e) when (e is HttpRequestException or InvalidOperationException)
+        {
+            why = "That chat could not be read: " + e.Message;
+        }
+        if (why is not null)
+        {
+            State.Say(why);
+            await ReadChatsAsync();
+        }
+        _drawnTurns = -1;
+        Redraw();
+    }
+
+    private async Task DeleteChatAsync(string id)
+    {
+        _confirmingDelete = null;
+        try
+        {
+            await State.DeleteAsync(id);
+        }
+        catch (Exception e) when (e is HttpRequestException or InvalidOperationException)
+        {
+            State.Say("That chat could not be deleted: " + e.Message);
+        }
+        await ReadChatsAsync();
+        Redraw();
+    }
+
+    /// <summary>A chat as text, downloaded: the one on screen for <c>/export</c> and its row, another as it was kept.</summary>
+    private async Task ExportAsync(string? id)
+    {
+        if (Busy) return;
+        if (id is null && State.Chat.Turns.Count == 0) return;
+        (string Title, string Text)? written;
+        try
+        {
+            written = await State.TranscriptAsync(id);
+        }
+        catch (Exception e) when (e is HttpRequestException or InvalidOperationException)
+        {
+            State.Say("That chat could not be read: " + e.Message);
+            return;
+        }
+        if (written is not (string title, string text))
+        {
+            State.Say("That chat is gone: it was deleted, or its file will not read.");
+            await ReadChatsAsync();
+            return;
+        }
+        string name = FileNameFor(title);
+        await JS.InvokeVoidAsync("lec.download", name, "text/plain;charset=utf-8", Convert.ToBase64String(System.Text.Encoding.UTF8.GetBytes(text)));
+        State.Say("Saved as " + name + ".");
+    }
+
+    private static string FileNameFor(string title)
+    {
+        char[] bad = ['\\', '/', ':', '*', '?', '"', '<', '>', '|'];
+        string safe = new string(title.Select(c => bad.Contains(c) || char.IsControl(c) ? '-' : c).ToArray()).Trim().TrimEnd('.');
+        if (safe.Length > 60) safe = safe[..60].Trim();
+        return (safe.Length > 0 ? safe : "chat") + $" {DateTime.Now:yyyy-MM-dd}.txt";
+    }
+
+    private static string When(DateTime kept)
+    {
+        DateTime local = kept.Kind == DateTimeKind.Utc ? kept.ToLocalTime() : kept;
+        DateTime now = DateTime.Now;
+        if (local.Date == now.Date) return local.ToString("HH:mm", System.Globalization.CultureInfo.CurrentCulture);
+        if (local.Year == now.Year) return local.ToString("d MMM, HH:mm", System.Globalization.CultureInfo.CurrentCulture);
+        return local.ToString("d MMM yyyy", System.Globalization.CultureInfo.CurrentCulture);
+    }
+
+    /// <summary>The arrow shown on a window too narrow for both panels: the chats chosen over the files, which shut to make the room.</summary>
+    private void ChatsOverFiles()
+    {
+        State.FilesOpen = false;
+        State.ChatsOpen = true;
+    }
+
+    // ------------------------------------------------------------------- files
+
+    private async Task PickFilesAsync() => await JS.InvokeVoidAsync("lec.assistant.pick", _input?.Element);
+
+    /// <summary>
+    /// A screenshot, which the browser asks for: a screen, a window or a tab. It goes in through
+    /// the file input as a chosen file does; a picker closed without a choice says nothing.
+    /// </summary>
+    private async Task ScreenshotAsync()
+    {
+        string? said = await JS.InvokeAsync<string?>("lec.assistant.screenshot", _input?.Element);
+        if (said is { Length: > 0 })
+        {
+            _attachProblem = "The screen could not be taken: " + said;
+            Redraw();
+        }
+    }
+
+    /// <summary>
+    /// Every file that comes in, from Attach Files…, a paste, a drop or a screenshot: checked for
+    /// what it is and how big before it is read, then put in the box by the conversation, which
+    /// holds it to what a question and a conversation can carry.
+    /// </summary>
+    private async Task AttachAsync(InputFileChangeEventArgs e)
+    {
+        var problems = new List<string>();
+        IReadOnlyList<IBrowserFile> files;
+        try
+        {
+            files = e.GetMultipleFiles(100);
+        }
+        catch (InvalidOperationException)
+        {
+            _attachProblem = "That is more files than one question can carry.";
+            return;
+        }
+
+        int index = 0;
+        foreach (IBrowserFile file in files)
+        {
+            string name = Named(file.Name, file.ContentType, ++index, files.Count);
+            if (AiAttachment.Refusal(name, file.ContentType, file.Size) is string refused)
+            {
+                problems.Add(refused);
+                continue;
+            }
+            try
+            {
+                await using Stream stream = file.OpenReadStream(maxAllowedSize: Math.Max(1, file.Size));
+                using var memory = new MemoryStream();
+                await stream.CopyToAsync(memory);
+                if (State.Chat.Attach(new AiAttachment(name, file.ContentType, memory.ToArray())) is string problem)
+                    problems.Add(problem);
+            }
+            catch (Exception ex) when (ex is IOException or InvalidOperationException or JSException)
+            {
+                problems.Add($"{name} could not be read: {ex.Message}");
+            }
+        }
+        _attachProblem = string.Join(" ", problems);
+        Redraw();
+    }
+
+    /// <summary>A pasted screenshot arrives as image.png, every one of them: named for when it was pasted, as the desktop names one.</summary>
+    private static string Named(string name, string type, int index, int count)
+    {
+        if (name.Length > 0 && !name.Equals("image.png", StringComparison.OrdinalIgnoreCase)) return name;
+        string stamp = DateTime.Now.ToString("yyyy-MM-dd-HHmmss", System.Globalization.CultureInfo.InvariantCulture);
+        string extension = type switch { "image/jpeg" => ".jpg", "image/gif" => ".gif", "image/webp" => ".webp", _ => ".png" };
+        return count > 1 ? $"pasted-{stamp}-{index}{extension}" : $"pasted-{stamp}{extension}";
+    }
+
+    private void Unattach(AiAttachment file)
+    {
+        State.Chat.Unattach(file);
+        _attachProblem = "";
+    }
+
+    /// <summary>
+    /// Ticks a sent file back in, or out. Unticking is always allowed; ticking one back is held to
+    /// the conversation's budget, and a refusal leaves the box as it was and says why under the list.
+    /// </summary>
+    private void Include(AiAttachment file, bool include)
+    {
+        _filesProblem = State.Chat.Include(file, include) ?? "";
+        // Drawn afresh, so a tick the conversation refused does not stay ticked on screen.
+        _filesDrawn++;
+    }
+
+    private string FilesFoot(List<(ChatTurn Question, AiAttachment File)> sent)
+    {
+        long tokens = _connection is null ? 0 : sent.Where(s => !s.File.Excluded).Sum(s => AiEstimate.Attachment(s.File, _connection));
+        return tokens > 0
+            ? $"The ticked files add about {AiPricing.About(tokens)} tokens to every question."
+            : sent.Count > 0 ? "No ticked file goes with the questions now." : "";
+    }
+
+    private static string Cut(string text, int most)
+    {
+        string flat = string.Join(" ", text.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries));
+        return flat.Length <= most ? flat : flat[..most].TrimEnd() + "…";
+    }
+
+    // ------------------------------------------------------------------- a proposal used
+
+    /// <summary>
+    /// Use This Script: an instrument's script into that console's script editor, a sequence into
+    /// the multi-instrument editor, on the bench page (ScriptHandoff). Nothing runs until Run.
+    /// </summary>
+    private async Task UseScriptAsync(ChatTurn turn)
+    {
+        if (turn.Proposal is not string script) return;
+        (bool sequence, string? named) = AssistantPrompt.ProposalTarget(turn.ArgumentsJson);
+
+        string? sessionId = null;
+        if (!sequence)
+        {
+            BenchInstrument? instrument = await State.Tools.FindInstrumentAsync(named, CancellationToken.None);
+            if (instrument is null)
+            {
+                State.Say("That script's instrument is not open any more. Copy it from the card instead.");
+                return;
+            }
+            sessionId = instrument.Key;
+        }
+
+        State.Say(await Handoff.HandAsync(sessionId, script) ?? (sequence
+            ? "The script is in the multi-instrument editor. Nothing runs until you press Run there."
+            : "The script is in that console's script editor. Nothing runs until you press Run there."));
+    }
+
+    private static string KindOf(ChatTurn turn) => turn.Kind switch
+    {
+        ChatTurn.User => "you",
+        ChatTurn.Assistant => "answer",
+        ChatTurn.Tool => "tool",
+        ChatTurn.Error => "problem",
+        ChatTurn.Paused => "paused",
+        ChatTurn.Summary => "briefing",
+        _ => "note",
+    };
+
+    // ------------------------------------------------------------------- staying current
+
+    private Task OnChatChanged()
+    {
+        Redraw();
+        return Task.CompletedTask;
+    }
+
+    private void OnStateChanged() => Redraw();
+
+    private async Task OnChatsChanged()
+    {
+        if (_disposed) return;
+        await InvokeAsync(async () =>
+        {
+            await ReadChatsAsync();
+            Redraw();
+        });
+    }
+
+    private async Task OnConnectionsChanged()
+    {
+        if (_disposed) return;
+        await InvokeAsync(async () =>
+        {
+            await PickConnectionAsync();
+            Redraw();
+        });
+    }
+
+    private void OnSessionsChanged()
+    {
+        if (_disposed) return;
+        _ = InvokeAsync(async () =>
+        {
+            await ReadBenchAsync();
+            Redraw();
+        });
+    }
+
+    private void Redraw()
+    {
+        if (!_disposed) _ = InvokeAsync(StateHasChanged);
+    }
+
+    private async Task Closed() => await OnClosed.InvokeAsync();
+
+    public ValueTask DisposeAsync()
+    {
+        _disposed = true;
+        State.Chat.Changed -= OnChatChanged;
+        State.Changed -= OnStateChanged;
+        Ai.Chats.Changed -= OnChatsChanged;
+        Ai.ConnectionsChanged -= OnConnectionsChanged;
+        Bench.SessionsChanged -= OnSessionsChanged;
+        _self?.Dispose();
+        return ValueTask.CompletedTask;
+    }
+}

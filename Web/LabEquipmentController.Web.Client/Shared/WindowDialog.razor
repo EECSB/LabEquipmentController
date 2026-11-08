@@ -123,6 +123,20 @@
     public Task ShowSequencesAsync() => Show(Window.Sequences);
 
     /// <summary>
+    /// A sequence the AI assistant put forward, from its Use This Script: the multi-instrument
+    /// editor opened, or raised, and the script put in it, asking first over one, as the
+    /// desktop's SequenceForm.TakeWritten does. Nothing runs until Run.
+    /// </summary>
+    public async Task TakeWrittenSequenceAsync(string script)
+    {
+        await Show(Window.Sequences);
+
+        // A window opened just now is built on the next render, and its editor with it.
+        for (int i = 0; i < 80 && _sequences is null; i++) await Task.Delay(25);
+        if (_sequences is not null) await _sequences.TakeWrittenAsync(script);
+    }
+
+    /// <summary>
     /// Which of these went out into a browser tab, and whether that tab has been heard from yet.
     /// </summary>
     /// <remarks>
@@ -234,6 +248,8 @@
         _open.Remove(what);
         _windows.Remove(what);
         _returning.Remove(what);
+        // The editor went with its window, so a script handed over later waits for the next one.
+        if (what == Window.Sequences) _sequences = null;
         StateHasChanged();
     }
 }

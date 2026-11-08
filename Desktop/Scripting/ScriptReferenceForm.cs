@@ -108,16 +108,14 @@ public sealed class ScriptReferenceForm : Form
     {
         _language = language;
 
+        // Layout suspended across the build, as the designer does it, so the auto-scale pass
+        // runs once over the finished window rather than over an empty form as AutoScaleMode
+        // is set. The padding below is in logical pixels.
+        SuspendLayout();
         AutoScaleDimensions = new SizeF(7F, 15F);
         AutoScaleMode = AutoScaleMode.Font;
         Font = new Font("Segoe UI", 9f);
         Text = "Script Language Reference";
-        // Wide enough that a sample line does not wrap, tall enough to hold a whole section
-        // at once. At 860x760 this was a column of prose you scrolled a paragraph at a time,
-        // which is a poor way to consult a reference while writing the thing it describes —
-        // and it is read side by side with a script editor that is itself 1960 wide.
-        ClientSize = new Size(1280, 1040);
-        MinimumSize = new Size(560, 420);
         StartPosition = FormStartPosition.CenterParent;
 
         // The document is borderless and docked Fill, so without this the text sits flat
@@ -153,6 +151,17 @@ public sealed class ScriptReferenceForm : Form
             Build();
             _doc.Select(0, 0);
         };
+        ResumeLayout(false);
+        PerformLayout();
+
+        // Wide enough that a sample line does not wrap, tall enough to hold a whole section
+        // at once. At 860x760 this was a column of prose you scrolled a paragraph at a time,
+        // which is a poor way to consult a reference while writing the thing it describes —
+        // and it is read side by side with a script editor that is itself 1960 wide. Those are
+        // pixels on a 175% screen, where these logical sizes come out as the 1280x1040 and
+        // 560x420 chosen there; set after the pass so they scale by the DPI.
+        ClientSize = LogicalToDeviceUnits(new Size(731, 594));
+        MinimumSize = LogicalToDeviceUnits(new Size(320, 240));
     }
 
     /// <summary>

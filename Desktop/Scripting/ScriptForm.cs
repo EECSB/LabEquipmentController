@@ -81,18 +81,14 @@ public sealed class ScriptForm : Form
 
         // Match the main form's scaling so this window grows correctly on high-DPI
         // displays (a code-built form must set these itself — the designer normally does).
+        // Inside SuspendLayout, as the designer has it, so the pass runs once over the built
+        // window: set without, it ran at once over an empty form and never again, and the
+        // numbers in BuildUi stayed screen pixels. They are logical pixels now.
+        SuspendLayout();
         AutoScaleDimensions = new SizeF(7F, 15F);
         AutoScaleMode = AutoScaleMode.Font;
 
         Text = "Script Editor";
-        // Taller by default: the window is split editor-over-output at 62/38, so at the old
-        // 640 a script of any length left the output pane about eight lines high — and the
-        // output is where a run reports itself.
-        //
-        // Twice that again in each direction: a script is read as a whole, and the pane
-        // below it carries a line per command. OnLoad clamps this to the screen it opens on.
-        ClientSize = new Size(1960, 1640);
-        MinimumSize = new Size(520, 400);
         StartPosition = FormStartPosition.CenterParent;
         Font = new Font("Segoe UI", 9f);
         KeyPreview = true;
@@ -103,6 +99,23 @@ public sealed class ScriptForm : Form
         _editor.Text = ScriptExamples.Starting.Replace("\n", "\r\n");
         _dirty = false;
         UpdateTitle();
+        ResumeLayout(false);
+        PerformLayout();
+
+        // The results pane after the pass, as it joins the instrument console: it sizes
+        // itself (SPEC §14), and inside the pass it would be scaled twice.
+        _lower!.Panel2.Controls.Add(_results);
+
+        // Taller by default: the window is split editor-over-output at 62/38, so at the old
+        // 640 a script of any length left the output pane about eight lines high — and the
+        // output is where a run reports itself.
+        //
+        // Twice that again in each direction: a script is read as a whole, and the pane
+        // below it carries a line per command. OnLoad clamps this to the screen it opens on.
+        // Those are pixels on a 175% screen, where these logical sizes come out as the
+        // 1960x1640 and 520x400 chosen there; set after the pass so they scale by the DPI.
+        ClientSize = LogicalToDeviceUnits(new Size(1120, 937));
+        MinimumSize = LogicalToDeviceUnits(new Size(297, 229));
     }
 
     private void BuildUi()
@@ -134,10 +147,14 @@ public sealed class ScriptForm : Form
         _examples.DropDownStyle = ComboBoxStyle.DropDownList;
         _examples.DrawMode = DrawMode.OwnerDrawFixed;
         _examples.DrawItem += Examples_DrawItem;
-        _examples.Width = 240;   // wide enough for the longest per-instrument example name
+        // The box only ever shows "Examples…": it goes back to that once one is loaded. Its list
+        // is as wide as the longest name (DropDownLists), which this width stopped being as the
+        // per-instrument examples grew, so the longest of them were cut in the list.
+        _examples.Width = 140;
         _examples.Margin = new Padding(12, 2, 6, 0);
         _examples.Items.Add("Examples…");
         foreach (ScriptExample ex in _examplesList) _examples.Items.Add(ex.Name);
+        DropDownLists.FitToEntries(_examples);
         _examples.SelectedIndex = 0;
         _examples.SelectedIndexChanged += OnExampleSelected;
         toolbar.Controls.Add(_examples);
@@ -223,7 +240,7 @@ public sealed class ScriptForm : Form
 
         _results.Dock = DockStyle.Fill;
         _results.Status += (_, text) => _status.Text = text;
-        lower.Panel2.Controls.Add(_results);
+        // Added to lower.Panel2 by the constructor, once the scaling pass is over.
 
         split.Panel2.Controls.Add(lower);
         _lower = lower;
@@ -231,8 +248,8 @@ public sealed class ScriptForm : Form
         // --- status ---
         _status.Dock = DockStyle.Bottom;
         // Height comes from the font, once the form has passed its own down (see the
-        // Load handler). A flat 22 was right at 100% and cut the descenders off at 175%:
-        // these windows scale their fonts without scaling their own layout.
+        // Load handler). A flat 22 was right at 100% and cut the descenders off at 175%,
+        // back when this window scaled its fonts without scaling its own layout.
         _status.TextAlign = ContentAlignment.MiddleLeft;
         _status.Padding = new Padding(6, 0, 0, 0);
         _status.Text = "Ready.";
@@ -248,10 +265,13 @@ public sealed class ScriptForm : Form
         // and put the caret at the top instead of leaving the whole script selected.
         Shown += (_, _) =>
         {
+            // Minimums in logical pixels, set where the split has its size: the pass scales
+            // the split's bounds and its bar, not the minimums in the initialiser above.
+            SplitLayout.SetMinimums(split, LogicalToDeviceUnits(120), LogicalToDeviceUnits(100));
             SplitLayout.SetFraction(split, 0.62);
             if (_lower != null)
             {
-                SplitLayout.SetMinimums(_lower, 160, 160);
+                SplitLayout.SetMinimums(_lower, LogicalToDeviceUnits(160), LogicalToDeviceUnits(160));
                 SplitLayout.SetFraction(_lower, 0.5);   // even halves, as in the console
             }
             _status.Height = _status.PreferredHeight + LogicalToDeviceUnits(6);
@@ -438,8 +458,16 @@ public sealed class ScriptForm : Form
 
         string? written = ScriptAiForm.Ask(
             this, new[] { instrument }, isSequence: false, _editor.Text, _output.Text);
-        if (written == null) return;
+        if (written != null) TakeWritten(written);
+    }
 
+    /// <summary>
+    /// Put a script a model wrote into the editor, once the user agrees to lose what is there —
+    /// from this window's own Write with AI, or from the assistant's Use This Script. Not run:
+    /// running it is the Run button, the second of SPEC §11c's two deliberate acts.
+    /// </summary>
+    internal void TakeWritten(string written)
+    {
         // Replacing the editor outright is a change worth being able to undo, and a TextBox's
         // own undo does not survive a programmatic assignment.
         if (_editor.TextLength > 0
@@ -450,7 +478,7 @@ public sealed class ScriptForm : Form
                != DialogResult.OK)
             return;
 
-        _editor.Text = written;
+        _editor.Text = written.Replace("\r\n", "\n").Replace("\n", "\r\n");
         _editor.Select(0, 0);
         _editor.Focus();
         _status.Text = "Script written by AI — read it before running it.";
@@ -482,7 +510,7 @@ public sealed class ScriptForm : Form
         // each group is what makes them read as groups. The log buttons are not here — they
         // live under the log.
         int gap = LogicalToDeviceUnits(24);
-        _examples.Margin = new Padding(gap, 0, 6, 0);
+        _examples.Margin = new Padding(gap, 0, LogicalToDeviceUnits(6), 0);
         if (_btnRun != null)
             _btnRun.Margin = new Padding(gap, _btnRun.Margin.Top,
                                          _btnRun.Margin.Right, _btnRun.Margin.Bottom);

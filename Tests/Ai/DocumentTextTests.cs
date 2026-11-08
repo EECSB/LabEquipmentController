@@ -100,6 +100,50 @@ public class DocumentTextTests : IDisposable
         Assert.Contains("Word", ex.Message);
     }
 
+    // ---------------------------------------------------------------------------- in memory
+
+    // The assistant's attachments never touch the disk, so the same two readers take bytes too.
+
+    [Fact]
+    public void Reads_text_out_of_a_pdf_held_in_memory()
+        => Assert.Contains("MEASure:VOLTage:DC?", DocumentText.ReadPdf(MinimalPdf("MEASure:VOLTage:DC?"), "guide.pdf"));
+
+    [Fact]
+    public void Reads_paragraphs_and_tabs_out_of_a_docx_held_in_memory()
+    {
+        string text = DocumentText.ReadDocx(
+            Docx("<w:p><w:r><w:t>*RST</w:t></w:r><w:r><w:tab/></w:r><w:r><w:t>Reset.</w:t></w:r></w:p>"), "notes.docx");
+
+        Assert.Contains("*RST\tReset.", text);
+    }
+
+    [Fact]
+    public void Bytes_that_are_not_a_pdf_or_a_docx_say_which_file_and_why()
+    {
+        byte[] notEither = Encoding.ASCII.GetBytes("this is neither");
+
+        var pdf = Assert.Throws<InvalidDataException>(() => DocumentText.ReadPdf(notEither, "guide.pdf"));
+        var docx = Assert.Throws<InvalidDataException>(() => DocumentText.ReadDocx(notEither, "notes.docx"));
+
+        Assert.Contains("'guide.pdf' as a PDF", pdf.Message);
+
+        // Wrapped, the zip's own complaint included: the path reader lets that one through
+        // bare, and it names no file.
+        Assert.Contains("'notes.docx' as a Word document", docx.Message);
+    }
+
+    [Fact]
+    public void A_zip_in_memory_with_no_body_says_so()
+    {
+        using var memory = new MemoryStream();
+        using (var zip = new ZipArchive(memory, ZipArchiveMode.Create, leaveOpen: true))
+            zip.CreateEntry("something-else.xml");
+
+        var ex = Assert.Throws<InvalidDataException>(() => DocumentText.ReadDocx(memory.ToArray(), "notes.docx"));
+
+        Assert.Contains("no word/document.xml", ex.Message);
+    }
+
     // --------------------------------------------------------------------------- chunking
 
     [Fact]
@@ -149,9 +193,10 @@ public class DocumentTextTests : IDisposable
     /// <summary>
     /// A one-page PDF showing <paramref name="body"/> in Helvetica. Written by hand with a
     /// real cross-reference table — PdfPig can sometimes recover from a broken one, and a
-    /// test that leans on error recovery is not testing the thing it claims to.
+    /// test that leans on error recovery is not testing the thing it claims to. The
+    /// assistant's attachment tests read it too.
     /// </summary>
-    private static byte[] MinimalPdf(string body)
+    internal static byte[] MinimalPdf(string body)
     {
         string stream = $"BT /F1 12 Tf 20 150 Td ({Escape(body)}) Tj ET";
         string[] objects =
@@ -187,14 +232,21 @@ public class DocumentTextTests : IDisposable
 
     // ---------------------------------------------------------------------- word fixture
 
-    private static void WriteDocx(string path, string bodyXml)
+    private static void WriteDocx(string path, string bodyXml) => File.WriteAllBytes(path, Docx(bodyXml));
+
+    /// <summary>A .docx whose body is <paramref name="bodyXml"/>, built in memory. The assistant's attachment tests read it too.</summary>
+    internal static byte[] Docx(string bodyXml)
     {
-        using var zip = ZipFile.Open(path, ZipArchiveMode.Create);
-        ZipArchiveEntry entry = zip.CreateEntry("word/document.xml");
-        using Stream s = entry.Open();
-        using var w = new StreamWriter(s, Encoding.UTF8);
-        w.Write("<?xml version=\"1.0\" encoding=\"UTF-8\"?>"
-              + "<w:document xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\">"
-              + "<w:body>" + bodyXml + "</w:body></w:document>");
+        using var memory = new MemoryStream();
+        using (var zip = new ZipArchive(memory, ZipArchiveMode.Create, leaveOpen: true))
+        {
+            ZipArchiveEntry entry = zip.CreateEntry("word/document.xml");
+            using Stream s = entry.Open();
+            using var w = new StreamWriter(s, Encoding.UTF8);
+            w.Write("<?xml version=\"1.0\" encoding=\"UTF-8\"?>"
+                  + "<w:document xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\">"
+                  + "<w:body>" + bodyXml + "</w:body></w:document>");
+        }
+        return memory.ToArray();
     }
 }

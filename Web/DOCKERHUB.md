@@ -123,9 +123,7 @@ ever read.
 | Tag | What it is |
 |---|---|
 | `latest` | The newest release |
-| `1.2.3` | That exact release |
-| `1.2`, `1` | The newest patch / minor within that line |
-| `sha-abc1234` | The exact commit, for pinning something reproducible |
+| `1.2.3` | That exact release, one image for each |
 
 **Architectures:** `linux/amd64` and `linux/arm64` — the second so a Raspberry Pi can sit on
 the bench VLAN and be the thing that runs it.

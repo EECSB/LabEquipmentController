@@ -35,6 +35,14 @@ internal static class ButtonStyle
     private const int BaseDpi = 96;
 
     /// <summary>
+    /// Every button's padding in logical pixels, and the padding <see cref="Height"/> is
+    /// measured with. Normalize and Height both scale it to the window's display, so a button
+    /// has the same proportions at 175% as at 100%. Held in screen pixels, as it was until
+    /// 2026-11-07, it gave a button at 175% a little over half the padding its label called for.
+    /// </summary>
+    private static readonly Padding ButtonPadding = new(8, 3, 8, 3);
+
+    /// <summary>
     /// Scale a logical size for a control's display. Does what <c>LogicalToDeviceUnits</c>
     /// does, but from outside the control — this class is not a Control.
     /// </summary>
@@ -80,9 +88,13 @@ internal static class ButtonStyle
         b.AutoSize = true;
         b.AutoSizeMode = AutoSizeMode.GrowAndShrink;
         b.FlatStyle = FlatStyle.Standard;
-        b.Padding = new Padding(8, 3, 8, 3);
+        b.Padding = ButtonPadding;   // until Normalize gives it the window's scale
         // 8 below, not 4: in a wrapping strip this is the gap between rows, and at four
         // pixels the rows read as one block of buttons rather than several.
+        //
+        // Logical pixels, like everything here. A button built inside a form's SuspendLayout
+        // has the margin scaled by that form's pass; a control built at run time, which no
+        // pass reaches, scales it itself (InstrumentConsole.ConfigureButton, SPEC §14).
         b.Margin = new Padding(0, 0, 6, 8);
         b.UseVisualStyleBackColor = true;
         if (onClick != null) b.Click += onClick;
@@ -115,6 +127,7 @@ internal static class ButtonStyle
     {
         using var probe = new Button();
         Apply(probe, "Ag");
+        probe.Padding = owner.Scaled(ButtonPadding);   // what Normalize gives the real ones
         probe.Font = owner.Font;
         using var glyph = new Bitmap(IconPx(owner), IconPx(owner));
         SetImage(probe, glyph);
@@ -132,6 +145,12 @@ internal static class ButtonStyle
         foreach (Button? b in buttons)
         {
             if (b == null) continue;
+            // The padding the height was measured with, set here whatever the button arrived
+            // with. A window built inside SuspendLayout has had its buttons' padding scaled by
+            // its own pass, by the font's ratio, which is twice in height at 175% rather than
+            // 1.75, and a glyph and label pinned to this height inside that larger padding lost
+            // the bottoms of their letters ("Save Log" at 175%).
+            b.Padding = owner.Scaled(ButtonPadding);
             b.MinimumSize = new Size(Scale(owner, MinWidthLogical), h);
             b.MaximumSize = new Size(0, h);   // width 0 = unconstrained
         }

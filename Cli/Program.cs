@@ -36,6 +36,7 @@ try
         "capture" or "wave"   => await Commands.CaptureWaveform(cmd, Console.Out, Console.Error, cts.Token),
         "plot"                => Commands.PlotFile(cmd, Console.Out, Console.Error),
         "catalog" or "cat"    => Commands.Catalog(cmd, Console.Out, Console.Error),
+        "mcp"                 => await Commands.Mcp(cmd, Console.Error, cts.Token),
         _                     => Unknown(cmd.Verb),
     };
 }

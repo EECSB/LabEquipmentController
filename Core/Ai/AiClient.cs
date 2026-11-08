@@ -51,8 +51,12 @@ public sealed class AiClient : IAiClient
                                             JsonNode schema, CancellationToken ct = default)
     {
         if (connection == null) throw new ArgumentNullException(nameof(connection));
+        // Named by the box rather than the menu that opens it: both builds call it AI Connection,
+        // and they reach it from different places — Tools on the desktop, the gear's AI settings
+        // on the web — so any menu named here is wrong in one of them. It said Help, which is
+        // wrong in both.
         if (string.IsNullOrWhiteSpace(apiKey))
-            throw new AiException("No API key is set. Add one under Help ▸ AI Connection.");
+            throw new AiException("No API key is set. Add one in the AI Connection settings.");
 
         if (payload.IsDocument && !connection.Info.SupportsPdfUpload)
             throw new AiException(

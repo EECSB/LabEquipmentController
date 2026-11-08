@@ -67,6 +67,13 @@
                 </div>
             </div>
 
+            @* The assistant works the whole bench, so it is the bench's, beside the connection it
+               spends: the desktop's Tools ▸ AI Assistant…, over Tools ▸ AI Connection…. *@
+            <button class="item" @onclick="OpenAssistant"
+                    title="A conversation with a model that reads the instruments open, asks before it changes one, and writes scripts for you to run.">
+                <Icon Name="ai" /> AI assistant&hellip;
+            </button>
+
             <button class="item" @onclick="OpenAi">
                 <Icon Name="ai" /> AI settings&hellip;
             </button>
@@ -84,8 +91,16 @@
 <AboutDialog @ref="_about" />
 <WindowDialog @ref="_reference" />
 
+@* One assistant window for the tab, built while it is open; what it holds outlives it (AssistantState). *@
+@if (_assistantOpen)
+{
+    <Assistant @ref="_assistant" OnClosed="() => _assistantOpen = false" OnSettings="OpenAi" />
+}
+
 @code {
     private AiSettingsDialog? _ai;
+    private Assistant? _assistant;
+    private bool _assistantOpen;
     private AboutDialog? _about;
     private WindowDialog? _reference;
     private ElementReference _menu;
@@ -137,6 +152,18 @@
     {
         _open = false;
         if (_ai is not null) await _ai.ShowAsync();
+    }
+
+    /// <summary>The assistant's window, or the one already open brought forward.</summary>
+    private async Task OpenAssistant()
+    {
+        _open = false;
+        if (_assistantOpen && _assistant is not null)
+        {
+            await _assistant.RaiseAsync();
+            return;
+        }
+        _assistantOpen = true;   // the window shows itself once it has been rendered
     }
 
     private async Task OpenAbout()

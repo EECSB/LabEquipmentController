@@ -219,7 +219,7 @@ test.describe('the AI connection box', () => {
         const sheet = page.locator('dialog.sheet[open]');
         await expect(sheet).toBeVisible();
 
-        for (const label of ['Provider:', 'Endpoint:', 'Model:', 'API key:', 'Timeout (s):', 'PDF extraction:']) {
+        for (const label of ['Provider:', 'Endpoint:', 'Model:', 'API key:', 'Timeout (s):', 'Rates (US$/M):', 'PDF extraction:']) {
             await expect(sheet).toContainText(label);
         }
         await expect(sheet.getByRole('button', { name: 'Apply' })).toBeVisible();
@@ -870,13 +870,13 @@ test.describe('the AI script window', () => {
             const ask = await boxOf(page, 'dialog.tool[open] textarea.prompt');
             const chat = await boxOf(page, 'dialog.tool[open] .chat');
             const row = await boxOf(page, 'dialog.tool[open] .row.promptrow');
-            const head = await boxOf(page, 'dialog.tool[open] .row.chathead');
+            const cost = await boxOf(page, 'dialog.tool[open] .estimate');
 
             //One left edge and one right edge for the lot of them.
             expect(chat.width).toBe(ask.width);
             expect(chat.left).toBe(ask.left);
             expect(row.right).toBe(ask.right);
-            expect(head.right).toBe(ask.right);
+            expect(cost.left).toBe(ask.left);
 
             //And that edge is the card's own, give or take the card's padding — which is the
             //same on both sides, so nothing is a column sitting inside a wider card.
@@ -1130,11 +1130,11 @@ test.describe('the AI script window as a conversation', () => {
             await ask(page, 'set a 1 kHz sine at 2 Vpp', 1);
 
             //What it costs is said before it is spent, which is what makes Clear a decision.
-            await expect(writer.locator('.row.chathead')).toContainText('1 turn(s)');
+            await expect(writer.locator('.estimate')).toContainText('1 turn(s)');
 
             await writer.locator('.clearchat').click();
             await expect(writer.locator('.chat .turn')).toHaveCount(0);
-            await expect(writer.locator('.row.chathead')).toContainText('No conversation yet');
+            await expect(writer.locator('.estimate')).toContainText('No conversation yet');
             await expect(writer.locator('.clearchat')).toBeDisabled();
 
             //And there is nothing left to give the editor, because the drafts went with it.
@@ -1388,6 +1388,52 @@ test.describe('the AI script window as a conversation', () => {
             await expect(writer.locator('.chat .turn')).toHaveCount(1, { timeout: 20000 });
             await expect(writer.locator('.chat')).toContainText('a request in two halves');
             await expect(box).toHaveValue('');
+        });
+    });
+
+    ///
+    ///A request that never reached the server says so, and the page stays up.
+    ///
+    ///Write had no catch. A server that could not be reached threw out of the click handler, Blazor
+    ///put up its crash bar, and the line under the box went on saying "Thinking…" for good - the
+    ///extraction beside it caught the same failure and said so.
+    ///
+    test('says a request that never reached the server failed, and stays up', async ({ page, request }) => {
+        await withKey(request, async () => {
+            await openWriter(page);
+            const writer = page.locator('dialog.tool[open]').last();
+            await page.route('**/api/ai/script', (route) => route.abort('connectionrefused'));
+
+            await writer.locator('.row.promptrow button.primary').click();
+
+            await expect(writer.locator('.row.userow .error')).toContainText('Could not reach the server');
+            await expect(page.locator('#blazor-error-ui')).toBeHidden();
+            await expect(writer.locator('.row.promptrow button.primary')).toBeEnabled();
+            await expect(writer.locator('.chat .turn')).toHaveCount(0);
+        });
+    });
+
+    ///
+    ///And an answer that is not a reply is said by its status.
+    ///
+    ///A proxy's 502 page while the container restarts, say. Read as a reply it failed to parse, and
+    ///"'<' is an invalid start of a value" was all anyone was told.
+    ///
+    test('says what came back when it was not a reply', async ({ page, request }) => {
+        await withKey(request, async () => {
+            await openWriter(page);
+            const writer = page.locator('dialog.tool[open]').last();
+            await page.route('**/api/ai/script', (route) => route.fulfill({
+                status: 502, contentType: 'text/html', body: '<html><body>502 Bad Gateway</body></html>',
+            }));
+
+            await writer.locator('.row.promptrow button.primary').click();
+
+            const said = writer.locator('.row.userow .error');
+            await expect(said).toContainText('502');
+            await expect(said).not.toContainText('invalid start');
+            await expect(page.locator('#blazor-error-ui')).toBeHidden();
+            await expect(writer.locator('.row.promptrow button.primary')).toBeEnabled();
         });
     });
 });

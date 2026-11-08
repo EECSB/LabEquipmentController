@@ -36,6 +36,9 @@ public sealed class SequenceForm : Form
     // Shown handler. The results pane looks after its own.
     private FlowLayoutPanel? _logTools;
 
+    /// <summary>The output and results split, which takes the results pane after the scaling pass.</summary>
+    private SplitContainer? _lower;
+
     private readonly Button _btnRun = new();
     private readonly Button _btnStop = new();
     private readonly Button _btnOpen = new();
@@ -67,16 +70,15 @@ public sealed class SequenceForm : Form
     {
         _sessions = sessions ?? throw new ArgumentNullException(nameof(sessions));
 
+        // Layout suspended across the build, as the designer does it, so the auto-scale pass
+        // runs once over the finished window. Set without, it ran at once over an empty form
+        // and never again, and the numbers in BuildUi stayed screen pixels. They are logical
+        // pixels now.
+        SuspendLayout();
         AutoScaleDimensions = new SizeF(7F, 15F);
         AutoScaleMode = AutoScaleMode.Font;
         Font = new Font("Segoe UI", 9f);
         Text = "Multi-Instrument Scripts";
-        // Four panes share this window — script, device bindings, output and results — and
-        // at the old 1120×840 the script was about eight lines and the results table four
-        // rows. It is clamped to the screen in OnLoad, so a large default costs nothing on
-        // a small display.
-        ClientSize = new Size(1990, 1400);
-        MinimumSize = new Size(700, 520);
         StartPosition = FormStartPosition.CenterParent;
         KeyPreview = true;
 
@@ -84,6 +86,21 @@ public sealed class SequenceForm : Form
 
         _editor.Text = SequenceExamples.All[0].Script;
         UpdateDevices();
+        ResumeLayout(false);
+        PerformLayout();
+
+        // The results pane after the pass, as it joins the instrument console: it sizes
+        // itself (SPEC §14), and inside the pass it would be scaled twice.
+        _lower!.Panel2.Controls.Add(_results);
+
+        // Four panes share this window — script, device bindings, output and results — and
+        // at the old 1120×840 the script was about eight lines and the results table four
+        // rows. It is clamped to the screen in OnLoad, so a large default costs nothing on
+        // a small display. Those are pixels on a 175% screen, where these logical sizes come
+        // out as the 1990×1400 and 700×520 chosen there; set after the pass so they scale by
+        // the DPI.
+        ClientSize = LogicalToDeviceUnits(new Size(1137, 800));
+        MinimumSize = LogicalToDeviceUnits(new Size(400, 297));
 
         // The bench changes while this window is open — instruments get connected and
         // disconnected from the main window — so the binding strip is re-checked rather
@@ -121,10 +138,11 @@ public sealed class SequenceForm : Form
         _examples.DropDownStyle = ComboBoxStyle.DropDownList;
         _examples.DrawMode = DrawMode.OwnerDrawFixed;
         _examples.DrawItem += (_, e) => ButtonStyle.DrawComboItem(_examples, e);
-        _examples.Width = 260;
+        _examples.Width = 152;   // the 260 screen pixels it was at 175%
         _examples.Margin = new Padding(12, 2, 6, 0);
         _examples.Items.Add("Examples…");
         foreach (SequenceExample ex in SequenceExamples.All) _examples.Items.Add(ex.Name);
+        DropDownLists.FitToEntries(_examples);   // the list as wide as its longest name, as ScriptForm's
         _examples.SelectedIndex = 0;
         _examples.SelectedIndexChanged += OnExampleSelected;
         toolbar.Controls.Add(_examples);
@@ -210,15 +228,16 @@ public sealed class SequenceForm : Form
         _results.Dock = DockStyle.Fill;
         _results.Status += (_, text) => _status.Text = text;
 
-        lower.Panel2.Controls.Add(_results);
+        // Added to lower.Panel2 by the constructor, once the scaling pass is over.
         lower.Panel2.Padding = new Padding(0, 0, 0, 0);
+        _lower = lower;
 
         outer.Panel2.Controls.Add(lower);
 
         _status.Dock = DockStyle.Bottom;
         // Height comes from the font, once the form has passed its own down (see the
-        // Load handler). A flat 22 was right at 100% and cut the descenders off at 175%:
-        // these windows scale their fonts without scaling their own layout.
+        // Load handler). A flat 22 was right at 100% and cut the descenders off at 175%,
+        // back when this window scaled its fonts without scaling its own layout.
         _status.TextAlign = ContentAlignment.MiddleLeft;
         _status.Padding = new Padding(6, 0, 0, 0);
         _status.Text = "Ready.";
@@ -357,7 +376,7 @@ public sealed class SequenceForm : Form
         // groups: file, then where a script comes from, then running it. Set here rather than
         // where the buttons are built so the whole row's spacing reads in one place.
         int gap = LogicalToDeviceUnits(24);
-        _examples.Margin = new Padding(gap, 0, 6, 0);          // …then how a script arrives
+        _examples.Margin = new Padding(gap, 0, LogicalToDeviceUnits(6), 0);   // …then how a script arrives
         _btnRun.Margin = new Padding(gap, _btnRun.Margin.Top,   // …then running it
                                      _btnRun.Margin.Right, _btnRun.Margin.Bottom);
     }
@@ -513,8 +532,16 @@ public sealed class SequenceForm : Form
 
         string? written = ScriptAiForm.Ask(
             this, bench, isSequence: true, _editor.Text, _output.Text);
-        if (written == null) return;
+        if (written != null) TakeWritten(written);
+    }
 
+    /// <summary>
+    /// Put a sequence a model wrote into the editor, once the user agrees to lose what is there
+    /// — from Write with AI, or from the assistant's Use This Script. Not run (SPEC §11c).
+    /// </summary>
+    internal void TakeWritten(string written)
+    {
+        written = written.Replace("\r\n", "\n").Replace("\n", "\r\n");
         if (_editor.TextLength > 0
             && MessageBox.Show(this,
                 "Replace the script in the editor with the one that was written?\n\n"

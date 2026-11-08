@@ -28,9 +28,24 @@ builder.Services.AddScoped(services =>
 // The two need each other, so the watch is given a way to ask for the client rather than the
 // client itself — resolved when something retries, by which time both are built.
 builder.Services.AddScoped(services => new ServerWatch(services.GetRequiredService<HttpClient>));
+
+// The AI calls go through the same watch on a client of their own, which has no 100-second
+// limit for a model to run into — see AiHttp.
+builder.Services.AddScoped(services => new AiHttp(
+    new ServerWatchHandler(services.GetRequiredService<ServerWatch>()) { InnerHandler = new HttpClientHandler() },
+    new Uri(builder.HostEnvironment.BaseAddress)));
+
 builder.Services.AddScoped<BenchClient>();
 
 // The AI writer's conversations, which outlive the window that shows them — see ScriptChats.
 builder.Services.AddScoped<ScriptChats>();
+
+// The AI assistant: what its window stands on (the connections, the relay, the server's kept
+// chats), its conversation, which outlives the window as the desktop's hidden window keeps it, and
+// the way a script it puts forward reaches the bench page's editors.
+builder.Services.AddScoped(services => new WebChatStore(services.GetRequiredService<HttpClient>()));
+builder.Services.AddScoped<WebAiService>();
+builder.Services.AddScoped<AssistantState>();
+builder.Services.AddScoped<ScriptHandoff>();
 
 await builder.Build().RunAsync();

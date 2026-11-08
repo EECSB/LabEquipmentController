@@ -18,9 +18,10 @@ namespace LabEquipmentController;
 /// <see cref="InstrumentWindow"/>).
 ///
 /// Built in code, with docked/auto-sized layout throughout: a control created at runtime
-/// misses the form's AutoScaleMode.Font pass, so hardcoded pixel sizes would come out wrong
-/// on any display that isn't exactly 96 DPI. Heights are normalised in
-/// <see cref="NormalizeButtonHeights"/> instead, the same way ScriptForm's toolbar is.
+/// misses the form's AutoScaleMode.Font pass, so every number in here is a logical pixel and
+/// is scaled where it is used, through LogicalToDeviceUnits and <see cref="LogicalPixels"/>
+/// (SPEC §14). Heights are normalised in <see cref="NormalizeButtonHeights"/>, the same way
+/// ScriptForm's toolbar is.
 /// </summary>
 public sealed class InstrumentConsole : UserControl
 {
@@ -201,7 +202,7 @@ public sealed class InstrumentConsole : UserControl
             // Generous bottom padding: this row says what the console is attached to, and the
             // strip below it sends commands to an instrument. Those are different jobs, and the
             // gap is what says so.
-            Padding = new Padding(6, 4, 6, 18),
+            Padding = this.Scaled(6, 4, 6, 18),
         };
         _header.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100f));
 
@@ -214,6 +215,9 @@ public sealed class InstrumentConsole : UserControl
         _lblHeader.AutoSize = false;
         _lblHeader.AutoEllipsis = true;
         _lblHeader.TextAlign = ContentAlignment.MiddleLeft;
+        // A label's own margin, stated so it scales: left to WinForms it stays three screen
+        // pixels on any display, and this line's inset is header padding plus this.
+        _lblHeader.Margin = this.Scaled(3, 0, 3, 0);
         _lblHeader.Text = Session.Description;
         _header.Controls.Add(_lblHeader, 0, 0);
 
@@ -232,7 +236,7 @@ public sealed class InstrumentConsole : UserControl
         _flowQuick.AutoSize = false;
         _flowQuick.WrapContents = true;      // wrap rather than clip when the console is narrow
         _flowQuick.AutoScroll = true;        // ... and scroll rather than eat the log — see OnResize
-        _flowQuick.Padding = new Padding(6, 4, 6, 6);
+        _flowQuick.Padding = this.Scaled(6, 4, 6, 6);
 
         // --- tools: a strip of their own, set off from the quick commands above ---
         //
@@ -247,7 +251,7 @@ public sealed class InstrumentConsole : UserControl
         // instrument for something, and only the vocabulary differs — one row is the
         // instrument's own measurements, the other is what the app can do with it. The wide
         // gap was here and it read as a divider between them.
-        _flowTools.Padding = new Padding(6, 6, 6, 6);
+        _flowTools.Padding = this.Scaled(6);
 
         // No ellipsis. The convention it belongs to is a command that stops to ask something
         // before it does anything — Open…, Save As…, Browse… — and this one does not ask: it
@@ -293,7 +297,7 @@ public sealed class InstrumentConsole : UserControl
             RowCount = 1,
             // Shared with the results pane's button strip, which docks to the bottom of the
             // other half of the same splitter and has to land on the same line.
-            Padding = ResultsPanel.CommandRowInset,
+            Padding = this.Scaled(ResultsPanel.CommandRowInset),
         };
         _commandRow.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100f));
         for (int i = 0; i < 3; i++)
@@ -306,8 +310,8 @@ public sealed class InstrumentConsole : UserControl
         _txtHost.Dock = DockStyle.Fill;
         _txtHost.BorderStyle = BorderStyle.FixedSingle;
         _txtHost.BackColor = SystemColors.Window;
-        _txtHost.Margin = new Padding(0, 0, 6, 0);
-        _txtHost.Padding = new Padding(4, 0, 4, 0);
+        _txtHost.Margin = this.Scaled(0, 0, 6, 0);
+        _txtHost.Padding = this.Scaled(4, 0, 4, 0);
 
         _txtCommand.BorderStyle = BorderStyle.None;
         // Left only: CentreCommandBox owns the width, and two owners disagreed.
@@ -350,7 +354,8 @@ public sealed class InstrumentConsole : UserControl
         _log.BackColor = Color.FromArgb(24, 24, 24);
         _log.ForeColor = Color.Gainsboro;
         _log.Font = new Font("Consolas", 9.5F);
-        var logHost = new Panel { Dock = DockStyle.Fill, Padding = new Padding(6, 0, 6, 0) };
+        int logInset = LogicalToDeviceUnits(6);
+        var logHost = new Panel { Dock = DockStyle.Fill, Padding = new Padding(logInset, 0, logInset, 0) };
         logHost.Controls.Add(_log);
 
         // Log on the left, recorded readings on the right. Side by side rather than stacked
@@ -362,7 +367,7 @@ public sealed class InstrumentConsole : UserControl
         {
             Dock = DockStyle.Fill,
             Orientation = Orientation.Vertical,
-            SplitterWidth = 6,
+            SplitterWidth = LogicalToDeviceUnits(6),
         };
         // The log, the command box, Send and the two log buttons are one column: they all act
         // on the log, and they resize with it. The command row used to be docked across the
@@ -376,8 +381,13 @@ public sealed class InstrumentConsole : UserControl
         //
         // Matched to the Results/Plot tab band across the splitter, so the two columns begin
         // their content on the same line.
+        //
+        // Its box stands where the log's dark ground begins: inside the log's inset and its
+        // sunken edge, so the queue reads as the head of the column under it. The edge is the
+        // system's own two pixels and does not scale with the inset.
+        int logEdge = logInset + SystemInformation.Border3DSize.Width;
         _queueBar.Dock = DockStyle.Top;
-        _queueBar.Padding = new Padding(8, 0, 8, 0);
+        _queueBar.Padding = new Padding(logEdge, 0, logEdge, 0);
         _queueBar.Font = new Font("Consolas", 9f);
         _queueBar.ForeColor = Color.FromArgb(60, 60, 60);
         _queueBar.BackColor = Color.FromArgb(238, 238, 238);
@@ -404,11 +414,11 @@ public sealed class InstrumentConsole : UserControl
         _logSplit.SizeChanged += (_, _) =>
         {
             if (_splitPlaced || !IsHandleCreated) return;
-            if (_logSplit.Width < 320) return;
+            if (_logSplit.Width < LogicalToDeviceUnits(320)) return;
             _splitPlaced = true;
             BeginInvoke(() =>
             {
-                SplitLayout.SetMinimums(_logSplit, 160, 120);
+                SplitLayout.SetMinimums(_logSplit, LogicalToDeviceUnits(160), LogicalToDeviceUnits(120));
                 // Even halves. The log used to take the larger share, which left the plot too
                 // narrow to read an axis off wherever the console was not already wide.
                 SplitLayout.SetFraction(_logSplit, 0.5);
@@ -463,9 +473,16 @@ public sealed class InstrumentConsole : UserControl
         };
     }
 
-    /// <summary>Common setup for every button here: auto-sized so it scales with DPI without clipping.</summary>
-    private static void ConfigureButton(Button b, string text, EventHandler onClick)
-        => ButtonStyle.Apply(b, text, onClick);
+    /// <summary>
+    /// Common setup for every button here: auto-sized so it scales with DPI without clipping,
+    /// and ButtonStyle's margin brought to this display. A form's scaling pass does that for
+    /// buttons built inside it; nothing will for a console's (SPEC §14).
+    /// </summary>
+    private void ConfigureButton(Button b, string text, EventHandler onClick)
+    {
+        ButtonStyle.Apply(b, text, onClick);
+        b.Margin = this.Scaled(b.Margin);
+    }
 
     protected override void OnLoad(EventArgs e)
     {
@@ -553,9 +570,12 @@ public sealed class InstrumentConsole : UserControl
             ? _flowTools.GetPreferredSize(new Size(_flowTools.ClientSize.Width, 0)).Height
             : _flowTools.Height;
 
-        // The command row is no longer counted here: it lives inside the split below, so it
-        // comes out of the log's own column rather than off the top of everything.
-        int fixedRows = _header.Height + tools + _quickSplitter.Height;
+        // The queue line and the command row are counted with them. They sit inside the split,
+        // beside the results rather than across the whole console, but the split is whatever
+        // the strip leaves, so their height comes out of the same budget as the log's. Left
+        // out, as they were until 2026-11-08, the few lines kept for the log went to them
+        // instead, and at a window's minimum size the log measured zero.
+        int fixedRows = _header.Height + tools + _quickSplitter.Height + LogColumnRows;
 
         // Room for the strip, in order of preference: everything else plus a few lines of log;
         // failing that, everything else plus one line; failing that, a single row of buttons
@@ -566,8 +586,8 @@ public sealed class InstrumentConsole : UserControl
         // that has no floor of its own. Below about 424px the fixed rows plus that floor came
         // to more than the console had, so the log measured zero and the log toolbar was laid
         // down on top of the command box.
-        int cap = Height - fixedRows - LogicalToDeviceUnits(64);
-        if (cap < LogicalToDeviceUnits(52))
+        int cap = Height - fixedRows - LogReserve;
+        if (cap < QuickRow)
             cap = Height - fixedRows - LogicalToDeviceUnits(16);
         cap = Math.Max(LogicalToDeviceUnits(30), cap);
 
@@ -593,6 +613,33 @@ public sealed class InstrumentConsole : UserControl
         // above and put the overlap straight back.
         int want = _quickHeight ?? natural;
         _flowQuick.Height = Math.Max(0, Math.Min(want, cap));
+    }
+
+    /// <summary>What the log shares its column with: the queue line over it and the command
+    /// row under it.</summary>
+    private int LogColumnRows => _queueBar.Height + _commandRow.Height;
+
+    /// <summary>The few lines of log that the quick strip leaves, and a window's minimum too.</summary>
+    private int LogReserve => LogicalToDeviceUnits(64);
+
+    /// <summary>A row of quick commands: less than this and the strip gives the log one line
+    /// rather than <see cref="LogReserve"/>, to keep a row of buttons showing.</summary>
+    private int QuickRow => LogicalToDeviceUnits(52);
+
+    /// <summary>
+    /// The least height this console can have at <paramref name="width"/> and still show a
+    /// few lines of log: the header, a row of quick commands, the tool strip as it wraps at
+    /// that width, the queue line and the command row, and the lines themselves.
+    ///
+    /// A window holding a console makes this its minimum height (InstrumentWindow, MainForm),
+    /// so the log is not what a small window gives up. Their minimums used to be numbers of
+    /// their own, and at either window's smallest the rows above the log took all of it.
+    /// </summary>
+    internal int MinimumHeight(int width)
+    {
+        int tools = _flowTools.GetPreferredSize(new Size(Math.Max(1, width), 0)).Height;
+        return _header.Height + QuickRow + _quickSplitter.Height + tools
+             + LogColumnRows + LogReserve;
     }
 
     private void SetButtonIcons()
@@ -921,6 +968,16 @@ public sealed class InstrumentConsole : UserControl
         foreach (char bad in Path.GetInvalidFileNameChars()) model = model.Replace(bad, '-');
         model = model.Trim();
         return model.Length == 0 ? "console-log.txt" : $"console-log-{model}.txt";
+    }
+
+    /// <summary>
+    /// Open this console's script editor with a script a model wrote — the assistant's Use This
+    /// Script — for the user to read and, if they choose, run.
+    /// </summary>
+    internal void TakeScript(string script)
+    {
+        OpenScriptEditor();
+        _scriptForm!.TakeWritten(script);
     }
 
     private void OpenScriptEditor()

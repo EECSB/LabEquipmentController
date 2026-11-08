@@ -49,8 +49,14 @@ else if (!_status.Configured)
 
 @if (_status?.Configured == true && Tool == AiTool.Script)
 {
-    @* No caption: the window this is in is called the same thing. *@
-    <div class="group tall">
+    @* No caption: the window this is in is called the same thing.
+
+       Laid out as the AI assistant is, because it is the same kind of window and the desktop
+       lays ScriptAiForm out the same way: what the model is told about across the top, the
+       conversation as cards in a sunken pane, and under it the box, one row of pickers and
+       switches with the button that sends at its right end, and the cost of the next request in
+       grey beneath. *@
+    <div class="group tall scriptchat">
         @* What the model is being given, in one paragraph that can be checked before asking —
            ScriptAiForm's sentence and its bullet per instrument.
 
@@ -61,21 +67,21 @@ else if (!_status.Configured)
            multi-instrument editor, where several catalogs at once is the point of the window. *@
         @if (_sessions.Count == 0)
         {
-            <p class="muted">
+            <p class="context">
                 No instrument is connected, so there is no command catalog to write against.
                 Connect one first — otherwise the script can only be guesswork.
             </p>
         }
         else
         {
-            <p class="muted" style="margin:0">
+            <p class="context">
                 The model is given the command catalogs below and told to use nothing else.
                 Check what it writes before you run it.
             </p>
 
             @if (IsSequence)
             {
-                <div class="row" style="margin:.4rem 0 0">
+                <div class="row" style="margin:0 0 .45rem">
                     @foreach (var s in _sessions)
                     {
                         <label class="chip @(_chosen.Contains(s.Id) ? "on" : "")">
@@ -98,188 +104,139 @@ else if (!_status.Configured)
             }
         }
 
-        @* The conversation, and above it what the conversation costs.
-
-           Clear sits with the transcript it deletes rather than down beside Use This Script:
-           one forgets everything above it, the other takes the script out of it, and putting
-           them together made two unrelated verbs look like a pair.
-
-           The figure beside it is why the button is there. A count of turns on its own does
-           not answer "should I clear this?" — two turns carrying two-hundred-line scripts are
-           worth more than ten carrying four — so it is characters of transcript, which is not
-           tokens but is the only honest number the browser has and moves with them. *@
-        <div class="row chathead">
-            <span class="muted">@Ledger</span>
-        </div>
-
-        @* Everything asked and everything written, oldest first, exactly as ScriptAiForm's
-           transcript shows it — and all of it goes back to the model with the next request,
-           which is what makes "now do the same at 5 V" mean anything.
-
-           It is there from the moment the window opens, empty, taking the space the draft box
-           used to. Rendered only once there was something in it, the window was a short strip
-           of controls that doubled in height the moment the model answered. *@
+        @* Everything asked and everything written, oldest first — and all of it goes back to the
+           model with the next request, which is what makes "now do the same at 5 V" mean
+           anything. Each exchange is the assistant's two cards: the question on the panel's
+           colour, and the answer under it with the script, the button that takes it, and what
+           the catalog check said. *@
         <div class="chatwrap">
-
-        @* In the transcript's own top corner, over the first line of it, because that line is
-           the nearest thing this pane has to a header — and pinned to the wrapper rather than
-           scrolling with the turns, so the button that empties the conversation is reachable
-           from the bottom of a long one. *@
-        <button class="clearchat" @onclick="ClearChat" disabled="@(_busy || _turns.Count == 0)"
-                title="Forget the conversation. Nothing above is sent again, which is how the request stops growing — and how a new subject starts clean."><Icon Name="clear" /> Clear</button>
-
         <div class="chat" @ref="_chat">
             @if (_turns.Count == 0)
             {
-                @* What this pane is, not what to type in the box under it. The box opens on a
-                   worked request and the button beside it says Write Script; a line here
-                   telling you to describe what the script should do is the caption that was
-                   taken off the box, put back one card higher. *@
-                <p class="muted empty">
-                    Nothing asked yet. What comes back appears here, and each new request is
-                    asked with everything above it &mdash; so a follow-up like &ldquo;now do the
-                    same at 5&nbsp;V&rdquo; means something.
+                <p class="note empty">
+                    Nothing asked yet. What comes back appears here, and each new request is asked
+                    with everything above it, so a follow-up like &ldquo;now do the same at
+                    5&nbsp;V&rdquo; means something.
                 </p>
             }
-            @for (int i = 0; i < _turns.Count; i++)
+            @foreach (var turn in _turns)
             {
-                var turn = _turns[i];
                 <div class="turn">
-                    <p class="who">You &middot; @(i + 1) of @_turns.Count</p>
-                    <p class="said">@turn.Request</p>
-
-                    <p class="who">Written</p>
-                    <pre class="code">@turn.Script</pre>
-
-                    @* Under the script it takes, in the answer it belongs to.
-
-                       One at the foot of the window could only ever mean the newest, which in
-                       a conversation is the wrong one as often as it is the right one: you ask
-                       for a change, the change is worse, and the draft you wanted is three
-                       inches up the transcript with nothing to press. Under it, and after it,
-                       because it is read before it is used. *@
-                    <div class="row taketurn">
-                        <span class="spacer"></span>
-                        <button @onclick="() => Use(turn)" disabled="@(turn.Script.Trim().Length == 0)"
-                                title="Put this script into the editor. It is not run — you still decide that."><Icon Name="insert" /> Use This Script</button>
+                    <div class="card you">
+                        <div class="who">You</div>
+                        <div class="words">@turn.Request</div>
                     </div>
 
-                    @* The catalog check first, the model's own account second. What must be
-                       read is what the catalog says, not what the thing being checked says
-                       about itself. *@
-                    @if (turn.Undocumented.Count > 0)
-                    {
-                        <p class="error">
-                            &#9888; @turn.Undocumented.Count line(s) use commands that are in no
-                            catalog here. Check them against the instrument's guide before
-                            running: @string.Join(", ", turn.Undocumented.Take(8))@(turn.Undocumented.Count > 8 ? ", …" : "")
-                        </p>
-                    }
-                    else if (turn.Script.Trim().Length > 0)
-                    {
-                        @* Worth saying plainly, because "no warnings" reads as "verified"
-                           otherwise. The check compares headers; the arguments after them are
-                           the model's, and only the instrument can judge those. *@
-                        <p class="muted">
-                            Every command header here is in the catalog. The values after them
-                            were not checked — read the script before you run it.
-                        </p>
-                    }
-                    @if (turn.Notes.Trim().Length > 0)
-                    {
-                        <p class="muted">@turn.Notes</p>
-                    }
+                    <div class="card answer">
+                        @if (turn.Script.Trim().Length > 0)
+                        {
+                            <pre class="code">@turn.Script</pre>
+
+                            @* Under the script it takes, in the answer it belongs to. One at the foot
+                               of the window could only ever mean the newest, which in a conversation
+                               is the wrong one as often as it is the right one. *@
+                            <div class="row taketurn">
+                                <button @onclick="() => Use(turn)"
+                                        title="Put this script into the editor. It is not run — you still decide that."><Icon Name="insert" /> Use This Script</button>
+                            </div>
+                        }
+
+                        @* The catalog check first, the model's own account second. What must be
+                           read is what the catalog says, not what the thing being checked says
+                           about itself. *@
+                        @if (turn.Undocumented.Count > 0)
+                        {
+                            <p class="small bad">
+                                &#9888; @turn.Undocumented.Count line(s) use commands that are in no
+                                catalog here. Check them against the instrument's guide before
+                                running: @string.Join(", ", turn.Undocumented.Take(8))@(turn.Undocumented.Count > 8 ? ", …" : "")
+                            </p>
+                        }
+                        else if (turn.Script.Trim().Length > 0)
+                        {
+                            <p class="small">
+                                Every command header here is in the catalog. The values after them
+                                were not checked — read the script before you run it.
+                            </p>
+                        }
+                        @if (turn.Notes.Trim().Length > 0)
+                        {
+                            <p class="small">@turn.Notes</p>
+                        }
+                    </div>
                 </div>
             }
         </div>
         </div>
 
-        @* One line, and as many as the text needs.
+        @* One line, and as many as the text needs. Enter sends, because this is a chat and that
+           is what Enter does in one; Shift+Enter is the newline. Both live in lec.chatbox,
+           because a textarea's own Enter has to be stopped before it inserts anything and Blazor
+           cannot decide that per-keystroke.
 
-           It was a box six lines deep whether or not there was anything in it, which is a
-           paragraph's worth of empty standing between the conversation and the row that sends
-           it. Most requests here are one sentence. So it opens at one line and grows with what
-           is in it — a pasted script, or Shift+Enter — up to a ceiling, after which it scrolls
-           rather than eating the transcript.
-
-           Enter sends, because this is a chat and that is what Enter does in one; Shift+Enter
-           is the newline. Both live in lec.chatbox, because a textarea's own Enter has to be
-           stopped before it inserts anything and Blazor cannot decide that per-keystroke.
-
-           It still opens on a worked example, written in rather than greyed behind the box: a
+           It opens on a worked example, written in rather than greyed behind the box: a
            placeholder cannot be edited, selected or sent, and it goes the moment you type over
            it. Written, it is a request that already works. *@
         <textarea class="prompt" rows="1" @ref="_box" @bind="_request" @bind:event="oninput"
                   title="Plain English. Say what you want measured or set, and at what values — the more specific, the less the model has to guess. Enter sends it; Shift+Enter starts a new line."
                   placeholder="@Hint"></textarea>
 
-        @* The two switches that decide what else gets sent, and the button that sends it: the
-           desktop's options row, everything belonging to the request in one place, under the box
-           it acts on — and no wider than it, so Write Script ends where the words it sends end.
-           Against the card's edge instead, it stood a hand away from the box it acts on and level
-           with Use This Script, which acts on the other one. *@
-        @* Two stacks and a button, rather than one long line of everything. Across, it wrapped —
-           four controls and a button do not fit the width of the request box — and a row that
-           wraps puts its own button on a line of its own with a field of nothing beside it.
-
-           Stacked, the two questions each keep their pair: which model and how hard to work it
-           in one column, and what else to send in the other. The button ends the row, which is
-           where the thing that acts on all four of them belongs. *@
+        @* The assistant's row: the pickers and the switches that decide what gets sent, Clear
+           among the buttons, and the button that sends at the far end. It wraps in a narrow
+           window rather than cutting its end off. *@
         <div class="row promptrow">
-            @* The same pair the datasheet window carries, for the same reason: this is the
-               window where you would notice that a draft wants the better model. *@
-            <div class="stack">
-                <label class="row tight" for="@($"{_id}-conn")">
-                    <span class="muted">Using:</span>
-                    <select class="conn" id="@($"{_id}-conn")" value="@_status.SelectedId" @onchange="ConnectionChanged"
-                            title="Which AI connection to spend. Set them up under the gear at the top right; the one picked here is the one every AI window uses.">
-                        @foreach (var c in _status.Connections)
-                        {
-                            <option value="@c.Id">@c.Label</option>
-                        }
-                    </select>
-                </label>
+            <label class="pair" for="@($"{_id}-conn")">
+                <span>Using:</span>
+                <select class="conn" id="@($"{_id}-conn")" value="@_status.SelectedId" @onchange="ConnectionChanged" disabled="@_busy"
+                        title="Which AI connection to spend. Set them up under the gear at the top right; the one picked here is the one every AI window uses.">
+                    @foreach (var c in _status.Connections)
+                    {
+                        <option value="@c.Id">@c.Label</option>
+                    }
+                </select>
+            </label>
 
-                @* Which model and how hard to work it are one decision taken twice, and a window
-                   that offers the first without the second is asking you to go to the settings
-                   box for the other half. This is the window where the second half earns its
-                   keep: a sweep with a WITH block and a FOR in it is not transcription. *@
-                <label class="row tight" for="@($"{_id}-effort")">
-                    <span class="muted">Effort:</span>
-                    <select class="effort" id="@($"{_id}-effort")" value="@_effort" @onchange="EffortChanged"
-                            title="How hard to ask the model to think before answering. Higher is slower and costs more tokens; provider default sends nothing at all. A sweep across several instruments is worth it, a one-line query is not.">
-                        @foreach (string name in _status.Efforts)
-                        {
-                            <option value="@name">@(name == "Default" ? "Provider default" : name)</option>
-                        }
-                    </select>
-                </label>
-            </div>
+            @* Which model and how hard to work it are one decision taken twice, and a window
+               that offers the first without the second is asking you to go to the settings
+               box for the other half. *@
+            <label class="pair" for="@($"{_id}-effort")">
+                <span>Effort:</span>
+                <select class="effort" id="@($"{_id}-effort")" value="@_effort" @onchange="EffortChanged" disabled="@_busy"
+                        title="How hard to ask the model to think before answering. Higher is slower and costs more tokens; provider default sends nothing at all. A sweep across several instruments is worth it, a one-line query is not.">
+                    @foreach (string name in _status.Efforts)
+                    {
+                        <option value="@name">@(name == "Default" ? "Provider default" : name)</option>
+                    }
+                </select>
+            </label>
 
-            <span class="gap"></span>
-            <div class="stack">
-                <label class="check" title="Send the script currently in the editor and ask for it to be changed, rather than starting again.">
-                    <input type="checkbox" checked="@_revise" disabled="@(CurrentScript is not { Length: > 0 })"
-                           @onchange="e => _revise = e.Value is true" /> Revise the current script
-                </label>
-                <label class="check" title="Send what the last run printed, so a failure can be read and worked around.">
-                    <input type="checkbox" checked="@_includeOutput" disabled="@(RecentOutput is not { Length: > 0 })"
-                           @onchange="e => _includeOutput = e.Value is true" /> Include the last run's output
-                </label>
-            </div>
+            <label class="check" title="Send the script currently in the editor and ask for it to be changed, rather than starting again.">
+                <input type="checkbox" checked="@_revise" disabled="@(_busy || CurrentScript is not { Length: > 0 })"
+                       @onchange="e => _revise = e.Value is true" /> Revise the current script
+            </label>
+            <label class="check" title="Send what the last run printed, so a failure can be read and worked around.">
+                <input type="checkbox" checked="@_includeOutput" disabled="@(_busy || RecentOutput is not { Length: > 0 })"
+                       @onchange="e => _includeOutput = e.Value is true" /> Include the last run's output
+            </label>
+
+            <button class="clearchat" @onclick="ClearChat" disabled="@(_busy || _turns.Count == 0)"
+                    title="Forget the conversation. Nothing above is sent again, which is how the request stops growing — and how a new subject starts clean."><Icon Name="clear" /> Clear</button>
+
             <span class="spacer"></span>
-            <button class="primary" @onclick="Write" disabled="@(_busy || _chosen.Count == 0 || _request.Trim().Length == 0)"
-                    title="Send the request, the command catalogs and the script language to your AI connection."><Icon Name="ai" /> Write Script</button>
+            @* Write Script and Stop are one button, in one place, as the assistant's Send is. *@
+            <button class="primary send" @onclick="WriteOrStop" disabled="@(!_busy && (_chosen.Count == 0 || _request.Trim().Length == 0))"
+                    title="Send the request, the conversation so far, the command catalogs and the script language to your AI connection (Enter). While it is writing, Stop."><Icon Name="ai" /> @(_busy ? "Stop" : "Write Script")</button>
         </div>
 
-        @* The foot of the window: what happened, and nothing else. Use This Script moved up into
-           the answers, one to each, so there is no longer a button here that could only ever
-           mean the newest of them. *@
+        @* What the transcript costs to send, where the assistant says what its next question
+           costs. A count of turns on its own does not answer "should I clear this?", so it is
+           characters of transcript: not tokens, but the only honest number the browser has. *@
+        <p class="estimate">@Ledger</p>
+
+        @* The foot of the window: what happened, and nothing else. *@
         <div class="row userow">
             @* A ring while it is away. A model asked for a sweep across two instruments takes
-               tens of seconds to answer and says nothing at all while it does — and a line of
-               grey text that has not changed for half a minute reads the same as one that has
-               stopped. The ring is the difference between waiting and hung. *@
+               tens of seconds to answer and says nothing at all while it does. *@
             @if (_busy) { <span class="spin" aria-hidden="true"></span> }
             <span class="@(_scriptError is null ? "muted" : "error")">@(_scriptError ?? _scriptStatus)</span>
         </div>
@@ -471,7 +428,7 @@ else if (!_status.Configured)
     private DotNetObjectReference<Ai>? _self;
     private bool _boxWired;
 
-    /// <summary>What the transcript costs to send — the reason Clear is next to it.</summary>
+    /// <summary>What the transcript costs to send, under the box as the assistant's estimate is — the reason Clear is there.</summary>
     private string Ledger
     {
         get
@@ -481,7 +438,7 @@ else if (!_status.Configured)
 
             int chars = ScriptChats.Size(_turns);
             string size = chars < 1024 ? $"{chars} characters" : $"about {chars / 1024.0:0.#} kB";
-            return $"{_turns.Count} turn(s) — {size} of transcript goes with every request. "
+            return $"{_turns.Count} turn(s): {size} of transcript goes with every request. "
                  + "Clear to start again without it.";
         }
     }
@@ -549,11 +506,30 @@ else if (!_status.Configured)
 
     // ------------------------------------------------------------------ the script
 
+    /// <summary>The request out, for Stop to let go of. Null while nothing is being written.</summary>
+    private CancellationTokenSource? _writing;
+
+    /// <summary>
+    /// Write Script, or Stop while a request is out: one button in one place, as the assistant's
+    /// Send is.
+    /// </summary>
+    private async Task WriteOrStop()
+    {
+        if (_busy)
+        {
+            _writing?.Cancel();
+            return;
+        }
+        if (_chosen.Count == 0 || _request.Trim().Length == 0) return;
+        await Write();
+    }
+
     private async Task Write()
     {
         string asked = _request.Trim();
 
         _busy = true; _scriptError = null;
+        _writing = new CancellationTokenSource();
         // "Thinking", not "Writing": nothing is being written yet, and on a model asked for
         // effort most of the wait is spent before the first word of the answer exists.
         _scriptStatus = "Thinking…";
@@ -569,7 +545,9 @@ else if (!_status.Configured)
                 _includeOutput ? RecentOutput : null,
                 _turns.ToList(),
                 EditorScript: IsSequence ? CurrentScript : null,
-                Picks: IsSequence ? Picks : null));
+                Picks: IsSequence ? Picks : null),
+                BenchClient.ScriptWait(_status?.TimeoutSeconds),
+                _writing.Token);
 
             if (reply.Error is not null) { _scriptError = reply.Error; _scriptStatus = "Failed."; return; }
 
@@ -581,8 +559,36 @@ else if (!_status.Configured)
             _scrollChat = true;
             _scriptStatus = "Written. Read it, then press Use This Script — or ask for a change.";
         }
-        finally { _busy = false; }
+        catch (OperationCanceledException) when (_writing?.IsCancellationRequested == true)
+        {
+            // Stop pressed. The conversation is as it was before the request went.
+            _scriptStatus = "Stopped.";
+        }
+        catch (Exception ex)
+        {
+            // A request that came back as an exception rather than a reply: the server could not
+            // be reached at all. It used to leave the click handler, so Blazor raised its
+            // unhandled-error bar and this line went on saying "Thinking…". The writer's own
+            // clock comes back as a reply, so the only cancel told apart above is Stop.
+            _scriptError = Failure(ex);
+            _scriptStatus = "Failed.";
+        }
+        finally
+        {
+            _busy = false;
+            _writing?.Dispose();
+            _writing = null;
+        }
     }
+
+    /// <summary>
+    /// What to say about a request that failed before any reply came back. The browser's fetch
+    /// says only "TypeError: Failed to fetch" for a server that is not there, which is true and
+    /// tells nobody what to do.
+    /// </summary>
+    private static string Failure(Exception ex) => ex is HttpRequestException
+        ? $"Could not reach the server ({ex.Message})."
+        : ex.Message;
 
     /// <summary>
     /// Forget the conversation.
@@ -722,8 +728,13 @@ else if (!_status.Configured)
                 : $"Found {reply.Commands.Count} command(s). Untick anything wrong, then Save Ticked."
                   + dropped;
         }
-        catch (OperationCanceledException) { _extractStatus = "Stopped."; }
-        catch (Exception ex) { _extractError = ex.Message; _extractStatus = "Extraction failed."; }
+        // "Stopped." only when Stop is what stopped it. A request cut short any other way used to
+        // land here too, and said Stop had been pressed by someone who had not pressed it.
+        catch (OperationCanceledException) when (_extracting?.IsCancellationRequested == true)
+        {
+            _extractStatus = "Stopped.";
+        }
+        catch (Exception ex) { _extractError = Failure(ex); _extractStatus = "Extraction failed."; }
         finally
         {
             _busy = false;
@@ -791,7 +802,12 @@ else if (!_status.Configured)
 
     private bool _dropWired;
 
-    public void Dispose() => _self?.Dispose();
+    public void Dispose()
+    {
+        // A request still out is let go with the window, as the desktop's FormClosing does.
+        _writing?.Cancel();
+        _self?.Dispose();
+    }
 
     private sealed record FilePayload(string name, string base64);
 }

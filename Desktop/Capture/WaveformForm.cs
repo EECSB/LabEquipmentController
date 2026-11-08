@@ -94,24 +94,30 @@ namespace LabEquipmentController
             _wave = wave;
             _recapture = recapture;
 
+            // No auto-scale pass over what is built here, unlike the other code-built windows:
+            // this one builds a card again every time + is pressed, long after any pass, so
+            // the first card would be scaled and every later one not. Every size is scaled by
+            // hand instead (SPEC §14), through LogicalToDeviceUnits and Scaled, so a card
+            // comes out the same whenever it is built. The AutoScale lines stay for the fonts.
             AutoScaleDimensions = new SizeF(7F, 15F);
             AutoScaleMode = AutoScaleMode.Font;
             Font = new Font("Segoe UI", 9f);   // the app's font, so this window scales like the rest
             Text = "Waveform — " + source;
             // Twice the old 820x520 in each direction. A trace is read across, and the zoom
             // is only worth having if there are pixels to spread the samples over. OnLoad
-            // clamps this to the screen it opens on.
-            ClientSize = new Size(1640, 1040);
+            // clamps this to the screen it opens on. Those are pixels on a 175% screen, where
+            // this comes out as the 1640x1040 chosen there.
+            ClientSize = LogicalToDeviceUnits(new Size(937, 594));
             // A floor only. OnLoad raises the width to whatever this capture's figures need
             // beside the Save button, and Rebuild raises the height as cards are added.
-            MinimumSize = new Size(480, 320);
+            MinimumSize = LogicalToDeviceUnits(new Size(274, 183));
             StartPosition = FormStartPosition.CenterParent;
 
             _stack = new TableLayoutPanel
             {
                 Dock = DockStyle.Fill,
                 ColumnCount = 1,
-                Padding = new Padding(8, 8, 8, 0),
+                Padding = this.Scaled(8, 8, 8, 0),
             };
             _stack.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100f));
 
@@ -128,7 +134,7 @@ namespace LabEquipmentController
             // No padding underneath: the stack below brings its own eight, and two helpings
             // stood the first card twice as far from the strip as the cards stand from
             // each other. Eight at the sides, so the buttons line up with the cards' edges.
-            _bar = new Panel { Dock = DockStyle.Top, Padding = new Padding(8, 10, 8, 0) };
+            _bar = new Panel { Dock = DockStyle.Top, Padding = this.Scaled(8, 10, 8, 0) };
             if (_recapture != null) _bar.Controls.Add(BuildRunControls());
 
             // Fill first, then docked edges (this project's convention for docking order).
@@ -310,13 +316,13 @@ namespace LabEquipmentController
             var card = new Card
             {
                 Dock = DockStyle.Fill,
-                Margin = new Padding(0, 0, 0, 8),
+                Margin = this.Scaled(0, 0, 0, 8),
                 BorderStyle = BorderStyle.FixedSingle,
             };
 
             // Which channels, then the ✕ at the far end — the same arrangement a console tab
             // uses, and for the same reason: the thing that removes something goes last.
-            var head = new Panel { Dock = DockStyle.Top, Padding = new Padding(8, 4, 4, 2) };
+            var head = new Panel { Dock = DockStyle.Top, Padding = this.Scaled(8, 4, 4, 2) };
             var picks = new FlowLayoutPanel
             {
                 Dock = DockStyle.Left,
@@ -325,7 +331,7 @@ namespace LabEquipmentController
                 WrapContents = false,
                 Margin = Padding.Empty,
             };
-            picks.Controls.Add(new Label { Text = "Channels", AutoSize = true, Margin = new Padding(0, 6, 6, 0) });
+            picks.Controls.Add(new Label { Text = "Channels", AutoSize = true, Margin = this.Scaled(0, 6, 6, 0) });
 
             for (int n = 1; n <= 4; n++)
             {
@@ -336,7 +342,7 @@ namespace LabEquipmentController
                     AutoSize = true,
                     Checked = channels.Contains(channel),
                     ForeColor = ChannelInk(channel),
-                    Margin = new Padding(0, 5, 6, 0),
+                    Margin = this.Scaled(0, 5, 6, 0),
                 };
                 box.CheckedChanged += (_, _) => Picked(card, box);
                 _tips.SetToolTip(box, $"Draw channel {channel} on this card. At least one channel is always on.");
@@ -370,7 +376,7 @@ namespace LabEquipmentController
             // Air between the last of the three and the ✕. They are three ways of looking at
             // the trace and it is the way to be rid of the card, and at the ordinary gap they
             // read as four buttons that happen to be in a row.
-            card.ZoomFit.Margin = new Padding(0, 2, LogicalToDeviceUnits(14), 0);
+            card.ZoomFit.Margin = this.Scaled(0, 2, 14, 0);
 
             zoomers.Controls.Add(card.ZoomIn);
             zoomers.Controls.Add(card.ZoomOut);
@@ -386,7 +392,7 @@ namespace LabEquipmentController
             // always fit. Without it the text is chopped mid-word — "span 1" reads as a value
             // rather than the start of one. With it the cut is marked, and the tooltip still
             // names every figure.
-            var foot = new Panel { Dock = DockStyle.Bottom, Padding = new Padding(8, 4, 4, 4) };
+            var foot = new Panel { Dock = DockStyle.Bottom, Padding = this.Scaled(8, 4, 4, 4) };
             card.Info = new Label
             {
                 Dock = DockStyle.Fill,
@@ -443,7 +449,7 @@ namespace LabEquipmentController
         {
             var b = new Button();
             ButtonStyle.Apply(b, "", onClick);
-            b.Margin = new Padding(0, 2, 2, 0);
+            b.Margin = this.Scaled(0, 2, 2, 0);
             b.Tag = glyph;
             _tips.SetToolTip(b, tip);
             return b;
@@ -499,22 +505,22 @@ namespace LabEquipmentController
             };
 
             ButtonStyle.Apply(_once, "Capture Waveform", (_, _) => _ = CaptureOnceAsync());
-            _once.Margin = new Padding(0, 0, 14, 0);
+            _once.Margin = this.Scaled(0, 0, 14, 0);
 
             ButtonStyle.Apply(_run, "Run", (_, _) => ToggleRun());
-            _run.Margin = new Padding(0, 0, 14, 0);
+            _run.Margin = this.Scaled(0, 0, 14, 0);
 
-            _every.Margin = new Padding(0, 6, 6, 0);
+            _every.Margin = this.Scaled(0, 6, 6, 0);
 
             _interval.Minimum = 50;
             _interval.Maximum = 60000;
             _interval.Increment = 50;
             _interval.Value = 500;
             _interval.TextAlign = HorizontalAlignment.Right;
-            _interval.Width = 80;
-            _interval.Margin = new Padding(0, 2, 4, 0);
+            _interval.Width = LogicalToDeviceUnits(80);
+            _interval.Margin = this.Scaled(0, 2, 4, 0);
 
-            _ms.Margin = new Padding(0, 6, 18, 0);
+            _ms.Margin = this.Scaled(0, 6, 18, 0);
 
             strip.Controls.Add(_once);
             strip.Controls.Add(_run);
@@ -966,7 +972,8 @@ namespace LabEquipmentController
                 Dock = DockStyle.Top;
                 Cursor = Cursors.Hand;
                 TabStop = false;
-                Margin = new Padding(0, 0, 0, 8);
+                int gap = LogicalToDeviceUnits(8);   // in logical pixels, as the cards' own
+                Margin = new Padding(0, 0, 0, gap);
             }
 
             protected override void OnHandleCreated(EventArgs e)
@@ -1045,7 +1052,13 @@ namespace LabEquipmentController
             private Point? _dragFrom;
             private Rectangle _area;
 
-            private const int MarginLeft = 64, MarginRight = 14, MarginTop = 12, MarginBottom = 30;
+            // In logical pixels, for this display: painted, so nothing else scales them. As
+            // constants they held 64 pixels for the axis labels at every scale, which their
+            // text outgrew at 175%.
+            private int MarginLeft => LogicalToDeviceUnits(64);
+            private int MarginRight => LogicalToDeviceUnits(14);
+            private int MarginTop => LogicalToDeviceUnits(12);
+            private int MarginBottom => LogicalToDeviceUnits(30);
 
             public PlotPanel()
             {
@@ -1226,16 +1239,17 @@ namespace LabEquipmentController
 
                 using var f = new Font("Segoe UI", 8f);
                 using var lbl = new SolidBrush(Color.Gainsboro);
-                g.DrawString($"{vmax:g3} V", f, lbl, 4, MarginTop - 2);
-                g.DrawString($"{vmin:g3} V", f, lbl, 4, MarginTop + ph - 14);
+                int inset = LogicalToDeviceUnits(4), under = LogicalToDeviceUnits(6);
+                g.DrawString($"{vmax:g3} V", f, lbl, inset, MarginTop - LogicalToDeviceUnits(2));
+                g.DrawString($"{vmin:g3} V", f, lbl, inset, MarginTop + ph - LogicalToDeviceUnits(14));
 
                 // The times at the ends of what is drawn. Without these, zooming changes the
                 // picture without saying what part of the record you are looking at.
                 string t0 = $"{axis[first].Time:g3} s";
                 string t1 = $"{axis[last].Time:g3} s";
-                g.DrawString(t0, f, lbl, MarginLeft, MarginTop + ph + 6);
+                g.DrawString(t0, f, lbl, MarginLeft, MarginTop + ph + under);
                 SizeF t1Size = g.MeasureString(t1, f);
-                g.DrawString(t1, f, lbl, MarginLeft + pw - t1Size.Width, MarginTop + ph + 6);
+                g.DrawString(t1, f, lbl, MarginLeft + pw - t1Size.Width, MarginTop + ph + under);
 
                 // What you are looking at, and how to move it. Drawn whether or not it is
                 // zoomed: a plot that only mentions the wheel once you have already found the
@@ -1247,7 +1261,7 @@ namespace LabEquipmentController
                     + "double-click to reset";
                 SizeF size = g.MeasureString(note, f);
                 using var dim = new SolidBrush(Color.FromArgb(140, 140, 140));
-                g.DrawString(note, f, dim, MarginLeft + (pw - size.Width) / 2, MarginTop + ph + 6);
+                g.DrawString(note, f, dim, MarginLeft + (pw - size.Width) / 2, MarginTop + ph + under);
 
                 var pts = new PointF[count];
                 foreach (ChannelRead c in drawn)
@@ -1266,13 +1280,13 @@ namespace LabEquipmentController
                 // there is more than one of them.
                 if (drawn.Count > 1)
                 {
-                    float lx = MarginLeft + 4;
+                    float lx = MarginLeft + inset;
                     foreach (ChannelRead c in drawn)
                     {
                         string name = "CH" + c.Channel;
                         using var ink = new SolidBrush(ChannelInk(c.Channel));
-                        g.DrawString(name, f, ink, lx, MarginTop + 2);
-                        lx += g.MeasureString(name, f).Width + 10;
+                        g.DrawString(name, f, ink, lx, MarginTop + LogicalToDeviceUnits(2));
+                        lx += g.MeasureString(name, f).Width + LogicalToDeviceUnits(10);
                     }
                 }
             }

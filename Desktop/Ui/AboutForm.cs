@@ -18,6 +18,10 @@ namespace LabEquipmentController
     {
         public AboutForm()
         {
+            // Layout suspended across the build, as the designer does it, so the auto-scale
+            // pass runs once over the finished box rather than over an empty form as
+            // AutoScaleMode is set. The numbers below are logical pixels.
+            SuspendLayout();
             AutoScaleDimensions = new SizeF(7F, 15F);
             AutoScaleMode = AutoScaleMode.Font;
             Font = new Font("Segoe UI", 9f);
@@ -50,6 +54,9 @@ namespace LabEquipmentController
             {
                 SizeMode = PictureBoxSizeMode.Zoom,
                 Size = new Size(64, 64),
+                // A minimum as well: the table lays it out as it is added, before the box has
+                // its size, and would cut a plain size down to the cell it found then.
+                MinimumSize = new Size(64, 64),
                 Margin = new Padding(0, 0, 16, 0),
                 Image = AppIconImage(),
             };
@@ -99,6 +106,8 @@ namespace LabEquipmentController
             // No OK button. This box states facts and takes no decision, so there is
             // nothing for one to confirm — the title bar closes it, and so does Esc.
             Controls.Add(body);
+            ResumeLayout(false);
+            PerformLayout();
         }
 
         private readonly TableLayoutPanel _body;

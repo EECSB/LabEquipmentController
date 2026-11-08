@@ -40,7 +40,10 @@ public sealed class InstrumentWindow : Form
     public InstrumentWindow(string title, Icon? icon)
     {
         // Match the main form's scaling so this window grows correctly on high-DPI displays
-        // (a code-built form must set these itself — the designer normally does).
+        // (a code-built form must set these itself — the designer normally does). Inside
+        // SuspendLayout, as the designer has it: set without, the pass runs at once over an
+        // empty form and never again.
+        SuspendLayout();
         AutoScaleDimensions = new SizeF(7F, 15F);
         AutoScaleMode = AutoScaleMode.Font;
 
@@ -67,12 +70,24 @@ public sealed class InstrumentWindow : Form
         // at 1920 the log side is around 960, the box gets some 430, and the separator is
         // affordable again. OnLoad clamps to the working area, so a smaller screen still gets
         // a window it can reach the bottom of.
-        ClientSize = new Size(1920, 840);
-        MinimumSize = new Size(560, 360);
         StartPosition = FormStartPosition.Manual;
         Font = new Font("Segoe UI", 9f);
 
         FormClosing += InstrumentWindow_FormClosing;
+        ResumeLayout(false);
+        PerformLayout();
+
+        // The sizes after the pass, scaled by the screen's DPI rather than by the font's
+        // height, which the pass stretches further. Every number above was measured on a 175%
+        // screen, where the opening size comes out as the 1920×840 it was there.
+        //
+        // The minimum width is the main window's, at which a console's rows are known to fit.
+        // At the 320 it used to be (560 screen pixels there) the split between log and results
+        // stopped laying itself out, and at 560 the command box had no width left beside Send,
+        // Clear Log and Save Log. The minimum height is the console's own, taken once there is
+        // a console to measure (FitMinimumToConsole).
+        ClientSize = LogicalToDeviceUnits(new Size(1097, 480));
+        MinimumSize = LogicalToDeviceUnits(new Size(820, 206));
     }
 
     /// <summary>
@@ -98,7 +113,25 @@ public sealed class InstrumentWindow : Form
         Console = console ?? throw new ArgumentNullException(nameof(console));
         console.Dock = DockStyle.Fill;
         Controls.Add(console);          // moves it off the tab page in one operation
+        BeginInvoke(FitMinimumToConsole);   // once it has been laid out here
         console.SetDetached(true);
+    }
+
+    /// <summary>
+    /// Make the window's minimum height the console's (<see cref="InstrumentConsole.MinimumHeight"/>),
+    /// measured at the minimum width, so making the window small never takes the log away. At
+    /// the old minimum the log measured zero. Never taller than the screen, for the reason
+    /// OnLoad gives: a window that cannot be reached cannot be resized either.
+    /// </summary>
+    private void FitMinimumToConsole()
+    {
+        if (IsDisposed || Console.IsDisposed || Console.Parent != this) return;
+
+        Size chrome = SizeFromClientSize(Size.Empty);
+        int need = Console.MinimumHeight(MinimumSize.Width - chrome.Width) + chrome.Height;
+        int screen = Screen.FromControl(this).WorkingArea.Height;
+        need = Math.Min(need, screen);
+        if (need > MinimumSize.Height) MinimumSize = new Size(MinimumSize.Width, need);
     }
 
     /// <summary>

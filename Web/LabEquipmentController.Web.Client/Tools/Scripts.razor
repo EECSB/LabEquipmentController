@@ -9,7 +9,7 @@
    console you opened it from, which has already answered it. As a page of its own it opened
    on whichever instrument happened to be first in the list and made you notice afterwards. *@
 
-<ScriptEditor IsSequence="false" @bind-Script="_script" Examples="_examples"
+<ScriptEditor @ref="_editor" IsSequence="false" @bind-Script="_script" Examples="_examples"
               Running="_running" CanRun="@(_sessionId is not null)"
               OnRun="Run" OnStop="Stop"
               Status="@_status" StatusChanged="s => _status = s"
@@ -49,6 +49,23 @@
 </div>
 
 @code {
+    /// <summary>The editor, for a script the AI assistant hands it (ConsoleTools.TakeWrittenAsync).</summary>
+    private ScriptEditor? _editor;
+
+    /// <summary>
+    /// A script the AI assistant put forward for this instrument: into the editor, asking first
+    /// over a script. Not before the window has loaded what it opens on, which would otherwise
+    /// land on top of it.
+    /// </summary>
+    public async Task TakeWrittenAsync(string script)
+    {
+        await _ready.Task;
+        if (_editor is not null) await _editor.TakeWrittenAsync(script);
+    }
+
+    /// <summary>Done once what the window opens on is in it: the worked example, and the instrument's examples.</summary>
+    private readonly TaskCompletionSource _ready = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
     private IReadOnlyList<SessionDto> _sessions = [];
     private IReadOnlyList<ExampleDto> _examples = [];
     private string? _sessionId;
@@ -81,12 +98,19 @@
 
     protected override async Task OnInitializedAsync()
     {
-        if (Window is not null) Window.BeforeClose = MayClose;
+        try
+        {
+            if (Window is not null) Window.BeforeClose = MayClose;
 
-        _script = await Bench.ScriptStartAsync();
-        _sessions = await Bench.SessionsAsync();
-        _sessionId = Session ?? _sessions.FirstOrDefault()?.Id;
-        await LoadExamples();
+            _script = await Bench.ScriptStartAsync();
+            _sessions = await Bench.SessionsAsync();
+            _sessionId = Session ?? _sessions.FirstOrDefault()?.Id;
+            await LoadExamples();
+        }
+        finally
+        {
+            _ready.TrySetResult();
+        }
     }
 
     private async Task LoadExamples()

@@ -32,15 +32,15 @@ name: Publish the container
 # is worth being clear which. A version on nuget.org can never be reused or deleted, so
 # publishing by accident is permanent. A container tag can be overwritten or deleted, so
 # the cost of a mistake is a re-run rather than a burnt version number. Tag-driven is
-# chosen for predictability, not because the alternative is dangerous: if you later want
-# `edge` to follow master, adding it here is safe in a way the NuGet equivalent is not.
+# chosen for predictability, not because the alternative is dangerous: one image per
+# version, and nothing for a push to master.
 on:
   push:
     tags: ['v*']
   workflow_dispatch:
     inputs:
       tag:
-        description: 'Extra tag to publish, e.g. rc1. The commit SHA is always published too.'
+        description: 'Tag to publish under, e.g. rc1 (needed when run from a branch)'
         required: false
         type: string
 
@@ -89,14 +89,10 @@ jobs:
         uses: docker/metadata-action@v5
         with:
           images: ${{ vars.DOCKERHUB_USERNAME }}/${{ env.IMAGE_NAME }}
-          # v1.2.3 publishes 1.2.3, 1.2 and 1 — so a compose file can pin as tightly or as
-          # loosely as it wants — plus latest, which metadata-action moves only for a
-          # semver tag and never for a prerelease one.
+          # v1.2.3 publishes 1.2.3 and latest and nothing else: no commit tags, and no moving
+          # 1 or 1.2. Metadata-action moves latest only for a semver tag, never a prerelease.
           tags: |
             type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
-            type=semver,pattern={{major}}
-            type=sha,format=short
             type=raw,value=${{ inputs.tag }},enable=${{ github.event_name == 'workflow_dispatch' && inputs.tag != '' }}
           flavor: latest=auto
           labels: |

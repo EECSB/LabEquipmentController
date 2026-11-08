@@ -18,8 +18,14 @@ namespace LabEquipmentController;
 /// It is a conversation rather than a single question, because that is how a script gets
 /// written: "now do the same at 5 V", "that failed, drop the trigger line". Every exchange
 /// stays on screen and goes back to the model with the next request, so a follow-up is a
-/// follow-up rather than a fresh start. What that costs is shown above the transcript, and
-/// Clear is how it is paid back — see <see cref="Conversations"/>.
+/// follow-up rather than a fresh start. What that costs is shown under the box, and Clear is
+/// how it is paid back — see <see cref="Conversations"/>.
+///
+/// Laid out as the AI assistant is (<see cref="AssistantForm"/>), because it is the same kind of
+/// window: what the model is told about across the top, the conversation as cards in a sunken
+/// pane, and under it the box, one row of pickers and switches with the button that sends at
+/// its right end, and the cost of the next request in grey beneath. Two AI windows in one app
+/// that put the same controls in different places are two layouts to learn for one job.
 ///
 /// Nothing is applied until the user has read it. That is the same rule the datasheet
 /// extractor follows and for the same reason (SPEC §10, §11b): a model writing SCPI is
@@ -97,22 +103,26 @@ public sealed class ScriptAiForm : Form
     /// <summary>Labels that wrap, so their wrap width can be reset when the window changes.</summary>
     private readonly List<Label> _wrapping = [];
 
-    /// <summary>Script boxes, whose height is however many lines they wrapped to.</summary>
+    /// <summary>Script boxes, as wide as the conversation pane.</summary>
     private readonly List<TextBox> _scripts = [];
 
-    /// <summary>What the transcript costs to send, which is what Clear is for.</summary>
+    /// <summary>What the transcript costs to send, which is what Clear is for: under the box, as the assistant's estimate is.</summary>
     private readonly Label _ledger = new();
 
-    private readonly Font _askFont = new("Segoe UI", 9.75f, FontStyle.Bold);
-    private readonly Font _bodyFont = new("Segoe UI", 9.75f);
-    private readonly Font _codeFont = new("Consolas", 9.75f);
+    // The assistant's own four faces, so the two windows' cards read alike.
+    private readonly Font _bold = new("Segoe UI", 9.75f, FontStyle.Bold);
+    private readonly Font _body = new("Segoe UI", 9.75f);
+    private readonly Font _code = new("Consolas", 9.75f);
+    private readonly Font _small = new("Segoe UI", 8.25f);
 
     private static readonly Color Warning = Color.FromArgb(150, 40, 0);
-    private static readonly Color Rule = Color.FromArgb(224, 226, 230);
     private static readonly Color Sunken = Color.FromArgb(248, 248, 250);
 
     /// <summary>How tall the request box may grow before it scrolls instead.</summary>
     private const int PromptMaxLines = 8;
+
+    /// <summary>How many of a script's lines show before its box scrolls, as in the assistant's cards.</summary>
+    private const int ScriptMaxLines = 20;
 
     private TableLayoutPanel? _composer;
     private readonly Label _status = new();
@@ -138,22 +148,32 @@ public sealed class ScriptAiForm : Form
         _recentOutput = recentOutput ?? "";
         _turns = ConversationFor(isSequence);
 
+        // Layout suspended across the whole build, as the designer does it, so the auto-scale
+        // pass runs once over the finished window. Set without it, the pass ran as AutoScaleMode
+        // was set, over an empty form, and never again: the fonts followed the screen and every
+        // number below stayed in screen pixels. The numbers are logical pixels at 96 DPI now.
+        SuspendLayout();
         AutoScaleDimensions = new SizeF(7F, 15F);
         AutoScaleMode = AutoScaleMode.Font;
         Font = new Font("Segoe UI", 9f);
         Text = "Write a Script with AI";
-        // Bigger than it was: at 1020×700 the draft showed six lines, which is not enough of
-        // a script to read before agreeing to run it — and reading it is the whole point of
-        // this window. Clamped to the screen in Load, so a large default is safe.
-        ClientSize = new Size(1320, 920);
-        // 700×520 was a guess, and nothing in the window fitted it: the two checkboxes and the
-        // Write Script button cannot share a row that narrow, and the height left the prompt
-        // box or the transcript above it with no room. Measured instead — this is the smallest
-        // size where every control is whole and both text boxes are worth typing in.
-        MinimumSize = new Size(920, 700);
         StartPosition = FormStartPosition.CenterParent;
 
         BuildUi();
+        ResumeLayout(false);
+        PerformLayout();
+
+        // The window's own size, after the pass and scaled by the screen's DPI rather than by
+        // the font's height, which the pass stretches further than the DPI going up. Both were
+        // measured on a 175% screen, as 1320×920 and 920×700 there, and are that again there.
+        //
+        // Bigger than it was: at 1020×700 (175%) the draft showed six lines, which is not
+        // enough of a script to read before agreeing to run it — and reading it is the whole
+        // point of this window. Clamped to the screen in Load, so a large default is safe.
+        ClientSize = LogicalToDeviceUnits(new Size(754, 526));
+        // The smallest size where every control is whole and both text boxes are worth typing
+        // in. The row under the box wraps rather than cutting off, so this is about height.
+        MinimumSize = LogicalToDeviceUnits(new Size(546, 400));
     }
 
     private void BuildUi()
@@ -163,14 +183,9 @@ public sealed class ScriptAiForm : Form
         _context.AutoSize = true;
         _context.Padding = new Padding(12, 12, 12, 6);
         _context.Text = ContextSummary();
+        _wrapping.Add(_context);
 
-        // --- what the conversation costs, over the conversation it is about ---
-        _ledger.Dock = DockStyle.Top;
-        _ledger.AutoSize = true;
-        _ledger.ForeColor = SystemColors.GrayText;
-        _ledger.Padding = new Padding(12, 0, 12, 4);
-
-        // --- the conversation ---
+        // --- the conversation, which takes the window ---
         //
         // The transcript takes the window and the composer keeps its own height, which is the
         // way round every chat is laid out: the history scrolls and the box you type in does
@@ -189,34 +204,22 @@ public sealed class ScriptAiForm : Form
         _cards.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100f));
         _scroll.Controls.Add(_cards);
 
-        // Clear in the transcript's own top corner, over the first line of it — the nearest
-        // thing this pane has to a header. On the host rather than inside the scroller, so it
-        // stays put at the bottom of a long conversation.
-        ButtonStyle.Apply(_clear, "Clear", (_, _) => ClearConversation());
-        _clear.Anchor = AnchorStyles.Top | AnchorStyles.Right;
-
         var host = new Panel { Dock = DockStyle.Fill, Padding = new Padding(12, 0, 12, 0) };
         host.Controls.Add(_scroll);
-        host.Controls.Add(_clear);
-        _clear.BringToFront();
-        host.Resize += (_, _) => PlaceClear(host);
 
-        // --- the composer ---
+        // --- the composer, as the assistant's: the box, one row under it, the cost beneath ---
         var composer = new TableLayoutPanel
         {
             Dock = DockStyle.Bottom,
             ColumnCount = 1,
             AutoSize = true,
             AutoSizeMode = AutoSizeMode.GrowAndShrink,
-            // A clear step down from the transcript, rather than the two touching.
-            Padding = new Padding(12, 10, 12, 0),
+            Padding = new Padding(12, 8, 12, 0),
         };
         composer.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100f));
         _composer = composer;
 
-        // One line, and as many as the text needs. It stood six deep whether or not there was
-        // anything in it, which is a paragraph's worth of empty between the conversation and
-        // the row that sends it; most requests here are one sentence.
+        // One line, and as many as the text needs.
         _prompt.Multiline = true;
         _prompt.WordWrap = true;
         _prompt.Anchor = AnchorStyles.Left | AnchorStyles.Right;
@@ -227,7 +230,7 @@ public sealed class ScriptAiForm : Form
         _prompt.Margin = new Padding(0);
         _prompt.TextChanged += (_, _) =>
         {
-            _generate.Enabled = _cts == null && HasPrompt;
+            UpdateEnabled();
             FitPrompt();
         };
         // Enter sends, because this is a chat and that is what Enter does in one; Shift+Enter
@@ -237,60 +240,30 @@ public sealed class ScriptAiForm : Form
         {
             if (e.KeyCode != Keys.Enter || e.Shift) return;
             e.Handled = e.SuppressKeyPress = true;
-            if (_generate.Enabled) _ = GenerateAsync();
+            if (_cts == null && HasPrompt) _ = GenerateAsync();
         };
 
-        // Everything that belongs to the *request* sits with the request: the four switches
-        // that decide what gets sent and how, and the button that sends it.
-        //
-        // Two stacks and a button rather than one long line of everything. Across, five
-        // controls do not fit the width of a window that can be dragged narrow, and a row that
-        // wraps puts its own button on a line of its own with a field of nothing beside it.
-        // Stacked, each pair keeps its own question: which model and how hard to work it in
-        // one column, what else to send in the other.
-        var options = new TableLayoutPanel
+        // Write Script keeps its own width at the right and the rest of the row takes what is
+        // left, wrapping onto another line in a narrow window rather than cutting its end off.
+        // The row's height is worked out here from the width it has, as the assistant's is: a
+        // wrapping row measured by a table is measured at some other width.
+        var options = new Panel
         {
-            ColumnCount = 2,
-            RowCount = 1,
-            AutoSize = true,
-            AutoSizeMode = AutoSizeMode.GrowAndShrink,
             Dock = DockStyle.Fill,
             Margin = new Padding(0, 6, 0, 0),
         };
-        options.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
-        options.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100f));
 
-        var switches = new FlowLayoutPanel
+        var pickers = new FlowLayoutPanel
         {
-            AutoSize = true,
-            AutoSizeMode = AutoSizeMode.GrowAndShrink,
-            WrapContents = false,
+            WrapContents = true,
+            Dock = DockStyle.Fill,
             Margin = new Padding(0),
         };
 
-        // The model column. Two rows, one label column: the pickers line up under each other
-        // rather than stepping in and out with the word in front of them.
-        var models = new TableLayoutPanel
-        {
-            ColumnCount = 2,
-            RowCount = 2,
-            AutoSize = true,
-            AutoSizeMode = AutoSizeMode.GrowAndShrink,
-            Margin = new Padding(0, 0, 24, 0),
-        };
-        models.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
-        models.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
-
         // Which connection to spend. Choosing here chooses everywhere: there is one selection
-        // for the app, so this window and the datasheet extractor cannot disagree about which
-        // key is being spent.
-        models.Controls.Add(
-            new Label { Text = "Using:", AutoSize = true, Margin = new Padding(0, 6, 6, 0) }, 0, 0);
-        _using.DropDownStyle = ComboBoxStyle.DropDownList;
-        _using.DrawMode = DrawMode.OwnerDrawFixed;
-        _using.DrawItem += (_, e) => ButtonStyle.DrawComboItem(_using, e);
-        _using.Width = 240;
-        _using.Margin = new Padding(0, 2, 0, 2);
+        // for the app, so this window, the assistant and the datasheet extractor cannot
+        // disagree about which key is being spent.
+        Picker(_using, 200);
         _picking = true;
         foreach (string label in _book.Labels()) _using.Items.Add(label);
         _using.SelectedIndex = _book.Items.FindIndex(c => c.Id == _connection.Id) is int at and >= 0
@@ -307,15 +280,9 @@ public sealed class ScriptAiForm : Form
             AiBookStore.Select(_connection.Id);
             ShowEffort();       // effort belongs to the connection, so it changes with it
         };
-        models.Controls.Add(_using, 1, 0);
+        pickers.Controls.Add(Labelled("Using:", _using));
 
-        models.Controls.Add(
-            new Label { Text = "Effort:", AutoSize = true, Margin = new Padding(0, 6, 6, 0) }, 0, 1);
-        _effort.DropDownStyle = ComboBoxStyle.DropDownList;
-        _effort.DrawMode = DrawMode.OwnerDrawFixed;
-        _effort.DrawItem += (_, e) => ButtonStyle.DrawComboItem(_effort, e);
-        _effort.Width = 240;
-        _effort.Margin = new Padding(0, 2, 0, 0);
+        Picker(_effort, 160);
         // Core's own scale, spelled once. Each provider translates it its own way — a word for
         // Gemini and an OpenAI-compatible endpoint, a token budget for Anthropic, and nothing
         // at all for Default, which is why Default is the default.
@@ -330,44 +297,71 @@ public sealed class ScriptAiForm : Form
             AiBookStore.SetEffort(_connection.Id, picked);
             if (_book.Find(_connection.Id) is { } mine) mine.Effort = picked;
         };
-        models.Controls.Add(_effort, 1, 1);
-        switches.Controls.Add(models);
+        pickers.Controls.Add(Labelled("Effort:", _effort));
 
-        // And the column that decides what else travels with the request.
-        var extras = new FlowLayoutPanel
-        {
-            FlowDirection = FlowDirection.TopDown,
-            AutoSize = true,
-            AutoSizeMode = AutoSizeMode.GrowAndShrink,
-            WrapContents = false,
-            Margin = new Padding(0),
-        };
-
+        // What else travels with the request, in the row where the assistant has Changes.
         _revise.Text = "Revise the current script";
         _revise.AutoSize = true;
         _revise.Checked = _currentScript.Trim().Length > 0;
         _revise.Enabled = _currentScript.Trim().Length > 0;
-        _revise.Margin = new Padding(0, 6, 0, 2);
-        extras.Controls.Add(_revise);
+        _revise.Margin = new Padding(0, 5, 18, 4);
+        pickers.Controls.Add(_revise);
 
         _includeOutput.Text = "Include the last run's output";
         _includeOutput.AutoSize = true;
         _includeOutput.Checked = _recentOutput.Trim().Length > 0;
         _includeOutput.Enabled = _recentOutput.Trim().Length > 0;
-        _includeOutput.Margin = new Padding(0, 2, 0, 0);
-        extras.Controls.Add(_includeOutput);
-        switches.Controls.Add(extras);
+        _includeOutput.Margin = new Padding(0, 5, 18, 4);
+        pickers.Controls.Add(_includeOutput);
 
-        ButtonStyle.Apply(_generate, "Write Script", (_, _) => _ = GenerateAsync());
+        // In the row with the other buttons, where the assistant keeps Attach Files and Tools.
+        ButtonStyle.Apply(_clear, "Clear", (_, _) => ClearConversation());
+        _clear.Margin = new Padding(0, 2, 6, 4);
+        pickers.Controls.Add(_clear);
+
+        var buttons = new FlowLayoutPanel
+        {
+            AutoSize = true,
+            AutoSizeMode = AutoSizeMode.GrowAndShrink,
+            WrapContents = false,
+            FlowDirection = FlowDirection.RightToLeft,
+            Dock = DockStyle.Right,
+            Margin = new Padding(12, 0, 0, 0),
+        };
+        // Write Script and Stop are one button, in one place, as the assistant's Send is: a
+        // double-click on Write Script must not stop what it sent, so a click arriving as the
+        // second of a pair is let go.
+        ButtonStyle.Apply(_generate, "Write Script");
         _generate.Enabled = false;
-        _generate.Anchor = AnchorStyles.Right;
-        _generate.Margin = new Padding(12, 0, 0, 0);
+        _generate.MouseDown += (_, e) =>
+        {
+            if (e.Button != MouseButtons.Left) return;
+            if (_cts != null)
+            {
+                if (e.Clicks < 2) _cts.Cancel();
+                return;
+            }
+            if (_generate.Enabled) _ = GenerateAsync();
+        };
+        buttons.Controls.Add(_generate);
 
-        options.Controls.Add(switches, 0, 0);
-        options.Controls.Add(_generate, 1, 0);
+        options.Controls.Add(pickers);
+        options.Controls.Add(buttons);
+        options.Layout += (_, _) =>
+        {
+            int room = Math.Max(1, options.ClientSize.Width - buttons.Width);
+            int height = Math.Max(pickers.GetPreferredSize(new Size(room, 0)).Height, buttons.PreferredSize.Height);
+            if (options.Height != height) options.Height = height;
+        };
+
+        _ledger.AutoSize = true;
+        _ledger.ForeColor = SystemColors.GrayText;
+        _ledger.Margin = new Padding(0, 4, 0, 6);
+        _wrapping.Add(_ledger);
 
         composer.Controls.Add(_prompt, 0, 0);
         composer.Controls.Add(options, 0, 1);
+        composer.Controls.Add(_ledger, 0, 2);
 
         _progress.Dock = DockStyle.Bottom;
         _progress.Height = 4;
@@ -376,17 +370,19 @@ public sealed class ScriptAiForm : Form
 
         _status.Dock = DockStyle.Bottom;
         // Height comes from the font, once the form has passed its own down (see the
-        // Load handler). A flat 22 was right at 100% and cut the descenders off at 175%:
-        // these windows scale their fonts without scaling their own layout.
+        // Load handler). A flat 22 was right at 100% and cut the descenders off at 175%,
+        // back when this window scaled its fonts without scaling its own layout.
         _status.TextAlign = ContentAlignment.MiddleLeft;
         _status.Padding = new Padding(12, 0, 0, 0);
         _status.Text = "Ready.";
 
         // Fill first, then docked edges, from the middle outwards.
-        Controls.Add(host);
-        Controls.Add(_ledger);
-        Controls.Add(_context);
-        Controls.Add(composer);
+        var center = new Panel { Dock = DockStyle.Fill };
+        center.Controls.Add(host);
+        center.Controls.Add(_context);
+        center.Controls.Add(composer);
+
+        Controls.Add(center);
         Controls.Add(_progress);
         Controls.Add(_status);
 
@@ -404,10 +400,9 @@ public sealed class ScriptAiForm : Form
         _prompt.Text = Example;
 
         // An AutoSize label ignores the width its Dock gives it — it grows to whatever its
-        // text needs, and only MaximumSize makes it wrap. The wrap width used to be worked out
-        // once from ClientSize while the form was still at its 1320-wide default, so shrinking
-        // the window left the text running hundreds of pixels off the right edge.
+        // text needs, and only MaximumSize makes it wrap.
         Resize += (_, _) => FitLabelWidths();
+        _scroll.SizeChanged += (_, _) => FitLabelWidths();
 
         Load += (_, _) =>
         {
@@ -422,7 +417,9 @@ public sealed class ScriptAiForm : Form
             ButtonStyle.Normalize(this, _generate, _clear);
             ButtonStyle.SetDrawnIcon(this, _generate, "ai");
             ButtonStyle.SetIcon(this, _clear, "reset");
-            PlaceClear(host);
+            // Again now the window has scaled: the example written into the box during the
+            // build sized it in screen pixels, and the scaling pass then stretched that.
+            FitPrompt();
         };
 
         Shown += (_, _) =>
@@ -430,7 +427,6 @@ public sealed class ScriptAiForm : Form
             DrawTranscript();
             FitLabelWidths();     // now that the labels have a real width to wrap against
             FitPrompt();
-            PlaceClear(host);
             _prompt.Focus();
             // Caret at the end of the example rather than in front of it: this box takes focus
             // when the window opens, and typing at position zero would push the worked request
@@ -440,6 +436,30 @@ public sealed class ScriptAiForm : Form
 
         // A request in flight has to be let go before the window that owns it disappears.
         FormClosing += (_, _) => _cts?.Cancel();
+    }
+
+    /// <summary>A label with the list it names, kept together when the row wraps — the assistant's own.</summary>
+    private static FlowLayoutPanel Labelled(string label, Control control)
+    {
+        var pair = new FlowLayoutPanel
+        {
+            AutoSize = true,
+            AutoSizeMode = AutoSizeMode.GrowAndShrink,
+            WrapContents = false,
+            Margin = new Padding(0, 0, 18, 4),
+        };
+        pair.Controls.Add(new Label { Text = label, AutoSize = true, Margin = new Padding(0, 6, 6, 0) });
+        pair.Controls.Add(control);
+        return pair;
+    }
+
+    private static void Picker(ComboBox combo, int width)
+    {
+        combo.DropDownStyle = ComboBoxStyle.DropDownList;
+        combo.DrawMode = DrawMode.OwnerDrawFixed;
+        combo.DrawItem += (_, e) => ButtonStyle.DrawComboItem(combo, e);
+        combo.Width = width;
+        combo.Margin = new Padding(0, 2, 0, 2);
     }
 
     /// <summary>
@@ -488,7 +508,7 @@ public sealed class ScriptAiForm : Form
     private void DrawTranscript()
     {
         _cards.SuspendLayout();
-        _wrapping.Clear();
+        _wrapping.RemoveAll(l => l != _context && l != _ledger);
         _scripts.Clear();
         foreach (Control old in _cards.Controls.Cast<Control>().ToList()) old.Dispose();
         _cards.Controls.Clear();
@@ -497,116 +517,125 @@ public sealed class ScriptAiForm : Form
 
         if (_turns.Count == 0)
         {
-            AddRow(_cards, Wrapping(
-                "Nothing asked yet.\r\n\r\nWhat comes back appears here, and each new request "
-              + "is asked with everything above it — so a follow-up like “now do the same at "
-              + "5 V” means something.",
-                _bodyFont, SystemColors.GrayText));
+            AddRow(_cards, Note(
+                "Nothing asked yet. What comes back appears here, and each new request is asked "
+              + "with everything above it, so a follow-up like “now do the same at 5 V” means "
+              + "something."));
         }
 
-        for (int i = 0; i < _turns.Count; i++) AddRow(_cards, BuildTurn(_turns[i], i));
+        foreach (ScriptTurn turn in _turns)
+        {
+            AddRow(_cards, Question(turn));
+            AddRow(_cards, Answer(turn));
+        }
 
         _cards.ResumeLayout(true);
 
         _ledger.Text = LedgerText();
-        _clear.Enabled = _cts == null && _turns.Count > 0;
+        UpdateEnabled();
         FitLabelWidths();
         ScrollToEnd();
     }
 
-    /// <summary>One exchange: what was asked, what was written, and a button that takes it.</summary>
-    private Control BuildTurn(ScriptTurn turn, int index)
+    /// <summary>What was asked, on the window's own white, as the assistant shows a question.</summary>
+    private Control Question(ScriptTurn turn)
     {
-        var card = new TableLayoutPanel
-        {
-            ColumnCount = 1,
-            AutoSize = true,
-            AutoSizeMode = AutoSizeMode.GrowAndShrink,
-            Dock = DockStyle.Top,
-            Margin = new Padding(0, index == 0 ? 0 : LogicalToDeviceUnits(10), 0, 0),
-            BackColor = Color.Transparent,
-        };
-        card.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100f));
+        var box = Stack(SystemColors.Window);
+        box.Controls.Add(Words("You", _bold));
+        box.Controls.Add(Words(turn.Request.Trim(), _body));
+        return box;
+    }
 
-        // A rule between turns rather than a box around each: a card inside a card is a stack
-        // of frames, and what is wanted is to see where one answer stops.
-        if (index > 0)
+    /// <summary>
+    /// What was written, the button that takes it, and what the catalog check said — as the
+    /// assistant shows a proposed script.
+    /// </summary>
+    private Control Answer(ScriptTurn turn)
+    {
+        var box = Stack(Color.Transparent);
+
+        string script = turn.Script.Trim();
+        if (script.Length > 0)
         {
-            AddRow(card, new Panel
+            // Every line shown up to twenty, and a scroll bar down the side only past that; one
+            // along the foot always, since a script's lines are not wrapped.
+            int lines = script.Split('\n').Length;
+            var text = new TextBox
             {
-                Height = 1,
-                BackColor = Rule,
-                Dock = DockStyle.Top,
-                Margin = new Padding(0, 0, 0, LogicalToDeviceUnits(10)),
-            });
+                Multiline = true,
+                ReadOnly = true,
+                WordWrap = false,
+                ScrollBars = lines > ScriptMaxLines ? ScrollBars.Both : ScrollBars.Horizontal,
+                Font = _code,
+                BackColor = SystemColors.Window,
+                Text = script.Replace("\r\n", "\n").Replace("\n", "\r\n"),
+                // Built after the window has scaled, so scaled here (SPEC §14).
+                Height = Math.Min(ScriptMaxLines, lines) * _code.Height
+                         + SystemInformation.HorizontalScrollBarHeight + LogicalToDeviceUnits(8),
+                Width = LogicalToDeviceUnits(600),
+                Margin = new Padding(0, LogicalToDeviceUnits(4), 0, 0),
+                TabStop = false,
+            };
+            _scripts.Add(text);
+            box.Controls.Add(text);
+
+            // Under the script it takes, in the answer it belongs to. One at the foot of the
+            // window could only ever mean the newest, which in a conversation is the wrong one
+            // as often as it is the right one.
+            var take = new Button { Margin = new Padding(0, LogicalToDeviceUnits(4), 0, LogicalToDeviceUnits(2)) };
+            ButtonStyle.Apply(take, "Use This Script", (_, _) => UseScript(turn.Script));
+            _tips.SetToolTip(take, "Put this script into the editor. It is not run — you still "
+                                 + "press Run yourself.");
+            box.Controls.Add(take);
         }
-
-        AddRow(card, Heading($"You  ·  {index + 1} of {_turns.Count}"));
-        AddRow(card, Wrapping(turn.Request.Trim(), _bodyFont, SystemColors.WindowText));
-        AddRow(card, Heading("Written"));
-
-        var script = new TextBox
-        {
-            Multiline = true,
-            ReadOnly = true,
-            WordWrap = true,
-            Font = _codeFont,
-            BackColor = Color.White,
-            BorderStyle = BorderStyle.FixedSingle,
-            Anchor = AnchorStyles.Left | AnchorStyles.Right,
-            Margin = new Padding(0, 2, 0, 6),
-            Text = turn.Script.Trim(),
-            TabStop = false,
-        };
-        _scripts.Add(script);
-        AddRow(card, script);
-
-        // Under the script it takes, in the answer it belongs to. One at the foot of the
-        // window could only ever mean the newest, which in a conversation is the wrong one as
-        // often as it is the right one.
-        var take = new Button { Anchor = AnchorStyles.Right, Margin = new Padding(0, 0, 0, 6) };
-        ButtonStyle.Apply(take, "Use This Script", (_, _) => UseScript(turn.Script));
-        take.Enabled = turn.Script.Trim().Length > 0;
-        _tips.SetToolTip(take, "Put this script into the editor. It is not run — you still "
-                             + "press Run yourself.");
-        AddRow(card, take);
 
         foreach (string finding in Findings(turn))
         {
-            AddRow(card, Wrapping(finding, _bodyFont,
+            box.Controls.Add(Words(finding, _small,
                 turn.Undocumented is { Count: > 0 } ? Warning : SystemColors.GrayText));
         }
 
-        return card;
+        return box;
+    }
+
+    private Control Note(string text)
+    {
+        var box = Stack(Color.Transparent);
+        box.Controls.Add(Words(text, _small, SystemColors.GrayText));
+        return box;
+    }
+
+    private FlowLayoutPanel Stack(Color back) => new()
+    {
+        FlowDirection = FlowDirection.TopDown,
+        WrapContents = false,
+        AutoSize = true,
+        AutoSizeMode = AutoSizeMode.GrowAndShrink,
+        Dock = DockStyle.Top,
+        BackColor = back,
+        Padding = new Padding(8, 6, 8, 6),
+        Margin = new Padding(0, 0, 0, 6),
+    };
+
+    private Label Words(string text, Font font, Color? color = null)
+    {
+        var label = new Label
+        {
+            Text = text,
+            Font = font,
+            AutoSize = true,
+            ForeColor = color ?? SystemColors.ControlText,
+            Margin = new Padding(0, 0, 0, 2),
+            UseMnemonic = false,
+        };
+        _wrapping.Add(label);
+        return label;
     }
 
     private static void AddRow(TableLayoutPanel table, Control child)
     {
         table.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         table.Controls.Add(child, 0, table.RowCount++);
-    }
-
-    private Label Heading(string text) => new()
-    {
-        Text = text,
-        Font = _askFont,
-        AutoSize = true,
-        Margin = new Padding(0, 0, 0, 2),
-        ForeColor = SystemColors.WindowText,
-    };
-
-    private Label Wrapping(string text, Font font, Color colour)
-    {
-        var label = new Label
-        {
-            Text = text,
-            Font = font,
-            ForeColor = colour,
-            AutoSize = true,
-            Margin = new Padding(0, 0, 0, 6),
-        };
-        _wrapping.Add(label);
-        return label;
     }
 
     /// <summary>
@@ -643,15 +672,6 @@ public sealed class ScriptAiForm : Form
         _scroll.ScrollControlIntoView(_cards.Controls[^1]);
     }
 
-    /// <summary>Clear at the transcript's top right, inside its frame.</summary>
-    private void PlaceClear(Control host)
-    {
-        int inset = LogicalToDeviceUnits(6);
-        _clear.Location = new Point(
-            host.ClientSize.Width - host.Padding.Right - _clear.Width - inset,
-            host.Padding.Top + inset);
-    }
-
     /// <summary>
     /// What the conversation costs, in the units the decision is made in.
     ///
@@ -670,7 +690,7 @@ public sealed class ScriptAiForm : Form
                + (t.Undocumented?.Sum(u => u.Length) ?? 0));
 
         string size = chars < 1024 ? $"{chars} characters" : $"about {chars / 1024.0:0.#} kB";
-        return $"{_turns.Count} turn(s) — {size} of transcript goes with every request. "
+        return $"{_turns.Count} turn(s): {size} of transcript goes with every request. "
              + "Clear to start again without it.";
     }
 
@@ -678,7 +698,7 @@ public sealed class ScriptAiForm : Form
     /// Forget the conversation.
     ///
     /// The whole thing: what is left is what a freshly-opened window would have had, which is
-    /// what "clear" has to mean for the figure above it to be true afterwards.
+    /// what "clear" has to mean for the figure under the box to be true afterwards.
     /// </summary>
     private void ClearConversation()
     {
@@ -691,35 +711,18 @@ public sealed class ScriptAiForm : Form
     }
 
     /// <summary>
-    /// Re-wrap everything that wraps, to the width the window is now.
-    ///
-    /// The insets match each label's own surroundings: <see cref="_context"/> is docked to the
-    /// form and carries 12px of its own padding on each side; the transcript's labels sit
-    /// inside the scroller, which adds its own padding and a scrollbar's width. Floored so a
-    /// label never goes to zero width and swallows its text.
+    /// Re-wrap everything that wraps, to the width the window is now: the cards' labels and
+    /// script boxes to the conversation pane, less its padding and a scroll bar; the context
+    /// and the cost line to the pane's full width, as the assistant's are.
     /// </summary>
     private void FitLabelWidths()
     {
-        int floor = LogicalToDeviceUnits(200);
-        int page = Math.Max(floor, ClientSize.Width - LogicalToDeviceUnits(24));
-
-        _context.MaximumSize = new Size(page, 0);
-        _ledger.MaximumSize = new Size(page, 0);
-
-        int inner = Math.Max(floor, _cards.ClientSize.Width);
-        foreach (Label label in _wrapping) label.MaximumSize = new Size(inner, 0);
-        foreach (TextBox box in _scripts) FitScript(box);
-    }
-
-    /// <summary>A script box is as tall as the lines it wrapped to, and no taller.</summary>
-    private void FitScript(TextBox box)
-    {
-        if (box.IsDisposed || box.Width <= 0) return;
-
-        int line = TextRenderer.MeasureText("Ag", box.Font).Height;
-        int lines = Math.Max(1, box.GetLineFromCharIndex(box.TextLength) + 1);
-        int wanted = line * lines + LogicalToDeviceUnits(10);
-        if (box.Height != wanted) box.Height = wanted;
+        int width = Math.Max(LogicalToDeviceUnits(200), _scroll.ClientSize.Width - LogicalToDeviceUnits(48));
+        int across = Math.Max(LogicalToDeviceUnits(200), _scroll.Width + LogicalToDeviceUnits(4));
+        foreach (Label label in _wrapping.Where(l => !l.IsDisposed))
+            label.MaximumSize = new Size(label == _context || label == _ledger ? across : width, 0);
+        foreach (TextBox box in _scripts.Where(b => !b.IsDisposed))
+            box.Width = width;
     }
 
     /// <summary>
@@ -779,7 +782,8 @@ public sealed class ScriptAiForm : Form
             + "is slower and costs more tokens; provider default sends nothing at all. A sweep "
             + "across several instruments is worth it, a one-line query is not.");
         _tips.SetToolTip(_generate, "Send the request, the conversation so far, the command "
-            + "catalogs and the script language to your AI connection.");
+            + "catalogs and the script language to your AI connection (Enter). While it is "
+            + "writing, Stop.");
         _tips.SetToolTip(_revise, "Send the script that is in the editor, so the model changes "
             + "it rather than starting again.");
         _tips.SetToolTip(_includeOutput, "Send the output pane as well, errors included. This "
@@ -828,7 +832,7 @@ public sealed class ScriptAiForm : Form
         }
         catch (OperationCanceledException)
         {
-            _status.Text = "Cancelled.";
+            _status.Text = "Stopped.";
         }
         catch (AiException ex)
         {
@@ -862,12 +866,22 @@ public sealed class ScriptAiForm : Form
     {
         _progress.Visible = busy;
         _status.Text = status;
-        _generate.Enabled = !busy && HasPrompt;
-        _clear.Enabled = !busy && _turns.Count > 0;
         _prompt.ReadOnly = busy;
         _revise.Enabled = !busy && _currentScript.Trim().Length > 0;
         _includeOutput.Enabled = !busy && _recentOutput.Trim().Length > 0;
         Cursor = busy ? Cursors.AppStarting : Cursors.Default;
+        UpdateEnabled();
+    }
+
+    /// <summary>Write Script reads Stop while a request is out, as the assistant's Send does.</summary>
+    private void UpdateEnabled()
+    {
+        bool busy = _cts != null;
+        _generate.Text = busy ? "Stop" : "Write Script";
+        _generate.Enabled = busy || HasPrompt;
+        _clear.Enabled = !busy && _turns.Count > 0;
+        _using.Enabled = !busy;
+        _effort.Enabled = !busy;
     }
 
     /// <summary>

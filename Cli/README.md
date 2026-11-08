@@ -25,6 +25,7 @@ dotnet run --project Cli/LabEquipmentController.Cli.csproj -- scan --range 192.1
 | `lec capture <address>` | Read a scope trace as CSV or SVG |
 | `lec plot <csv-file>` | Draw a recorded CSV as an SVG chart |
 | `lec catalog <text>` | Search all 36 catalogs, by syntax or description |
+| `lec mcp <address>…` | Serve instruments to an MCP client — Claude Code, Claude Desktop |
 | `lec version` | Version, runtime, and the catalog totals |
 
 Addresses take a bare host (raw socket on 5025), `host:port`, `vxi://host`,
@@ -96,6 +97,33 @@ scales, and it needs no library. `lec capture --svg` draws a scope trace, `--svg
 `run`/`seq` draws whatever the script recorded, and `lec plot` draws a CSV recorded
 earlier by any of them (or by the GUI).
 
+## Claude Code and Claude Desktop: `lec mcp`
+
+`lec mcp` serves the instruments named on its command line to a Model Context Protocol
+client, over standard input and output, with the tools the app's AI assistant has (SPEC
+§11d): `list_instruments`, `find_commands`, `query`, `send`, `read_errors`,
+`look_at_screen`, `wait` and `propose_script`. The client starts it:
+
+```bash
+claude mcp add lec -- lec mcp 192.168.1.20 vxi://192.168.1.21
+```
+
+For Claude Desktop, the same command and arguments go under `mcpServers` in its
+configuration file.
+
+- **The addresses given are all a model can reach.** There is no tool that dials another
+  one. An instrument that was off when the client started the server is tried again
+  whenever the instruments are listed.
+- **`send` is the only tool that changes an instrument**, one command a call, and it is
+  marked destructive so the client asks before it runs. It refuses a command the
+  instrument's catalog does not document unless the model says it means it, and reads the
+  error queue before and after so the answer says what that command caused.
+  **`--read-only`** serves a bench nothing may change: `send` is not offered.
+- **A script is only proposed.** `propose_script` checks it against the catalogs and hands
+  it back whole; nothing here runs it. Save it and use `lec run` or `lec seq`.
+- **Standard output is the protocol's.** What a person would want to read, such as which
+  instruments answered, goes to standard error, which clients keep as the server's log.
+
 ## Build a standalone binary
 
 For whichever machine will run it:
@@ -123,6 +151,7 @@ dotnet build Cli/LabEquipmentController.Cli.csproj && dotnet test Tests/LabEquip
 | `Endpoint.cs` | A parsed address (Core's `InstrumentAddress`) → a serialized client to talk to it with |
 | `Capture.cs` | Image-format sniffing, CSV reading, interval parsing |
 | `Verbs/` | The verbs themselves — scan · id · send · run · seq · watch · … — and the argument grammar and usage text behind them |
+| `Mcp/` | `lec mcp`: the instruments it was started for (`McpBench`) and the protocol's two handlers over Core's bench tools (`McpServing`) |
 | `Output/` | Table, CSV and JSON shapes; hand-written SVG plots; and `--stream`'s flushed row pump |
 
 ## Tests

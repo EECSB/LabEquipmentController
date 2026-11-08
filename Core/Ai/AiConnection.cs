@@ -248,6 +248,45 @@ public sealed class AiConnection
     /// <summary>Whether the user is allowed to turn local extraction off at all.</summary>
     public bool CanSendPdfDirectly => Info.SupportsPdfUpload;
 
+    /// <summary>
+    /// Whether the assistant's chat endpoint for this connection takes a PDF as a file.
+    ///
+    /// Not <see cref="AiProviderInfo.SupportsPdfUpload"/>, which is about the datasheet
+    /// reader's requests. The assistant reaches Gemini through Google's OpenAI-compatible
+    /// endpoint (<see cref="LlmEndpoints.ChatUrl"/>), which documents pictures and no files; and
+    /// of the OpenAI-compatible family only OpenAI's own address documents the file part — a
+    /// server of one's own may be anything.
+    /// </summary>
+    public bool ChatTakesPdf => Provider switch
+    {
+        AiProvider.Anthropic => true,
+        // OpenAI's own host exactly, as AiModels asks it: a prefix let
+        // api.openai.com.example.net pass for OpenAI here while the effort menu knew better.
+        AiProvider.OpenAiCompatible => AiModels.IsOpenAi(this),
+        _ => false,
+    };
+
+    /// <summary>
+    /// Whether a PDF attached to an assistant question goes as the words read out of it here
+    /// rather than as the file: where the endpoint takes no file, and wherever the user ticked
+    /// "Extract text locally" — the same box, meaning the same thing, as for the datasheet
+    /// reader. A scan has no words to read, and needs a connection that takes the file.
+    /// </summary>
+    public bool ChatPdfAsText => !ChatTakesPdf || ExtractTextLocally == true;
+
+    /// <summary>
+    /// What a million input tokens cost on this connection's model, in US dollars, when the user
+    /// has said — null to take the published rate (<see cref="AiPricing"/>), or to show no cost
+    /// where none is published. A rate given here wins over the table.
+    /// </summary>
+    public decimal? InputPrice { get; set; }
+
+    /// <summary>A million input tokens read back from the provider's cache, in US dollars, or null for the published rate.</summary>
+    public decimal? CachedPrice { get; set; }
+
+    /// <summary>A million output tokens, thinking included, in US dollars, or null for the published rate.</summary>
+    public decimal? OutputPrice { get; set; }
+
     public AiConnection Clone() => new()
     {
         Id = Id,
@@ -258,5 +297,8 @@ public sealed class AiConnection
         Effort = Effort,
         ExtractTextLocally = ExtractTextLocally,
         TimeoutSeconds = TimeoutSeconds,
+        InputPrice = InputPrice,
+        CachedPrice = CachedPrice,
+        OutputPrice = OutputPrice,
     };
 }

@@ -25,7 +25,7 @@
         @switch (tool)
         {
             case ConsoleTool.Scripts:
-                <Scripts Session="@Session.Id" />
+                <Scripts Session="@Session.Id" @ref="_scripts" />
                 break;
             case ConsoleTool.Catalog:
                 <Catalog Family="@Session.Family" Embedded="true" OnInsert="Insert" />
@@ -63,11 +63,13 @@
     /// Filling is not one size. A window that fills otherwise takes the script editors',
     /// because they were the only ones that filled — and neither the readout nor the
     /// datasheet extractor has any use for the screen. MultimeterReadoutForm asks for
-    /// 980×520 and DatasheetExtractForm for 980×620; ScriptAiForm's 1320×920 is set where
+    /// 980×520 and DatasheetExtractForm for 980×620; the AI script window's size is set where
     /// that window is opened, in ScriptEditor.
     ///
-    /// The reference is the other way about: CommandReferenceForm opens at 1720×1120 and
-    /// clamps it to the working area, which on most screens is the whole of it. A window
+    /// The reference is the other way about: it opens at 1720×1120 and clamps it to the
+    /// working area, which on most screens is the whole of it. That is CommandReferenceForm's
+    /// size on a 175% screen (983×640 logical), kept so that everything in the window is in
+    /// view when it opens (UI-SPEC §9, Known differences). A window
     /// holding several hundred commands beside the page they were transcribed from is not
     /// worth opening small, and both halves are docked Fill there, so the height goes to
     /// them rather than to a strip of card under the shorter one.
@@ -116,6 +118,25 @@
         StateHasChanged();
     }
 
+    /// <summary>The open script editor, for a script the AI assistant hands it.</summary>
+    private Scripts? _scripts;
+
+    /// <summary>
+    /// A script the AI assistant put forward for this instrument, from its Use This Script: the
+    /// script editor opened, or raised, and the script put in it, asking first over one, as the
+    /// desktop's console does (InstrumentConsole.TakeScript). Nothing runs until Run.
+    /// </summary>
+    public async Task TakeWrittenAsync(string script)
+    {
+        bool wasOpen = _open.Contains(ConsoleTool.Scripts);
+        await OpenAsync(ConsoleTool.Scripts);
+        if (!wasOpen) _scripts = null;
+
+        // A window opened just now is built on the next render, and its editor with it.
+        for (int i = 0; i < 80 && _scripts is null; i++) await Task.Delay(25);
+        if (_scripts is not null) await _scripts.TakeWrittenAsync(script);
+    }
+
     /// <summary>
     /// The window has gone — by its ✕, or by Esc. Dropping it is what empties it: the body is
     /// only rendered while the window is in the list.
@@ -124,6 +145,7 @@
     {
         _open.Remove(tool);
         _windows.Remove(tool);
+        if (tool == ConsoleTool.Scripts) _scripts = null;
         StateHasChanged();
     }
 

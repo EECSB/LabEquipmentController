@@ -62,7 +62,7 @@ flowchart LR
         SF["Script editors<br/>one- and multi-instrument"]
         CL["Command Library and<br/>per-family reference"]
         CAP["Capture windows<br/>waveform, screen, readout"]
-        EXT["AI windows<br/>datasheet extraction, script writing"]
+        EXT["AI windows<br/>datasheet extraction, script writing, assistant"]
     end
 
     subgraph CORE["Core (net10.0 class library)"]
@@ -75,6 +75,7 @@ flowchart LR
         RS["SerialInstrumentClient<br/>RS-232"]
         FRM["ScpiFraming<br/>lines and 488.2 blocks"]
         AI["AiClient<br/>3 provider shapes"]
+        ASST["Assistant<br/>bench tools, providers, AiChat"]
         DOC["DocumentText<br/>PDF · DOCX · TXT to text"]
     end
 
@@ -102,8 +103,12 @@ flowchart LR
     RS -.->|"opens the port"| PORTS
     EXT --> DOC
     EXT --> AI
+    EXT --> ASST
+    VERB -->|"lec mcp"| ASST
+    ASST --> SER
     DOC -.->|"PDF only"| PIG
     AI --> PROV
+    ASST --> PROV
 ```
 
 The dependency direction is strict: both front ends reference Core; Core references
@@ -138,7 +143,7 @@ LabEquipmentController/
 │   ├── Program.cs              Entry point → MainForm
 │   ├── Bench/                  MainForm, and the console in its tab or its own window
 │   ├── Scripting/              Both editors, the colouriser, snippets, the language reference
-│   ├── Ai/                     The three AI windows, the connection book, the DPAPI key store
+│   ├── Ai/                     The four AI windows, the connection book, the DPAPI key store
 │   ├── Catalogs/               The command library, and one family's reference
 │   ├── Capture/                Waveform, screen, and the timed meter readout
 │   ├── Results/                The recorded table and its plot
@@ -150,6 +155,7 @@ LabEquipmentController/
 │   ├── Endpoint.cs             A parsed address → a client to talk to it with
 │   ├── Capture.cs              Image format sniffing, CSV reading, interval parsing
 │   ├── Verbs/                  The verbs themselves, and the argument grammar behind them
+│   ├── Mcp/                    lec mcp: the instruments it serves, and the protocol's handlers
 │   └── Output/                 Table, CSV and JSON shapes; SVG plots; --stream's row pump
 ├── Core/                       Same areas as Tests/, so a file and its tests sit under the
 │   │                           same word. Namespaces stay flat — see below
@@ -162,9 +168,10 @@ LabEquipmentController/
 │   ├── Scripting/              Both runners, the language, its examples and guide
 │   ├── Results/                Recorded series, plot arithmetic, unit guessing, CSV
 │   ├── Settings/               UserSettings and where it is stored
-│   ├── Ai/                     Provider clients, extraction, script author
+│   ├── Ai/                     Provider clients, extraction, script author; Assistant/ —
+│   │                           the bench tools, the providers' tool loops, the conversation
 │   └── CommandData/            The 36 curated catalogs (embedded resources)
-├── Tests/                      xUnit suite (1,872 tests) against a fake instrument, one
+├── Tests/                      xUnit suite (2,343 tests) against a fake instrument, one
 │   │                           folder per area: Ai, Catalogs, Capture, Transport,
 │   │                           Discovery, Scripting, Results, Settings, Cli, Web
 │   └── Bench/                  Tests that drive the real bench, off unless LEC_BENCH=1
@@ -272,18 +279,33 @@ Runs are cancellable by id, so Stop means stop.
 
 **The AI key is server-side and shared.** There is no DPAPI in a Linux container, and a
 per-user key store would need accounts this app does not have. The key comes from
-configuration and is never sent to the browser — but anyone who can open the page can spend
-it, and the UI says so.
+configuration or from the settings box, which keeps it in `ai.json` on the server, and it is
+never sent to the browser — but anyone who can open the page can spend it, and the UI says so.
 
 **And all three read differently when the server is somebody's bench.** Since 2026-09-20 a
 host can run this server in *service mode* (`Bench/ServiceMode.cs`, switched on by
 `LEC_SERVICE_TOKEN`; Treeality's Instruments plugin is the first): the API and the hub take a
 bearer token, opening the page no longer closes a bench a run is driving, an instrument a run
 holds refuses everything but its run, a run stays readable after it ends
-(`GET /api/runs/{id}`), and the AI connection arrives with each request from the host rather
-than living in a key of the server's own. `LEC_PATH_BASE` serves the whole thing below a path,
+(`GET /api/runs/{id}`, kept on the server's disk and read a page at a time since 2026-09-23 —
+`Bench/RunFiles.cs`), and the AI connection arrives with each request from the host rather
+than living in a key of the server's own. Since 2026-09-29 a run's id can be the host's
+(`PUT /api/runs/{id}`, in every mode), so a start whose answer the host never heard is still a run
+it can read and stop: the same start sent twice is one run, and a stop that arrives before its
+start refuses it. `LEC_PATH_BASE` serves the whole thing below a path,
 for a host that proxies it at one, by rewriting the page shell's `<base href>`. Without the
 variable, nothing above changes. SPEC §18 has the reasoning.
+
+**Since 2026-09-22 the bench can also dial the host** (`Bench/DialOut.cs`, switched on by
+`LEC_DIAL_URL` and `LEC_DIAL_TOKEN` together), for a bench on a factory LAN the host has no
+address to reach. It opens a SignalR connection outward and holds it; the host asks down it, so
+only the dialing is reversed. **What may be asked for is a named list** — the seven calls running a
+released procedure takes — and not the whole API, because a host at the far end of this
+connection has nothing of its own between it and the instruments, and connecting to an address on
+somebody's factory network is not something to hand out with a token. A run the host started is
+protected from the page in this mode too, which is `ServiceMode.Driven` rather than
+`ServiceMode.Enabled`: one asks whether a host drives this server, the other whether a bearer is
+configured, and dial-out mode answers them differently. SPEC §19 has the reasoning.
 
 Discovery is why the compose file uses host networking: a subnet sweep from inside Docker's
 default bridge scans the container's own private network, finds nothing, and reports an
@@ -413,13 +435,59 @@ fractions of the record, and `WaveformCapture` holds the decoded samples.
 
 ### AI features (optional, off by default)
 
-Three features call a language model; none of them touches the curated catalogs:
+Three features call a language model. The datasheet reader and the script writer are one
+request each, through one client; the assistant is a conversation whose model calls tools,
+on a layer of its own beside them (below). None of them touches the curated catalogs.
 
-- **Datasheet extraction** (`CommandExtractor`): reads a local guide (`DocumentText`
-  extracts text from PDF/DOCX/TXT itself, no service upload of the file — **PdfPig** for the
-  PDF path, the BCL for the other two), asks the model for commands, and stores the result
-  in a separate `ExtractedCatalogStore` — extracted commands are quarantined from the
-  curated references by design, reviewable in the UI.
+**The assistant** (SPEC §11d) is built by the AI assistant guide in
+`AI-Assistant-Reference`, layer by layer, with GDS Viewer's and GraphDBViewer's class names
+so a fix found in one project can be carried to the others by name. Everything below is in
+`Core/Ai/Assistant/` unless it says otherwise.
+
+- **The tools** are `BenchToolRunner`, written once against `IAssistantBench` — the four
+  things a tool does to an instrument (list, query, send, capture the screen) and the
+  catalog it is checked against. Each build has its own bench: the desktop's and
+  `lec mcp`'s are `SessionBench`, over the sessions the process holds; the page's is
+  `WebBench`, over the same calls its consoles make. `ToolArguments` reads a call against
+  the same parameter list its JSON Schema is written from; `ScreenPicture` makes a BMP
+  screen dump a PNG in managed code, since Core runs in the browser.
+- **The providers** — `ILlmProvider`, `AnthropicProvider` and `OpenAiProvider`, the second
+  serving OpenAI, Gemini through Google's OpenAI-compatible endpoint, and servers of one's
+  own — send through an `ILlmEndpoint`, which is where the two builds differ: the desktop's
+  `DirectLlmEndpoint` signs the request with the key DPAPI holds, and the page's
+  `RelayLlmEndpoint` posts it to its own server, whose `AiRelay` looks the connection up,
+  pins its address and model, and signs it with the key in `ai.json`. Usage is read from
+  every response and priced by `AiPricing`'s dated table or the connection's own rates.
+- **The conversation** is `AiChat`, a plain class out of any window, so a test drives a
+  whole one — approvals, declines, a stop with a card waiting — with a stand-in provider
+  and a fake bench. It is safe across threads, since the desktop's window draws on its own
+  while the run lands on the pool: the turns are handed out as copies and `Changed` is
+  raised outside its lock. `ApprovingToolRunner` puts the rung in force at every call;
+  `AssistantPrompt` writes the system prompt again at every question from the bench as it
+  is then. Compacting puts a briefing in the conversation's place; kept chats are
+  `SavedChat`, a shape of their own with pinned JSON names, kept by an `IChatStore`.
+- **What a window stands on** is `IAiService`: the connections and the one picked, a
+  provider for a question, and where the chats are kept. The desktop's `DesktopAiService`
+  (Desktop/Ai) reads the connection book and its DPAPI keys and keeps chats in a
+  `FileChatStore` under %AppData%; the page's `WebAiService` reads the server's
+  connections, asks through the relay, and keeps chats with the server. The two windows,
+  `AssistantForm` and `Tools/Assistant.razor`, ask the service and never a store or a
+  provider directly.
+- **`lec mcp`** (`Cli/Mcp/`) serves the same tools, word for word, over the MCP SDK's
+  low-level handlers on standard input and output.
+
+The two single-request features:
+
+- **Datasheet extraction** (`CommandExtractor`): a PDF goes up whole to a provider that
+  takes one (Gemini, Anthropic), because flattening a two-column guide to text interleaves
+  its columns. It is read here instead when the connection is set to read it locally
+  (`AiConnection.ExtractLocallyFor`), and always for DOCX and TXT and for the
+  OpenAI-compatible family, which takes no files: `DocumentText` extracts the text —
+  **PdfPig** for PDF, the BCL for the other two — and it goes in chunks, one request each.
+  Either way the model is asked for commands, and the result is stored in a separate
+  `ExtractedCatalogStore` — extracted commands are quarantined from the curated references
+  by design, reviewable in the UI. SPEC §11b has what is sent and the limits checked
+  before an upload.
 - **Script writing** (`ScriptAuthor`): drafts a script from a request, then checks every
   drafted command against the instrument's catalog and flags what isn't there. It is a
   conversation — earlier turns go into the payload as a transcript, so a follow-up like
@@ -431,11 +499,15 @@ Three features call a language model; none of them touches the curated catalogs:
   each instrument's alias, and the `DEVICE` line that binds it — comes from
   `ScriptContext`, which both builds call, so the desktop and the web describe one bench one
   way.
-- **`AiClient`** speaks three request shapes — Gemini's Interactions API, the Anthropic
-  Messages API, and OpenAI-compatible `chat/completions` (OpenAI, OpenRouter, Groq,
-  local servers) — selected per connection in `AiConnection`. Request building and reply
-  parsing live in `AiRequest`, testable without a network. Keys are held by
-  `SecretStore` under Windows DPAPI, per user, never in a file in the repo.
+- **`AiClient`**, the client both of them use, speaks three request shapes — Gemini's
+  Interactions API, the Anthropic Messages API, and OpenAI-compatible `chat/completions`
+  (OpenAI, OpenRouter, Groq, local servers) — selected per connection in `AiConnection`.
+  Request building and reply parsing live in `AiRequest`, testable without a network. On
+  the desktop, keys are held by `SecretStore` under Windows DPAPI, per user, never in a file
+  in the repo. The web build has neither DPAPI nor accounts: a key comes from configuration
+  (`Ai__ApiKey`) or from the settings box, which keeps it in `ai.json` under `LEC_DATA`,
+  narrowed to the server's own user where the platform has permissions to narrow
+  (`Web/LabEquipmentController.Web/Bench/AiSettingsStore.cs`).
 
 ## Data Model: a catalog
 
@@ -497,7 +569,7 @@ calling Core.
 
 Two suites, two languages, one philosophy: a guard that isn't mechanical will not hold.
 
-- **`Tests/` (xUnit, 1,872 tests)** runs against `FakeInstrumentClient` — no hardware.
+- **`Tests/` (xUnit, 2,343 tests)** runs against `FakeInstrumentClient` — no hardware.
   One folder per area — Ai, Catalogs, Capture, Transport, Discovery, Scripting, Results,
   Settings, Cli, Web — with the shared fake at the root; the namespaces stay flat, so
   every `--filter FullyQualifiedName~…` habit still selects what it always did.

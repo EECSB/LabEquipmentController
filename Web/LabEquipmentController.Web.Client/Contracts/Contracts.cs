@@ -296,11 +296,32 @@ public sealed record RunSummary(string RunId, IReadOnlyList<string> Columns, boo
 /// a hub connection at all — because a message missed must not be a measurement lost. Kept for an
 /// hour after the run ends; <c>Status</c> is <c>running</c>, <c>finished</c>, <c>failed</c> or
 /// <c>stopped</c>.
+///
+/// <strong>A reader following a run asks only for what it has not read yet</strong> —
+/// <c>outputFrom</c> and <c>rowsFrom</c> on <c>GET /api/runs/{id}</c> — and <c>OutputFrom</c> and
+/// <c>RowsFrom</c> say where the two lists in the answer start. Reading the whole record every
+/// few seconds sent a long run's table across a host's line whole, over and over, for as long as
+/// the run went on. A server older than the question ignores it and answers everything, which a
+/// reader finds as both at 0 — so placing each list where it says it starts is right either way.
+///
+/// <strong>An answer is a page, and says how much there is.</strong> One read answers at most twenty
+/// thousand lines and as many rows, and at most 8 MiB of each; <c>OutputKept</c> and
+/// <c>RowsKept</c> say how many the record holds in all, so a reader has everything once its lists
+/// reach them. A record is on the server's disk since 2026-09-23 and can hold far more than one
+/// answer should carry. A server older than that answers everything and says 0 for both, which the
+/// same rule reads as nothing more to fetch.
+///
+/// <strong>What was not kept is counted.</strong> A record keeps a GiB of lines and as much of rows,
+/// because a REPEAT with no end says a great deal; <c>OutputDropped</c> and <c>RowsDropped</c> say
+/// how many more the run produced, so a table that stopped being kept is never taken for the whole
+/// of what was measured.
 /// </remarks>
 public sealed record RunRecordDto(
     string RunId, string Kind, string Status, IReadOnlyList<string> Columns,
     DateTimeOffset StartedAt, DateTimeOffset? EndedAt, string? Error,
-    IReadOnlyList<ScriptOutputLine> Output, IReadOnlyList<RecordedRow> Rows);
+    IReadOnlyList<ScriptOutputLine> Output, IReadOnlyList<RecordedRow> Rows,
+    int OutputFrom = 0, int RowsFrom = 0, int OutputDropped = 0, int RowsDropped = 0,
+    int OutputKept = 0, int RowsKept = 0);
 
 // ------------------------------------------------------------------------ the plot
 
@@ -480,9 +501,32 @@ public sealed record HostAiConnection(
 /// window that spends a connection is actually using — this is the list to choose from.
 /// <c>Label</c> is composed on the server by <c>AiConnections.Labels</c>, which is what
 /// keeps two connections on the same model apart without making the user name them.
+///
+/// The fields after <c>Configured</c> are what the assistant's providers are built from in
+/// the page — which shape to write, whether a PDF goes as its words, what a token costs —
+/// and never the key, which stays on the server and is put on each request there
+/// (<c>AiRelay</c>).
 /// </summary>
+/// <param name="Kind">The provider as <c>AiProvider</c> spells it: Gemini, Anthropic or OpenAiCompatible.</param>
 public sealed record AiConnectionDto(
-    string Id, string Label, string Name, string Provider, string Model, bool Configured);
+    string Id, string Label, string Name, string Provider, string Model, bool Configured,
+    string Kind = "", string BaseUrl = "", bool? ExtractTextLocally = null,
+    decimal? InputPrice = null, decimal? CachedPrice = null, decimal? OutputPrice = null)
+{
+    /// <summary>The connection as Core describes one, keyless, for the assistant's providers.</summary>
+    public AiConnection ToConnection() => new()
+    {
+        Id = Id,
+        Name = Name,
+        Provider = Enum.TryParse(Kind, out AiProvider p) ? p : AiProvider.Gemini,
+        BaseUrl = BaseUrl,
+        Model = Model,
+        ExtractTextLocally = ExtractTextLocally,
+        InputPrice = InputPrice,
+        CachedPrice = CachedPrice,
+        OutputPrice = OutputPrice,
+    };
+}
 
 /// <summary>
 /// An edited connection on its way back to the server.
@@ -494,7 +538,14 @@ public sealed record AiConnectionDto(
 public sealed record AiSettingsUpdate(
     string Provider, string Endpoint, string Model, bool? ExtractTextLocally,
     int TimeoutSeconds, string? ApiKey, string? Effort = null,
-    string? Id = null, string? Name = null);
+    string? Id = null, string? Name = null, AiRates? Rates = null);
+
+/// <summary>
+/// What a million tokens cost on a connection's model, in US dollars, as the user typed them —
+/// null for the published rate. Null as a whole leaves the stored rates alone, which is what a
+/// page from before they existed sends.
+/// </summary>
+public sealed record AiRates(decimal? Input, decimal? Cached, decimal? Output);
 
 /// <summary>The connection as it stands after an edit, or why the edit was refused.</summary>
 public sealed record AiSettingsReply(AiStatus? Status, string? Error);

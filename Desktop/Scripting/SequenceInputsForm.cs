@@ -24,6 +24,7 @@ public sealed class SequenceInputsForm : Form
     private readonly List<(SequenceInput Input, TextBox Box)> _rows = new();
     private readonly Label _problem = new();
     private readonly Button _ok = new();
+    private readonly Button _cancel = new();
 
     /// <summary>What was typed, by input name, once the dialog has been accepted.</summary>
     public IReadOnlyDictionary<string, string> Values { get; private set; } =
@@ -35,6 +36,10 @@ public sealed class SequenceInputsForm : Form
     {
         _script = script ?? throw new ArgumentNullException(nameof(script));
 
+        // Layout suspended across the build, as the designer does it, so the auto-scale pass
+        // runs once over the finished box rather than over an empty form as AutoScaleMode is
+        // set. The numbers below are logical pixels.
+        SuspendLayout();
         AutoScaleDimensions = new SizeF(7F, 15F);
         AutoScaleMode = AutoScaleMode.Font;
         Font = new Font("Segoe UI", 9f);
@@ -72,6 +77,9 @@ public sealed class SequenceInputsForm : Form
             var box = new TextBox
             {
                 Width = 140,
+                // A minimum as well: the table lays each box out as it is added, before the
+                // window has its size, and would cut a plain width down to the cell it found.
+                MinimumSize = new Size(140, 0),
                 Margin = new Padding(0, 3, 10, 3),
                 Text = Prefill(input, given),
             };
@@ -109,29 +117,34 @@ public sealed class SequenceInputsForm : Form
             Margin = new Padding(0, 10, 0, 0),
         };
 
-        var cancel = new Button { Text = "Cancel", DialogResult = DialogResult.Cancel, AutoSize = true };
-        _ok.Text = "Run";
+        // Through ButtonStyle like every other button (SPEC §14). Plain auto-sized buttons only
+        // ever grow, so once the scaling pass had stretched them they stood twice the height
+        // of the app's buttons at 175%.
+        ButtonStyle.Apply(_cancel, "Cancel");
+        _cancel.DialogResult = DialogResult.Cancel;
+        ButtonStyle.Apply(_ok, "Run", (_, _) => Take());
         _ok.DialogResult = DialogResult.OK;
-        _ok.AutoSize = true;
         _ok.Margin = new Padding(8, 0, 0, 0);
-        _ok.Click += (_, _) => Take();
 
         buttons.Controls.Add(_ok);
-        buttons.Controls.Add(cancel);
+        buttons.Controls.Add(_cancel);
         body.Controls.Add(buttons, 0, _rows.Count + 1);
         body.SetColumnSpan(buttons, 3);
 
         Controls.Add(body);
         AcceptButton = _ok;
-        CancelButton = cancel;
+        CancelButton = _cancel;
 
         Recheck();
+        ResumeLayout(false);
+        PerformLayout();
     }
 
     /// <summary>Size to the rows, as AboutForm does rather than guessing a client size.</summary>
     protected override void OnLoad(EventArgs e)
     {
         base.OnLoad(e);
+        ButtonStyle.Normalize(this, _ok, _cancel);
         ClientSize = Controls[0].PreferredSize;
 
         if (_rows.Count > 0)

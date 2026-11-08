@@ -118,13 +118,18 @@ public sealed class ResultPlotPanel : UserControl
         // Under the curve, not over it. The curve is what the tab is for; the pickers and
         // switches are what you reach for after looking at it, and above they pushed it down
         // the pane every time they wrapped to another line.
+        //
+        // Every number in here is a logical pixel, scaled as it is used: this panel is built at
+        // run time and no form's scaling pass ever reaches it (SPEC §14).
         var controls = new FlowLayoutPanel
         {
             Dock = DockStyle.Bottom,
             AutoSize = true,
             AutoSizeMode = AutoSizeMode.GrowAndShrink,
             WrapContents = true,
-            Padding = new Padding(6, 4, 6, 6),
+            Padding = this.Scaled(6, 4, 6, 6),
+            // WinForms' own margin, stated so that it scales too.
+            Margin = this.Scaled(3),
         };
 
         // The X picker and the unit, stacked one above the other. A table rather than two
@@ -138,7 +143,11 @@ public sealed class ResultPlotPanel : UserControl
         // like columns. At the 12px the pickers used between themselves, the gap between one
         // group and the next was the same as the gap inside a group, and the whole row read
         // as one undifferentiated line of controls.
-        const int betweenColumns = 30;
+        //
+        // Those were screen pixels on the 175% screen it was chosen on, where this gap was 30:
+        // seventeen logical pixels, which is the same gap there. Taken as thirty logical pixels
+        // it pushed the switches onto a second row in a detached console at either scale.
+        int betweenColumns = LogicalToDeviceUnits(17);
 
         var xStack = new TableLayoutPanel
         {
@@ -151,14 +160,17 @@ public sealed class ResultPlotPanel : UserControl
 
         xStack.Controls.Add(new Label
         {
-            Text = "X:", AutoSize = true, Margin = new Padding(0, 7, 4, 0),
+            Text = "X:", AutoSize = true, Margin = this.Scaled(0, 7, 4, 0),
         }, 0, 0);
 
         _xColumn.DropDownStyle = ComboBoxStyle.DropDownList;
-        // Narrower than they were: the results buttons now share this line, and at the width
-        // a results pane usually gets, the old sizes pushed them onto a row of their own.
-        _xColumn.Width = 120;
-        _xColumn.Margin = new Padding(0, 3, 0, 0);
+        // Wide enough for a column named with its unit, as the examples name them —
+        // "Frequency (Hz)" — and no wider: the strip wraps to a second row once its pickers
+        // outgrow the pane, and that row comes off the height of the curve. Logical pixels:
+        // in screen pixels, at 175% this showed "Frequenc" and the list beside it cut its
+        // names short too.
+        _xColumn.Width = LogicalToDeviceUnits(120);
+        _xColumn.Margin = this.Scaled(0, 3, 0, 0);
         _xColumn.SelectedIndexChanged += (_, _) => { if (!_loading) Refresh(keepChoices: true); };
         xStack.Controls.Add(_xColumn, 1, 0);
 
@@ -172,13 +184,13 @@ public sealed class ResultPlotPanel : UserControl
         // for where it sits rather than for that, which is how it was asked for.
         xStack.Controls.Add(new Label
         {
-            Text = "X Unit:", AutoSize = true, Margin = new Padding(0, 9, 4, 0),
+            Text = "X Unit:", AutoSize = true, Margin = this.Scaled(0, 9, 4, 0),
         }, 0, 1);
 
         // As wide as the combo above it, so the two read as one column rather than a box
         // that happens to sit under a wider one.
         _unit.Width = _xColumn.Width;
-        _unit.Margin = new Padding(0, 5, 0, 0);
+        _unit.Margin = this.Scaled(0, 5, 0, 0);
         _unit.Anchor = AnchorStyles.Left;
         _unit.TextChanged += (_, _) =>
         {
@@ -192,16 +204,17 @@ public sealed class ResultPlotPanel : UserControl
 
         controls.Controls.Add(new Label
         {
-            Text = "Y:", AutoSize = true, Margin = new Padding(0, 7, 4, 0),
+            Text = "Y:", AutoSize = true, Margin = this.Scaled(0, 7, 4, 0),
         });
 
         // A checked list rather than a second combo: a sweep that records two readings wants
         // both curves on one pair of axes, which is the comparison the measurement was for.
+        // Its height is three of its own rows, set once it has a handle (OnHandleCreated).
         _yColumns.CheckOnClick = true;
-        _yColumns.Width = 150;
-        _yColumns.Height = 62;
+        _yColumns.Width = LogicalToDeviceUnits(150);
+        _yColumns.Height = LogicalToDeviceUnits(62);
         _yColumns.IntegralHeight = false;
-        _yColumns.Margin = new Padding(0, 3, betweenColumns, 0);
+        _yColumns.Margin = new Padding(0, LogicalToDeviceUnits(3), betweenColumns, 0);
         _yColumns.ItemCheck += (_, _) => BeginInvoke(() => { if (!_loading) Refresh(keepChoices: true); });
         controls.Controls.Add(_yColumns);
 
@@ -211,7 +224,7 @@ public sealed class ResultPlotPanel : UserControl
             AutoSizeMode = AutoSizeMode.GrowAndShrink,
             FlowDirection = FlowDirection.TopDown,
             WrapContents = false,
-            Margin = new Padding(0, 0, 16, 0),
+            Margin = this.Scaled(0, 0, 16, 0),
         };
 
         // Tight vertical margins: three checkboxes at their default spacing make a taller
@@ -250,7 +263,7 @@ public sealed class ResultPlotPanel : UserControl
         ButtonStyle.Apply(_btnShot, "", (_, _) => SaveImage());
         // Room on every side: pressed against the edge of the strip it read as something the
         // layout had run out of space for.
-        _btnShot.Margin = new Padding(14, 8, 10, 8);
+        _btnShot.Margin = this.Scaled(14, 8, 10, 8);
         // Top as well as Right: the strip is as tall as the stacked switches beside it, and
         // centred in that the button floated halfway down with nothing to line up against.
         _btnShot.Anchor = AnchorStyles.Top | AnchorStyles.Right;
@@ -512,7 +525,8 @@ public sealed class ResultPlotPanel : UserControl
             int pw = ClientSize.Width - left - right;
             int ph = ClientSize.Height - top - bottom;
 
-            if (pw < 40 || ph < 40) return;
+            int least = LogicalToDeviceUnits(40);
+            if (pw < least || ph < least) return;
 
             if (_series.Count == 0 || _x.IsEmpty || _y.IsEmpty)
             {
@@ -541,7 +555,8 @@ public sealed class ResultPlotPanel : UserControl
                 int py = top + (int)((1 - f) * ph);
                 g.DrawLine(grid, left, py, left + pw, py);
                 g.DrawString(ResultPlot.Format(t, yStep) + _unit, font, text,
-                             new RectangleF(0, py - font.Height / 2f, left - 6, font.Height), format);
+                             new RectangleF(0, py - font.Height / 2f, left - LogicalToDeviceUnits(6), font.Height),
+                             format);
             }
 
             foreach (double t in _x.Ticks)
@@ -554,7 +569,7 @@ public sealed class ResultPlotPanel : UserControl
                 string label = _xIsClock ? ResultPlot.FormatClock(t, xStep)
                                          : ResultPlot.Format(t, xStep);
                 SizeF size = g.MeasureString(label, font);
-                g.DrawString(label, font, text, px - size.Width / 2, top + ph + 4);
+                g.DrawString(label, font, text, px - size.Width / 2, top + ph + LogicalToDeviceUnits(4));
             }
 
             g.DrawRectangle(frame, plot);
@@ -612,7 +627,7 @@ public sealed class ResultPlotPanel : UserControl
         private void DrawLegend(Graphics g, Font font, Rectangle plot)
         {
             int pad = LogicalToDeviceUnits(6);
-            int lineHeight = font.Height + 2;
+            int lineHeight = font.Height + LogicalToDeviceUnits(2);
             int width = _series.Max(s => (int)g.MeasureString(s.Name, font).Width)
                       + LogicalToDeviceUnits(24);
 
@@ -625,12 +640,14 @@ public sealed class ResultPlotPanel : UserControl
             g.DrawRectangle(edge, box);
 
             using var label = new SolidBrush(Color.FromArgb(50, 50, 50));
+            int swatchHeight = LogicalToDeviceUnits(3);
             for (int i = 0; i < _series.Count; i++)
             {
                 int y = box.Top + pad / 2 + i * lineHeight;
                 using var swatch = new SolidBrush(SeriesColours[i % SeriesColours.Length]);
-                g.FillRectangle(swatch, box.Left + 5, y + font.Height / 2 - 1,
-                                LogicalToDeviceUnits(12), 3);
+                g.FillRectangle(swatch, box.Left + LogicalToDeviceUnits(5),
+                                y + (font.Height - swatchHeight) / 2,
+                                LogicalToDeviceUnits(12), swatchHeight);
                 g.DrawString(_series[i].Name, font, label, box.Left + LogicalToDeviceUnits(20), y);
             }
         }

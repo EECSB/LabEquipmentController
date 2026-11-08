@@ -12,7 +12,7 @@
    read once, and in the way every time after. What it said is still said where it is needed: on
    the editor's own status line, in Snippets, and in the Script Language Reference. *@
 
-<ScriptEditor IsSequence="true" Script="@_script" ScriptChanged="Typed" Examples="_examples"
+<ScriptEditor @ref="_editor" IsSequence="true" Script="@_script" ScriptChanged="Typed" Examples="_examples"
               Running="_running" CanRun="@(AllBound && InputsGiven)"
               OnRun="Run" OnStop="Stop"
               Status="@_status" StatusChanged="s => _status = s"
@@ -132,6 +132,22 @@
     /// title bar names it, so the heading would be saying it twice.</summary>
     [Parameter] public bool Embedded { get; set; }
 
+    /// <summary>The editor, for a script the AI assistant hands it (WindowDialog.TakeWrittenSequenceAsync).</summary>
+    private ScriptEditor? _editor;
+
+    /// <summary>
+    /// A sequence the AI assistant put forward: into the editor, asking first over a script. Not
+    /// before the window has loaded what it opens on, which would otherwise land on top of it.
+    /// </summary>
+    public async Task TakeWrittenAsync(string script)
+    {
+        await _ready.Task;
+        if (_editor is not null) await _editor.TakeWrittenAsync(script);
+    }
+
+    /// <summary>Done once what the window opens on is in it: the first example, or what a tab carried.</summary>
+    private readonly TaskCompletionSource _ready = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
     /// <summary>The window this is open in, when it is in one rather than in a tab of its own.</summary>
     [CascadingParameter] public ToolWindow? Window { get; set; }
 
@@ -163,6 +179,18 @@
     private IReadOnlyList<string> _columns = [];
 
     protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            await OpenOnAsync();
+        }
+        finally
+        {
+            _ready.TrySetResult();
+        }
+    }
+
+    private async Task OpenOnAsync()
     {
         if (Window is not null) Window.BeforeClose = MayClose;
 

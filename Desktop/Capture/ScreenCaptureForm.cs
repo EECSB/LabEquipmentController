@@ -27,6 +27,10 @@ namespace LabEquipmentController
         {
             _image = image;
 
+            // Layout suspended across the build, as the designer does it, so the auto-scale
+            // pass runs once over the finished window rather than over an empty form as
+            // AutoScaleMode is set. The window's own size is worked out in OnLoad, after it.
+            SuspendLayout();
             AutoScaleDimensions = new SizeF(7F, 15F);
             AutoScaleMode = AutoScaleMode.Font;
             Font = new Font("Segoe UI", 9f);   // the app's font, so this window scales like the rest
@@ -73,6 +77,8 @@ namespace LabEquipmentController
             tips.SetToolTip(pic, "Screen captured from the instrument.");
             tips.SetToolTip(save, "Save this screenshot as an image file.");
             tips.SetToolTip(copy, "Copy this screenshot to the clipboard.");
+            ResumeLayout(false);
+            PerformLayout();
         }
 
         /// <summary>

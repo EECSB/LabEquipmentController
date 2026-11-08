@@ -85,23 +85,47 @@ public static class DocumentText
         try
         {
             using UglyToad.PdfPig.PdfDocument doc = UglyToad.PdfPig.PdfDocument.Open(path);
-            var sb = new StringBuilder();
-            foreach (UglyToad.PdfPig.Content.Page page in doc.GetPages())
-            {
-                // ContentOrderTextExtractor follows the document's own content order, which
-                // holds two-column layouts together far better than concatenating words by
-                // position does. It is still a flattening — see the class remarks.
-                sb.AppendLine(UglyToad.PdfPig.DocumentLayoutAnalysis.TextExtractor
-                    .ContentOrderTextExtractor.GetText(page));
-                sb.AppendLine();
-            }
-            return sb.ToString();
+            return PdfText(doc);
         }
         catch (Exception ex)
         {
             throw new InvalidDataException(
                 $"Could not read '{Path.GetFileName(path)}' as a PDF: {ex.Message}", ex);
         }
+    }
+
+    /// <summary>
+    /// Read a PDF held in memory — a file attached to an assistant's question, which never
+    /// touches the disk — the same way as one on disk. <paramref name="name"/> is only for the
+    /// message when it cannot be read, which is an <see cref="InvalidDataException"/> as above.
+    /// A scan reads as nothing but blank lines: its pages are pictures, with no words to find.
+    /// </summary>
+    public static string ReadPdf(byte[] data, string name)
+    {
+        try
+        {
+            using UglyToad.PdfPig.PdfDocument doc = UglyToad.PdfPig.PdfDocument.Open(data);
+            return PdfText(doc);
+        }
+        catch (Exception ex)
+        {
+            throw new InvalidDataException($"Could not read '{name}' as a PDF: {ex.Message}", ex);
+        }
+    }
+
+    private static string PdfText(UglyToad.PdfPig.PdfDocument doc)
+    {
+        var sb = new StringBuilder();
+        foreach (UglyToad.PdfPig.Content.Page page in doc.GetPages())
+        {
+            // ContentOrderTextExtractor follows the document's own content order, which
+            // holds two-column layouts together far better than concatenating words by
+            // position does. It is still a flattening — see the class remarks.
+            sb.AppendLine(UglyToad.PdfPig.DocumentLayoutAnalysis.TextExtractor
+                .ContentOrderTextExtractor.GetText(page));
+            sb.AppendLine();
+        }
+        return sb.ToString();
     }
 
     // ------------------------------------------------------------------------------ word
@@ -122,26 +146,8 @@ public static class DocumentText
             using ZipArchive zip = ZipFile.OpenRead(path);
             // Spelled out in full here rather than left to the wrapper below, which rethrows
             // InvalidDataException untouched to avoid nesting one message inside another.
-            ZipArchiveEntry entry = zip.GetEntry("word/document.xml")
-                ?? throw new InvalidDataException(
-                    $"Could not read '{Path.GetFileName(path)}' as a Word document: "
-                  + "it is a zip, but has no word/document.xml inside.");
-
-            using Stream s = entry.Open();
-            XDocument xml = XDocument.Load(s);
-
-            var sb = new StringBuilder();
-            foreach (XElement p in xml.Descendants(W + "p"))
-            {
-                foreach (XElement node in p.Descendants())
-                {
-                    if (node.Name == W + "t") sb.Append(node.Value);
-                    else if (node.Name == W + "tab") sb.Append('\t');
-                    else if (node.Name == W + "br") sb.AppendLine();
-                }
-                sb.AppendLine();
-            }
-            return sb.ToString();
+            return DocxText(zip) ?? throw new InvalidDataException(
+                $"Could not read '{Path.GetFileName(path)}' as a Word document: " + NoBody);
         }
         catch (InvalidDataException) { throw; }
         catch (Exception ex)
@@ -149,6 +155,61 @@ public static class DocumentText
             throw new InvalidDataException(
                 $"Could not read '{Path.GetFileName(path)}' as a Word document: {ex.Message}", ex);
         }
+    }
+
+    /// <summary>
+    /// Read a .docx held in memory — a file attached to an assistant's question — the same way
+    /// as one on disk. <paramref name="name"/> is only for the message when it cannot be read.
+    ///
+    /// Every failure is wrapped here, the zip's own included. The path reader above lets an
+    /// <see cref="InvalidDataException"/> through untouched, so that its own message is not nested
+    /// inside another; but the zip's is one too, so a file there that is not a zip at all comes
+    /// through as "End of Central Directory record could not be found", naming no file. Here the
+    /// message always says which.
+    /// </summary>
+    public static string ReadDocx(byte[] data, string name)
+    {
+        string? text;
+        try
+        {
+            using var zip = new ZipArchive(new MemoryStream(data, writable: false), ZipArchiveMode.Read);
+            text = DocxText(zip);
+        }
+        catch (Exception ex)
+        {
+            throw new InvalidDataException($"Could not read '{name}' as a Word document: {ex.Message}", ex);
+        }
+
+        return text ?? throw new InvalidDataException($"Could not read '{name}' as a Word document: " + NoBody);
+    }
+
+    private const string NoBody = "it is a zip, but has no word/document.xml inside.";
+
+    /// <summary>
+    /// The body's text, or null when the zip has no word/document.xml. Each w:t is a run of
+    /// text, each w:p a paragraph, and w:tab / w:br are the whitespace that would otherwise be
+    /// lost — see <see cref="ReadDocx(string)"/>.
+    /// </summary>
+    private static string? DocxText(ZipArchive zip)
+    {
+        ZipArchiveEntry? entry = zip.GetEntry("word/document.xml");
+        if (entry == null) return null;
+
+        using Stream s = entry.Open();
+        XDocument xml = XDocument.Load(s);
+
+        var sb = new StringBuilder();
+        foreach (XElement p in xml.Descendants(W + "p"))
+        {
+            foreach (XElement node in p.Descendants())
+            {
+                if (node.Name == W + "t") sb.Append(node.Value);
+                else if (node.Name == W + "tab") sb.Append('\t');
+                else if (node.Name == W + "br") sb.AppendLine();
+            }
+            sb.AppendLine();
+        }
+        return sb.ToString();
     }
 
     // ---------------------------------------------------------------------------- chunking

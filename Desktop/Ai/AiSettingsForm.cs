@@ -32,6 +32,9 @@ namespace LabEquipmentController
         private readonly ComboBox _effort = new();
         private readonly TextBox _key = new();
         private readonly NumericUpDown _timeout = new();
+        private readonly TextBox _inputRate = new();
+        private readonly TextBox _cachedRate = new();
+        private readonly TextBox _outputRate = new();
         private readonly CheckBox _extractLocally = new();
         private readonly Label _providerNote = new();
         private readonly Button _ok = new();
@@ -60,6 +63,13 @@ namespace LabEquipmentController
             ApiKeys = new Dictionary<string, string>(keys);
             if (Book.Items.Count == 0) Book.Add();
 
+            // Layout suspended across the whole build, as the designer does it, so the
+            // auto-scale pass runs once over the finished window. Set without it, the pass
+            // ran as AutoScaleMode was set, over an empty form, and never again: on a 175%
+            // screen the fonts grew and every width, margin and padding below stayed at 96 DPI,
+            // which clipped "Provider default" in its box and wrapped the provider note to four
+            // lines. The numbers below are logical pixels at 96 DPI.
+            SuspendLayout();
             AutoScaleDimensions = new SizeF(7F, 15F);
             AutoScaleMode = AutoScaleMode.Font;
             Font = new Font("Segoe UI", 9f);
@@ -74,6 +84,8 @@ namespace LabEquipmentController
             BuildUi();
             RefreshList();
             LoadFrom(Connection);
+            ResumeLayout(false);
+            PerformLayout();
         }
 
         private TableLayoutPanel _grid = null!;
@@ -101,7 +113,11 @@ namespace LabEquipmentController
             _baseUrl.Dock = DockStyle.Fill;
             _baseUrl.TextChanged += (_, _) => Edited(c => c.BaseUrl = _baseUrl.Text.Trim());
             _model.Dock = DockStyle.Fill;
-            _model.TextChanged += (_, _) => Edited(c => c.Model = _model.Text.Trim());
+            _model.TextChanged += (_, _) =>
+            {
+                Edited(c => c.Model = _model.Text.Trim());
+                ShowPublishedRates(Connection);
+            };
 
             // How hard the model works, in one list rather than three: every provider offers
             // this and every one spells it differently, so the names here are the app's and
@@ -110,7 +126,12 @@ namespace LabEquipmentController
             _effort.DropDownStyle = ComboBoxStyle.DropDownList;
             _effort.DrawMode = DrawMode.OwnerDrawFixed;
             _effort.DrawItem += (_, e) => ButtonStyle.DrawComboItem(_effort, e);
+            // A minimum, not just a width: the table lays each control out as it is added,
+            // while the table is still at its default size and before the window has scaled,
+            // and cuts a plain width down to the cell it finds then. The scaling pass then
+            // scales what is left, which came out as a 13-pixel box at 175%.
             _effort.Width = 190;
+            _effort.MinimumSize = new Size(190, 0);
             _effort.SelectedIndexChanged += (_, _) =>
             {
                 if (_effort.SelectedIndex >= 0)
@@ -129,6 +150,7 @@ namespace LabEquipmentController
             _timeout.Maximum = 900;
             _timeout.Value = 300;
             _timeout.Width = 90;
+            _timeout.MinimumSize = new Size(90, 0);   // see _effort's
             _timeout.ValueChanged += (_, _) => Edited(c => c.TimeoutSeconds = (int)_timeout.Value);
 
             // Which connection the fields below are about — and, because there is one
@@ -167,6 +189,32 @@ namespace LabEquipmentController
             AddRow("Effort:", _effort);
             AddRow("API key:", _key);
             AddRow("Timeout (s):", _timeout);
+
+            // What a million tokens cost on this model, for the assistant to say what each
+            // answer cost — the published rate when left blank, where the app knows one
+            // (AiPricing), and nothing at all where it does not: a guessed price read as fact is
+            // worse than an empty space.
+            var rates = new FlowLayoutPanel
+            {
+                AutoSize = true,
+                AutoSizeMode = AutoSizeMode.GrowAndShrink,
+                WrapContents = false,
+                Margin = Padding.Empty,
+            };
+            foreach (var (box, word, set) in new (TextBox, string, Action<AiConnection, decimal?>)[]
+            {
+                (_inputRate, "Input", (c, v) => c.InputPrice = v),
+                (_cachedRate, "Cached", (c, v) => c.CachedPrice = v),
+                (_outputRate, "Output", (c, v) => c.OutputPrice = v),
+            })
+            {
+                rates.Controls.Add(new Label { Text = word, AutoSize = true, Margin = new Padding(0, 3, 4, 0) });
+                box.Width = 64;
+                box.Margin = new Padding(0, 0, 12, 0);
+                box.TextChanged += (_, _) => Edited(c => set(c, Rate(box.Text)));
+                rates.Controls.Add(box);
+            }
+            AddRow("Rates (US$/M):", rates);
 
             // The checkbox the whole PDF question hangs on. Its hover text explains what it
             // does, why it exists, and what it costs — composed per provider in Core.
@@ -241,6 +289,35 @@ namespace LabEquipmentController
                                  + "text. It never leaves this machine except to the provider.");
             _tips.SetToolTip(_timeout, "How long to wait for one request. A whole programming "
                                      + "guide takes longer than a page.");
+            const string rateTip = "US dollars per million tokens, for the AI assistant to say what each answer "
+                                 + "cost. Leave blank for the provider's published rate, where the app knows one; "
+                                 + "a model with no rate shows tokens and no cost.";
+            _tips.SetToolTip(_inputRate, rateTip + "\r\n\r\nInput: everything the model reads.");
+            _tips.SetToolTip(_cachedRate, rateTip + "\r\n\r\nCached: input read back from the provider's cache. Blank is charged as input.");
+            _tips.SetToolTip(_outputRate, rateTip + "\r\n\r\nOutput: everything the model writes, its thinking included.");
+        }
+
+        /// <summary>A rate as typed, or null for blank or anything that is not a number of dollars.</summary>
+        internal static decimal? Rate(string typed)
+            => decimal.TryParse(typed.Trim().TrimStart('$'), System.Globalization.NumberStyles.Number,
+                                System.Globalization.CultureInfo.InvariantCulture, out decimal d) && d >= 0
+                ? d
+                : null;
+
+        private static string RateText(decimal? rate)
+            => rate?.ToString("0.####", System.Globalization.CultureInfo.InvariantCulture) ?? "";
+
+        /// <summary>
+        /// The table's rate for this model behind each empty box, so a blank is seen to mean
+        /// something — and nothing behind it where the table has no rate, which is what a blank
+        /// then means: no cost shown.
+        /// </summary>
+        private void ShowPublishedRates(AiConnection cn)
+        {
+            LlmPrice? published = AiPricing.Published(cn.EffectiveModel, cn.Provider, DateOnly.FromDateTime(DateTime.Today));
+            _inputRate.PlaceholderText = published is null ? "" : RateText(published.Input);
+            _cachedRate.PlaceholderText = published is null ? "" : RateText(published.Cached);
+            _outputRate.PlaceholderText = published is null ? "" : RateText(published.Output);
         }
 
         /// <summary>
@@ -282,9 +359,10 @@ namespace LabEquipmentController
             ButtonStyle.MatchHeight(_effort, h);
             ButtonStyle.MatchHeight(_connections, h);
 
-            // Fit the window to what it holds, so the provider note is never cut off.
+            // Fit the window to what it holds, so the provider note is never cut off. This runs
+            // after the scaling pass, so the floor is scaled here.
             Size wanted = _grid.PreferredSize;
-            ClientSize = new Size(Math.Max(wanted.Width, 620),
+            ClientSize = new Size(Math.Max(wanted.Width, LogicalToDeviceUnits(620)),
                                   wanted.Height + _ok.Height + LogicalToDeviceUnits(30));
         }
 
@@ -446,6 +524,10 @@ namespace LabEquipmentController
             _model.Text = string.IsNullOrWhiteSpace(cn.Model) ? cn.Info.DefaultModel : cn.Model;
             _timeout.Value = Math.Clamp(cn.TimeoutSeconds, (int)_timeout.Minimum, (int)_timeout.Maximum);
             _effort.SelectedIndex = Array.IndexOf(Enum.GetValues<AiEffort>(), cn.Effort) is int at and >= 0 ? at : 0;
+            _inputRate.Text = RateText(cn.InputPrice);
+            _cachedRate.Text = RateText(cn.CachedPrice);
+            _outputRate.Text = RateText(cn.OutputPrice);
+            ShowPublishedRates(cn);
 
             // Each connection has its own key, so the box is emptied on the way in and the
             // placeholder says whether this one has anything stored. A key typed and left

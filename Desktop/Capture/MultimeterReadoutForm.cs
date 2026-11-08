@@ -100,6 +100,12 @@ namespace LabEquipmentController
             _session = session ?? throw new ArgumentNullException(nameof(session));
             _selected = session.Profile.ReadoutFunctions[0];
 
+            // Layout suspended across the whole build, as the designer does it, so the
+            // auto-scale pass runs once over the finished window rather than over an empty
+            // form as AutoScaleMode is set. Without it a 175% screen got 175% fonts with the
+            // window, the pickers and every gap still at 96 DPI, and the plot squeezed into
+            // what was left. Logical pixels throughout.
+            SuspendLayout();
             AutoScaleDimensions = new SizeF(7F, 15F);
             AutoScaleMode = AutoScaleMode.Font;
             Font = new Font("Segoe UI", 9f);
@@ -127,6 +133,8 @@ namespace LabEquipmentController
 
             SetTooltips();
             FormClosing += (_, e) => StopPolling();
+            ResumeLayout(false);
+            PerformLayout();
         }
 
         private void BuildToolbar()
@@ -556,9 +564,11 @@ namespace LabEquipmentController
                 Graphics g = e.Graphics;
                 g.SmoothingMode = SmoothingMode.AntiAlias;
 
+                // Insets in logical pixels: painted, so no auto-scale pass reaches them.
+                int inset = LogicalToDeviceUnits(12), nudge = LogicalToDeviceUnits(2);
                 Rectangle r = ClientRectangle;
-                r.Inflate(-12, -12);
-                if (r.Width < 20 || r.Height < 20) return;
+                r.Inflate(-inset, -inset);
+                if (r.Width < LogicalToDeviceUnits(20) || r.Height < LogicalToDeviceUnits(20)) return;
 
                 using var grid = new Pen(Color.FromArgb(48, 48, 48));
                 for (int i = 0; i <= 4; i++)
@@ -571,7 +581,8 @@ namespace LabEquipmentController
                 {
                     using var brush = new SolidBrush(Color.Gray);
                     using var font = new Font("Segoe UI", 9f);
-                    g.DrawString("Press Start to begin plotting readings.", font, brush, r.Left + 6, r.Top + 6);
+                    g.DrawString("Press Start to begin plotting readings.", font, brush,
+                                 r.Left + LogicalToDeviceUnits(6), r.Top + LogicalToDeviceUnits(6));
                     return;
                 }
 
@@ -607,14 +618,14 @@ namespace LabEquipmentController
                 // Label the vertical extremes so the trace has a scale.
                 using var text = new SolidBrush(Color.Gainsboro);
                 using var small = new Font("Consolas", 8.5f);
-                g.DrawString(FormatValue(max), small, text, r.Left + 2, r.Top - 2);
+                g.DrawString(FormatValue(max), small, text, r.Left + nudge, r.Top - nudge);
                 g.DrawString(FormatValue(min), small, text,
-                             r.Left + 2, r.Bottom - small.Height);
+                             r.Left + nudge, r.Bottom - small.Height);
                 // Invariant, like the other two: on a machine whose locale uses a decimal
                 // comma this read "5,89 s" while the axis labels beside it used a point.
                 string span3 = tSpan.ToString("g3", CultureInfo.InvariantCulture) + " s";
                 g.DrawString(span3, small, text,
-                             r.Right - g.MeasureString(span3, small).Width - 2,
+                             r.Right - g.MeasureString(span3, small).Width - nudge,
                              r.Bottom - small.Height);
             }
         }

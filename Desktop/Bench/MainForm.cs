@@ -70,6 +70,15 @@ namespace LabEquipmentController
             ApplyWindowSettings(settings);
 
             PopulateInterfaces();
+            DropDownLists.FitToEntries(cboInterface);   // its list as wide as its longest entry
+
+            // The page's margins as the designer drew them, measured before the menu bar goes
+            // in. BuildMenu moves every group down by the bar's height and leaves the console
+            // group's bottom wherever that puts it, past the window's edge until LayoutGroups
+            // pulls it back, so a bottom margin measured after it is the designer's less the
+            // bar: -12 at 100%, which hung the console group 12 pixels off the window.
+            int topMargin = grpScan.Top;
+            int bottomMargin = ClientSize.Height - grpConsole.Bottom;
 
             BuildMenu();            // before the geometry below is captured — it shifts it
             SetButtonIcons();       // glyphs first — a glyph is what sets a button's height
@@ -84,14 +93,18 @@ namespace LabEquipmentController
             StyleScanKind();
 
             // Captured before anything moves: the scan group changes height when it is
-            // laid out, and everything below it has to follow rather than overlap.
+            // laid out, and everything below it has to follow rather than overlap. Both gaps:
+            // the one over the console group, measured after LayoutScanGroup had moved the
+            // device group and not the console group, took in however far the scan group grew
+            // or shrank. That was -5 at 100%, which laid the device group over the console
+            // group's caption, and 18 rather than 12 at 175%.
             _scanToDevicesGap = grpDevices.Top - grpScan.Bottom;
+            _groupGap = grpConsole.Top - grpDevices.Bottom;
             LayoutScanGroup();
 
             // Capture the designed geometry before LayoutGroups starts changing it.
             _devicesNaturalHeight = grpDevices.Height;
             _devicesPadBelowList = grpDevices.Height - lstDevices.Bottom;
-            _groupGap = grpConsole.Top - grpDevices.Bottom;
             // The gap under the console group, kept at every window size by LayoutGroups.
             //
             // It is a measurement of the designer file, so it is only ever as good as that
@@ -99,8 +112,8 @@ namespace LabEquipmentController
             // captures the leftover space, after which the console stops short of the bottom
             // for ever, at every size, and resizing the window does not help. That is not a
             // hypothetical — it shipped. The bottom margin is meant to be the one the top and
-            // sides use, so never take more than that.
-            _pageBottomMargin = Math.Min(ClientSize.Height - grpConsole.Bottom, grpScan.Top);
+            // sides use, so never take more than that, and never less than nothing.
+            _pageBottomMargin = Math.Max(0, Math.Min(bottomMargin, topMargin));
 
             LayoutGroups();
             Resize += (_, _) =>
@@ -284,6 +297,10 @@ namespace LabEquipmentController
             tools.DropDownItems.Add(new ToolStripMenuItem(
                 "&Multi-Instrument Scripts…", null, (_, _) => ShowSequence()));
             tools.DropDownItems.Add(new ToolStripSeparator());
+            // The assistant works the whole bench, so it is the bench's, beside the connection
+            // it spends — not any one console's.
+            tools.DropDownItems.Add(new ToolStripMenuItem(
+                "AI A&ssistant…", null, (_, _) => ShowAssistant()));
             tools.DropDownItems.Add(new ToolStripMenuItem(
                 "&AI Connection…", null, (_, _) => ShowAiSettings()));
             _menu.Items.Add(tools);
@@ -335,6 +352,15 @@ namespace LabEquipmentController
         /// overwrites it with a band sized for the button and must not compound its own work.
         /// </summary>
         private int? _consoleCaptionPad;
+
+        /// <summary>
+        /// The address box's designed width, after scaling. PositionTimeoutField narrows the
+        /// box on a narrow window, so it keeps the width to go back to when there is room.
+        /// </summary>
+        private int? _addressWidth;
+
+        /// <summary>The address box's designed hint, shortened while the box is narrowed.</summary>
+        private string? _addressHint;
 
         private void btnSequence_Click(object? sender, EventArgs e) => ShowSequence();
 
@@ -409,10 +435,59 @@ namespace LabEquipmentController
 
             AiBookStore.Save(dlg.Book, dlg.ApiKeys);
             AiConnectionChanged?.Invoke(this, EventArgs.Empty);
+            if (_aiService is not null) _ = _aiService.ReloadAsync();
         }
 
         /// <summary>Raised when the AI connection is edited, so open consoles can re-enable.</summary>
         public event EventHandler? AiConnectionChanged;
+
+        /// <summary>What the assistant stands on (IAiService): made with its window, and told when AI Connection is applied.</summary>
+        private DesktopAiService? _aiService;
+
+        private AssistantForm? _assistant;
+
+        /// <summary>
+        /// The AI assistant (SPEC §11d): one window for the bench, made the first time it is asked
+        /// for and hidden rather than closed after that, so the conversation outlives closing it.
+        /// What it sends an instrument is written into that instrument's console, as what the
+        /// person types is, so a command nobody typed still shows where they look.
+        /// </summary>
+        private void ShowAssistant()
+        {
+            if (_assistant is { IsDisposed: false })
+            {
+                if (!_assistant.Visible) _assistant.Show();
+                if (_assistant.WindowState == FormWindowState.Minimized)
+                    _assistant.WindowState = FormWindowState.Normal;
+                _assistant.BringToFront();
+                _assistant.Activate();
+                return;
+            }
+
+            _aiService ??= new DesktopAiService(new FileChatStore(FileChatStore.DefaultFolder));
+            _assistant = new AssistantForm(_aiService, _sessions, (session, command, reply) =>
+            {
+                InstrumentConsole? console = ConsoleFor(session);
+                if (console is null) return;
+                console.AppendLog("AI> " + command, Color.MediumPurple);
+                if (reply is not null) console.AppendLog(reply, Color.MediumPurple);
+            });
+            if (Icon != null) _assistant.Icon = Icon;
+            _assistant.ScriptUsed += (kind, instrument, script) =>
+            {
+                if (kind == "sequence")
+                {
+                    ShowSequence();
+                    _sequence?.TakeWritten(script);
+                    return;
+                }
+                InstrumentSession? session = instrument is null ? null : _sessions.FindByHost(instrument.Key);
+                if (session is not null) ConsoleFor(session)?.TakeScript(script);
+            };
+            _assistant.SettingsRequested += ShowAiSettings;
+            _assistant.FormClosed += (_, _) => _assistant = null;
+            _assistant.Show(this);
+        }
 
         /// <summary>
         /// Describe every control in a hover tooltip. Anything added to this window should
@@ -588,25 +663,10 @@ namespace LabEquipmentController
 
             Place(lblAddress, lblAddress.Left);
 
-            // Both address controls take the same place, and only one is ever visible: the row
-            // is Address, singular, and a second box for the kind you are not using would be a
-            // second thing to read past every time. Which of them is showing is the scan
-            // card's switch, not a second switch here — see StyleScanKind.
-            cboSerialPort.Width = txtAddress.Width;
-            Place(txtAddress, lblAddress.Right + label);
-            Place(cboSerialPort, txtAddress.Left);
-
-            // The same two gaps the scan row uses, for the same reason: the address and the
-            // timeout are halves of one question, and Connect is the answer to it.
-            Place(lblTimeout, txtAddress.Right + gap);
-
             // Five digits and no more. The field's own Maximum is 30000, so nothing wider can
             // ever be typed into it, and a box sized for numbers it will not accept reads as
             // a box that is waiting for one.
             numTimeout.Width = LogicalToDeviceUnits(58);
-            Place(numTimeout, lblTimeout.Right + label);
-
-            Place(btnConnect, numTimeout.Right + LogicalToDeviceUnits(AnswerGapLogical));
 
             // A fixed box rather than an AutoSize one, so it can be clamped below. Set before
             // Place, which centres on the height it finds.
@@ -615,15 +675,74 @@ namespace LabEquipmentController
             lblConnection.TextAlign = ContentAlignment.MiddleLeft;
             lblConnection.Height = lblConnection.PreferredHeight;
 
-            Place(lblConnection, btnConnect.Right + LogicalToDeviceUnits(20));
-            Place(btnExport, lstDevices.Right - btnExport.Width);
+            _addressWidth ??= txtAddress.Width;
+            int addressWidth = _addressWidth.Value;
+            int answerGap = LogicalToDeviceUnits(AnswerGapLogical);
+            int statusGap = LogicalToDeviceUnits(20);
 
-            // The status text is the only thing on this row with no width of its own, and
-            // Export Results is pinned to the right corner — so once the text grew from
-            // "Not connected." to "1 instrument connected." it ran on underneath the button
-            // and lost its last few words. Give it exactly the gap between the two.
-            lblConnection.Width = Math.Max(LogicalToDeviceUnits(40),
-                btnExport.Left - LogicalToDeviceUnits(12) - lblConnection.Left);
+            void LayRow()
+            {
+                // Both address controls take the same place, and only one is ever visible: the
+                // row is Address, singular, and a second box for the kind you are not using
+                // would be a second thing to read past every time. Which of them is showing is
+                // the scan card's switch, not a second switch here — see StyleScanKind.
+                txtAddress.Width = addressWidth;
+                cboSerialPort.Width = addressWidth;
+                Place(txtAddress, lblAddress.Right + label);
+                Place(cboSerialPort, txtAddress.Left);
+
+                // The same two gaps the scan row uses, for the same reason: the address and the
+                // timeout are halves of one question, and Connect is the answer to it.
+                Place(lblTimeout, txtAddress.Right + gap);
+                Place(numTimeout, lblTimeout.Right + label);
+                Place(btnConnect, numTimeout.Right + answerGap);
+
+                Place(lblConnection, btnConnect.Right + statusGap);
+                Place(btnExport, lstDevices.Right - btnExport.Width);
+
+                // The status text is the only thing on this row with no width of its own, and
+                // Export Results is pinned to the right corner — so once the text grew from
+                // "Not connected." to "1 instrument connected." it ran on underneath the button
+                // and lost its last few words. Give it exactly the gap between the two.
+                lblConnection.Width = Math.Max(LogicalToDeviceUnits(40),
+                    btnExport.Left - LogicalToDeviceUnits(12) - lblConnection.Left);
+            }
+
+            LayRow();
+
+            // At the window's narrowest that gap was 43 pixels at 100%, and "Not connected."
+            // read "Not ...". The row's slack gives way instead, in this order: the gap before
+            // Connect, then the one before the status, each down to the row's ordinary gap,
+            // then the address box, down to what a full IPv4 address needs (its hint gets
+            // shorter to match, below). The status is
+            // measured against a sentence it shows every day rather than whatever it says now,
+            // so the row does not move when an instrument connects. On a window wide enough
+            // for it, nothing here changes.
+            int room = btnExport.Left - LogicalToDeviceUnits(12) - lblConnection.Left;
+            int need = TextRenderer.MeasureText("2 instruments connected.", lblConnection.Font).Width
+                       + LogicalToDeviceUnits(4) - room;
+            if (need > 0)
+            {
+                int addressFloor = TextRenderer.MeasureText("192.168.100.200", txtAddress.Font).Width
+                                   + LogicalToDeviceUnits(16);
+                GiveWay(ref answerGap, gap, ref need);
+                GiveWay(ref statusGap, gap, ref need);
+                GiveWay(ref addressWidth, Math.Min(addressFloor, addressWidth), ref need);
+                LayRow();
+            }
+
+            // The hint shows two examples and fills the box at its designed width, so a
+            // narrowed box would cut the second one off mid-address. Narrowed, it shows the
+            // plain IP alone; the tooltip lists every form the box accepts.
+            _addressHint ??= txtAddress.PlaceholderText;
+            txtAddress.PlaceholderText = addressWidth < _addressWidth.Value ? "192.168.1.50" : _addressHint;
+
+            static void GiveWay(ref int size, int floor, ref int need)
+            {
+                int give = Math.Clamp(need, 0, Math.Max(0, size - floor));
+                size -= give;
+                need -= give;
+            }
         }
 
         /// <summary>
@@ -812,14 +931,10 @@ namespace LabEquipmentController
         /// </summary>
         private void LayoutGroups()
         {
-            int rowHeight = lstDevices.Font.Height + LogicalToDeviceUnits(5);
-            int wantedList = ListHeaderHeight() + MinDeviceRows * rowHeight + LogicalToDeviceUnits(4);
-            int wantedGroup = lstDevices.Top + wantedList + _devicesPadBelowList;
-
             int pageBottom = ClientSize.Height - _pageBottomMargin;
             int minConsole = LogicalToDeviceUnits(140);
 
-            int devicesHeight = Math.Max(_devicesNaturalHeight, wantedGroup);
+            int devicesHeight = DevicesWantedHeight();
 
             // On a window too short for both, the consoles keep their minimum and the list
             // gives way — but never below the group's own furniture.
@@ -829,6 +944,43 @@ namespace LabEquipmentController
             grpDevices.Height = devicesHeight;
             grpConsole.Top = grpDevices.Bottom + _groupGap;
             grpConsole.Height = Math.Max(minConsole, pageBottom - grpConsole.Top);
+        }
+
+        /// <summary>
+        /// The device group's height with room for <see cref="MinDeviceRows"/> rows, or its
+        /// designed height if that is more.
+        /// </summary>
+        private int DevicesWantedHeight()
+        {
+            int rowHeight = lstDevices.Font.Height + LogicalToDeviceUnits(5);
+            int wantedList = ListHeaderHeight() + MinDeviceRows * rowHeight + LogicalToDeviceUnits(4);
+            return Math.Max(_devicesNaturalHeight, lstDevices.Top + wantedList + _devicesPadBelowList);
+        }
+
+        /// <summary>
+        /// Raise the window's minimum height to what a console needs to keep a few lines of log
+        /// (<see cref="InstrumentConsole.MinimumHeight"/>, at the console's width when the window
+        /// is at its narrowest), with the device list keeping its <see cref="MinDeviceRows"/>
+        /// rows above it.
+        ///
+        /// The designer's minimum had room for one or the other. At 100% it left the console 201
+        /// pixels, which its header, strips, queue line and command row took entirely, so the log
+        /// was the first thing a small window gave up. Never taller than the screen, which wins
+        /// over a minimum for the reason ApplyWindowSettings gives.
+        /// </summary>
+        private void FitMinimumToConsoles()
+        {
+            if (IsDisposed || tabConsoles.SelectedTab is not { Tag: InstrumentConsole console } page
+                || console.Parent != page || !console.IsHandleCreated) return;
+
+            Size chrome = SizeFromClientSize(Size.Empty);
+            int narrowest = console.Width - (ClientSize.Width - (MinimumSize.Width - chrome.Width));
+            int client = grpDevices.Top + DevicesWantedHeight() + _groupGap
+                       + (grpConsole.Height - console.Height)
+                       + console.MinimumHeight(narrowest) + _pageBottomMargin;
+
+            int need = Math.Min(client + chrome.Height, Screen.FromControl(this).WorkingArea.Height);
+            if (need > MinimumSize.Height) MinimumSize = new Size(MinimumSize.Width, need);
         }
 
         /// <summary>Height of the device list's column-header row, in device pixels.</summary>
@@ -904,7 +1056,12 @@ namespace LabEquipmentController
                 // --- row one: where to look ---
                 Place(lblInterface, margin, row1, row1H);
                 Place(cboInterface, lblInterface.Right + label, row1, row1H);
-                cboInterface.Width = LogicalToDeviceUnits(330);
+                // Wider than 330 when an entry needs it, as far as the row allows: nothing else
+                // shares this row, and an adapter's name can run long enough that the one picked
+                // was cut short in the box (DropDownLists widens the list itself).
+                cboInterface.Width = Math.Max(LogicalToDeviceUnits(330),
+                    Math.Min(DropDownLists.WidestEntry(cboInterface),
+                             grpScan.ClientSize.Width - margin - cboInterface.Left));
 
                 // --- row two: how much of it, then do it ---
                 Place(lblRange, margin, row2, row2H);
@@ -955,12 +1112,20 @@ namespace LabEquipmentController
             // takes the remainder, which is what keeps "Scan complete. Found 3 device(s)."
             // on screen — the earlier version reserved the label's width and let the bar have
             // everything else, and the bar grew across the window on a high-DPI display.
-            Place(progressScan, btnScan.Right + gap, row2, row2H);
-            progressScan.Width = LogicalToDeviceUnits(140);
+            //
+            // On a window too narrow for both at those sizes, the bar gives way first, down to a
+            // stub that still shows a sweep moving, so the sentence keeps its room; past that the
+            // sentence ends in "…" and says the rest on hover (AutoEllipsis). Both used to keep
+            // their sizes whatever the room, and at the window's minimum width "Ready." was laid
+            // out entirely past the group's edge, with the bar running over it at 175%.
+            int barLeft = btnScan.Right + gap;
+            int room = grpScan.ClientSize.Width - margin - barLeft - gap;   // bar and sentence
+            int sentence = TextRenderer.MeasureText("Scan complete. Found 3 device(s).", lblStatus.Font).Width;
+            Place(progressScan, barLeft, row2, row2H);
+            progressScan.Width = Math.Clamp(room - sentence, LogicalToDeviceUnits(40), LogicalToDeviceUnits(140));
 
             Place(lblStatus, progressScan.Right + gap, row2, row2H);
-            lblStatus.Width = Math.Max(LogicalToDeviceUnits(80),
-                                       grpScan.ClientSize.Width - margin - lblStatus.Left);
+            lblStatus.Width = Math.Max(0, grpScan.ClientSize.Width - margin - lblStatus.Left);
 
             grpScan.Height = row2 + row2H + margin;
 
@@ -1911,6 +2076,9 @@ namespace LabEquipmentController
             console.SetDetached(false);
 
             UpdateConsoleHostVisibility();
+
+            // Once the console has been laid out in its page: no smaller than it needs.
+            if (IsHandleCreated) BeginInvoke(FitMinimumToConsoles);
         }
 
         /// <summary>

@@ -136,6 +136,7 @@ public static class CommandLine
           capture <address>        Read a scope trace as CSV or SVG
           plot <csv-file>          Draw a recorded CSV as an SVG chart
           catalog <text>           Search the curated command catalogs
+          mcp <address>...         Serve instruments to an MCP client (Claude Code, Claude Desktop)
           version                  Print version and catalog totals
 
         ADDRESSES
@@ -166,6 +167,7 @@ public static class CommandLine
           --svg              Draw the result as an SVG chart instead of a table.
           --stream           Emit each recorded row as it happens, not at the end.
           --quiet            Only results; no progress or headings.
+          --read-only        For mcp: serve the instruments with nothing that changes them.
           --help             This text.
 
         EXAMPLES
@@ -181,6 +183,7 @@ public static class CommandLine
           lec capture 192.168.1.20 --channel 1 --svg --out trace.svg
           lec plot readings.csv --out readings.svg
           lec catalog "VOLTage:DC" --family KeysightMultimeter
+          claude mcp add lec -- lec mcp 192.168.1.20 vxi://192.168.1.21
 
         The screen-capture format is the instrument's choice — a Rigol sends BMP, a
         Tektronix set to PNG sends PNG. The file is written in whatever arrived, and the

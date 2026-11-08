@@ -39,20 +39,38 @@ public sealed class ServiceMode
 
     private readonly byte[] _token;
 
-    public ServiceMode(IConfiguration configuration)
-        : this(configuration[TokenVariable], configuration[PathBaseVariable]) { }
+    private readonly bool _dials;
 
-    public ServiceMode(string? token, string? pathBase = null)
+    public ServiceMode(IConfiguration configuration)
+        : this(configuration[TokenVariable], configuration[PathBaseVariable], configuration[DialOutMode.UrlVariable]) { }
+
+    public ServiceMode(string? token, string? pathBase = null, string? dialUrl = null)
     {
         Token = (token ?? "").Trim();
         _token = Encoding.UTF8.GetBytes(Token);
         PathBase = NormalizePathBase(pathBase);
+        _dials = (dialUrl ?? "").Trim().Length > 0;
     }
 
     public string Token { get; }
 
-    /// <summary>A token is configured: the server is somebody's bench, not somebody's app.</summary>
+    /// <summary>A token is configured: the API and the hub take it as a bearer.</summary>
     public bool Enabled => Token.Length > 0;
+
+    /// <summary>
+    /// A host drives this server, whichever way round the dialing goes: it calls with a token
+    /// (<see cref="Enabled"/>), or this server dials it (<see cref="DialOutMode"/>).
+    /// </summary>
+    /// <remarks>
+    /// What follows from it is the same either way, and is nothing to do with the bearer: a run the
+    /// host started holds its instruments against the page, and opening the page lets go of the idle
+    /// ones rather than all of them. A dial-out bench that forgot this would have its host's
+    /// measurement stopped by somebody opening its console to watch it.
+    ///
+    /// Not what decides where the AI connection comes from — that is <see cref="Enabled"/>, because
+    /// it arrives inside a request a host proxies, and nothing proxies a bench that dials out.
+    /// </remarks>
+    public bool Driven => Enabled || _dials;
 
     /// <summary>Where the app is served from: empty for the root, or a path with a leading slash and no trailing one.</summary>
     public string PathBase { get; }

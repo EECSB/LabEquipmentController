@@ -1,7 +1,7 @@
 # Tests
 
 The xUnit suite. Everything the app does that is not pixels lives in [Core](../Core), and
-this is what holds it to its word — **1,821 tests against a fake instrument**, no hardware
+this is what holds it to its word — **2,343 tests against a fake instrument**, no hardware
 and no network:
 
 ```bash

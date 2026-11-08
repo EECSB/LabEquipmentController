@@ -59,9 +59,8 @@ volumes:
   lec-data:
 ```
 
-**Which tag.** `latest` is the newest release. `1.2.0` pins that exact release, `1.2` and `1`
-follow the newest patch and minor within that line, and `sha-ef23359` pins one commit for
-something that has to be reproducible. The
+**Which tag.** `latest` is the newest release, and `1.2.0` pins that exact release; each release
+is published once, under those two names only. Tags from before 1.4.0 may still be there. The
 [Tags page](https://hub.docker.com/r/eecsb/labequipmentcontroller-web/tags) is the list that
 is actually there, rather than this paragraph's memory of it.
 
@@ -187,7 +186,9 @@ With the token set, the API and the hub answer `401` to anything not carrying it
 stays open, since it can do nothing without the API. Opening the page no longer closes a bench a
 run is driving — the host's people open it while a measurement runs — and an instrument a run
 holds refuses every other command until the run ends. A run stays readable for an hour after it
-ends, at `GET /api/runs/{id}`. And the AI features take their connection from the host with each
+ends, at `GET /api/runs/{id}`, and can be started under an id the host chose, at
+`PUT /api/runs/{id}`, so a start whose answer never arrived is still a run the host can read and
+stop. And the AI features take their connection from the host with each
 request, so every person spends their own key and none is stored here; the AI Connection box
 says so.
 
@@ -195,11 +196,40 @@ says so.
 path of its own, and it rewrites the page's `<base href>` to match. [docs/SPEC.md](../docs/SPEC.md)
 §18 has the reasoning; `Tests/Web/ServiceModeTests.cs` holds the promises.
 
+### …or dials out to one
+
+The other way round, for a bench on a factory LAN that its host has no address to dial. Two
+variables together, and without them nothing changes:
+
+```yaml
+    environment:
+      LEC_DIAL_URL: https://treeality.example/api/plugins/treeality.instruments/dial
+      LEC_DIAL_TOKEN: ${LEC_DIAL_TOKEN}   # the host issues this and names this bench in it
+```
+
+This server opens the connection and holds it, reconnecting for as long as it runs; the host
+asks down it and this server answers, so the questions run the same way round and only the
+dialing is reversed. **What may be asked for is a named list** — the seven calls running a
+released procedure takes — and not this server's whole API: a host at the far end of a dial-out
+connection has nothing of its own between it and the instruments, so connecting to an address,
+scanning the network and writing this server's settings are not on it. Anything else is
+answered `403`, with the path named in this server's log.
+
+The two modes compose. On their own, dialing out leaves this server's own API open, because the
+page is the console for whoever is standing at the bench; set `LEC_SERVICE_TOKEN` as well and it
+takes a bearer too. [docs/SPEC.md](../docs/SPEC.md) §19 has the reasoning;
+`Tests/Web/DialOutTests.cs` holds the promises, against a real hub on a real port.
+
 ## What the server writes outlives the container
 
 AI connections set up in the page, catalogs a model extracted, and guides uploaded for the
 library all land under `LEC_DATA` — `/data` in the image, kept on a named volume by the
 compose file — so replacing the container does not throw them away.
+
+What the runs say and record lands there too, in `LEC_DATA/runs`, but that is not kept: each run's
+files go when the run is forgotten, an hour after it ends, and a server starting up sweeps away
+whatever one that was killed left behind. A run may spend up to a GiB there on its lines and as much
+on its rows; what it says and records past that is counted rather than kept.
 
 ## Programming guides
 

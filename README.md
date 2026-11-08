@@ -187,6 +187,22 @@ editor when you press **Use This Script**, and runs when you press Run.
   a draft with any command header the catalog does not know flagged underneath and a
   **Use This Script** of its own; a draft reaches the editor when you press Use, and runs
   when you press Run.
+- **AI assistant** — **Tools ▸ AI Assistant…** (the gear's **AI assistant…** on the web) is
+  a conversation with a model that works the bench: it lists what is open, searches the
+  catalogs, reads values and error queues and looks at a scope's screen as it needs to, and a
+  command that would change an instrument waits on a card for your **Approve and Send**. Every
+  call is a card with what it answered. Scripts are only proposed, with a **Use This Script**
+  that puts one in an editor where only Run runs it. Chats are kept with their files and opened
+  again from a list; a slash in the box lists the window's commands; attach datasheets,
+  pictures or a screenshot; and each answer says what it cost, as the box says what the next
+  question will before it is sent.
+- **Claude Code and Claude Desktop** — `lec mcp <address>…` serves the instruments named on
+  its command line to an MCP client, with tools to list them, search their catalogs, query,
+  read the error queue, see a screen and propose a script, and a `send` the client asks you
+  about before each use. `send` takes one command at a time, refuses one the instrument's
+  catalog does not document unless the model says it means it, and reports what the
+  instrument's error queue said after it. Only the addresses given can be reached, and
+  `--read-only` leaves `send` out. See [Cli/README.md](Cli/README.md).
 - **Capture** — screen and waveform, for the scopes whose guides document how. Traces plot
   in a viewer and export to CSV.
 - **Discover commands** — attempts `SYSTem:HELP:HEADers?` and falls back to the curated

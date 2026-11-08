@@ -168,6 +168,15 @@ public sealed class AiSettingsStore
             if (update.Effort is { Length: > 0 } asked)
                 target.Effort = Enum.TryParse(asked, ignoreCase: true, out AiEffort chosen) ? chosen : AiEffort.Default;
 
+            // The rates as the box sends them: absent from an older page leaves them alone, and a
+            // negative one, which no provider charges, is taken for blank.
+            if (update.Rates is { } rates)
+            {
+                target.InputPrice = rates.Input is >= 0 ? rates.Input : null;
+                target.CachedPrice = rates.Cached is >= 0 ? rates.Cached : null;
+                target.OutputPrice = rates.Output is >= 0 ? rates.Output : null;
+            }
+
             if (!Uri.TryCreate(target.EffectiveBaseUrl, UriKind.Absolute, out Uri? uri)
                 || (uri.Scheme != Uri.UriSchemeHttp && uri.Scheme != Uri.UriSchemeHttps))
             {
@@ -329,9 +338,12 @@ public sealed class AiSettingsStore
         bool? ExtractTextLocally, int TimeoutSeconds, string? ApiKey, string? Effort = null,
         List<SavedConnection>? Connections = null, string? SelectedId = null);
 
+    // The three rates last and optional, so a file written before they existed reads as "the
+    // published rate" for every connection in it, which is what it meant.
     private sealed record SavedConnection(
         string? Id, string? Name, string? Provider, string? BaseUrl, string? Model,
-        bool? ExtractTextLocally, int TimeoutSeconds, string? Effort, string? ApiKey)
+        bool? ExtractTextLocally, int TimeoutSeconds, string? Effort, string? ApiKey,
+        decimal? InputPrice = null, decimal? CachedPrice = null, decimal? OutputPrice = null)
     {
         public static SavedConnection FromFlat(Saved s) => new(
             null, null, s.Provider, s.BaseUrl, s.Model,
@@ -339,7 +351,8 @@ public sealed class AiSettingsStore
 
         public static SavedConnection Of(AiConnection c, string? key) => new(
             c.Id, c.Name, c.Provider.ToString(), c.BaseUrl, c.Model,
-            c.ExtractTextLocally, c.TimeoutSeconds, c.Effort.ToString(), key);
+            c.ExtractTextLocally, c.TimeoutSeconds, c.Effort.ToString(), key,
+            c.InputPrice, c.CachedPrice, c.OutputPrice);
 
         public AiConnection ToConnection()
         {
@@ -350,6 +363,9 @@ public sealed class AiSettingsStore
                 Model = Model ?? "",
                 ExtractTextLocally = ExtractTextLocally,
                 TimeoutSeconds = TimeoutSeconds is >= 15 and <= 900 ? TimeoutSeconds : 300,
+                InputPrice = InputPrice is >= 0 ? InputPrice : null,
+                CachedPrice = CachedPrice is >= 0 ? CachedPrice : null,
+                OutputPrice = OutputPrice is >= 0 ? OutputPrice : null,
             };
             if (Id is { Length: > 0 }) made.Id = Id;
             if (Enum.TryParse(Provider, ignoreCase: true, out AiProvider p)) made.Provider = p;

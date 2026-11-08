@@ -14,6 +14,11 @@ var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddSignalR();
 builder.Services.AddSingleton<BenchService>();
 builder.Services.AddSingleton<RunService>();
+// What the runs say and record, kept on disk under the server's data folder (LEC_DATA) rather than
+// in memory, so a run's record is bounded by the disk; see RunFiles.
+builder.Services.AddSingleton(sp => RunFiles.Under(
+    sp.GetRequiredService<AiSettingsStore>().DataDirectory,
+    sp.GetRequiredService<ILoggerFactory>().CreateLogger<RunFiles>()));
 builder.Services.AddSingleton<IAiClient, AiClient>();
 builder.Services.AddSingleton(sp =>
 {
@@ -25,10 +30,22 @@ builder.Services.AddSingleton(sp =>
 // of it and is what the rest of the app reads.
 builder.Services.AddSingleton<AiSettingsStore>();
 builder.Services.AddSingleton<AiService>();
+// The assistant's requests, signed here with the key the page never sees - see AiRelay.
+builder.Services.AddSingleton<AiRelay>();
+// The assistant's kept chats, beside ai.json - see AiChats.
+builder.Services.AddSingleton<AiChats>();
 builder.Services.AddSingleton<DatasheetService>();
 // The server as a host's bench (LEC_SERVICE_TOKEN), and below a path (LEC_PATH_BASE). Off, it is
 // the standalone app exactly as before; see ServiceMode.
 builder.Services.AddSingleton<ServiceMode>();
+
+// The other way round: a bench on a line its host cannot reach dials the host and holds the
+// connection open (LEC_DIAL_URL and LEC_DIAL_TOKEN). Off without them, and independent of the
+// token above — a bench either waits to be called or calls, and a few are both. What may be asked
+// down that connection is a named list rather than this server's whole API; see DialOutCalls.
+builder.Services.AddSingleton<DialOutMode>();
+builder.Services.AddSingleton<DialOutCalls>();
+builder.Services.AddHostedService<DialOutService>();
 
 var app = builder.Build();
 
@@ -96,8 +113,20 @@ app.UseStaticFiles(new StaticFileOptions { OnPrepareResponse = Revalidate });
 // reference — <base href> — has to say where the app is served from: "/" alone, or the path a
 // host proxies it at (LEC_PATH_BASE). Everything the page then asks for is relative to that
 // line, so the one line is what makes a sub-path work. Same no-cache as the file had.
+//
+// Not for the API or the hub, whatever the method. A call no route answers there is a 404,
+// since 2026-09-29: before that it was the page shell at 200, so a caller asking a route this
+// server does not have, or asking a route with a method it does not take, was answered with
+// HTML that looked exactly like a success. A host that asks a newer route of an older bench
+// has to be able to tell that the bench does not have it.
 app.MapFallback(async context =>
 {
+    if (context.Request.Path.StartsWithSegments("/api") || context.Request.Path.StartsWithSegments("/hub"))
+    {
+        context.Response.StatusCode = StatusCodes.Status404NotFound;
+        return;
+    }
+
     var shell = app.Environment.WebRootFileProvider.GetFileInfo("index.html");
     if (!shell.Exists)
     {
@@ -320,6 +349,14 @@ api.MapPost("/runs/script", (ScriptRunRequest req, RunService runs) => runs.Star
 
 api.MapPost("/runs/sequence", (SequenceRunRequest req, RunService runs) => runs.StartSequence(req));
 
+// The same run under an id the caller chose rather than one this server makes, so a host whose
+// start went unanswered still knows which run to ask about and which to stop. Sent again, the
+// same start begins nothing and answers the run it began; a stop that arrived first refuses it.
+// See RunService.StartSequence.
+api.MapPut("/runs/{runId}", (string runId, SequenceRunRequest req, RunService runs) => runs.StartSequence(req, runId));
+
+// A run that is not going is a 404, as it always was. When no run has the id at all, a start
+// under it that is still on its way is refused when it arrives.
 api.MapPost("/runs/{runId}/stop", (string runId, RunService runs)
     => runs.Stop(runId) ? Results.NoContent() : Results.NotFound());
 
@@ -329,8 +366,10 @@ api.MapPost("/runs/{runId}/stop", (string runId, RunService runs)
 // hub connection — because a message missed must not be a measurement lost.
 api.MapGet("/runs", (RunService runs) => runs.Records());
 
-api.MapGet("/runs/{runId}", (string runId, RunService runs)
-    => runs.Record(runId) is { } record ? Results.Ok(record) : Results.NotFound());
+// From where the reader left off, when it says: a host following a run asks for the lines and
+// rows it has not read yet, rather than for the whole table again every few seconds.
+api.MapGet("/runs/{runId}", (string runId, int? outputFrom, int? rowsFrom, RunService runs)
+    => runs.Record(runId, outputFrom ?? 0, rowsFrom ?? 0) is { } record ? Results.Ok(record) : Results.NotFound());
 
 api.MapPost("/sequence/requirements", (SequenceRunRequest req, BenchService bench)
     => bench.BindSequence(req.Script, req.Bindings));
@@ -340,10 +379,9 @@ api.MapPost("/sequence/requirements", (SequenceRunRequest req, BenchService benc
 // boxes; this is for a host that keeps the script as a released procedure and has to store what it
 // takes and what it records along with it. One call rather than three, because a host asking three
 // questions about one script is three round trips to learn one thing.
-api.MapPost("/sequence/declares", (SequenceRunRequest req) => new SequenceDeclarationDto(
-    SequenceRunner.Requirements(req.Script).Select(r => r.Model).Distinct(StringComparer.OrdinalIgnoreCase).ToList(),
-    SequenceRunner.Inputs(req.Script),
-    SequenceRunner.Columns(req.Script)));
+// Built by SequenceAnswers because the dial-out channel answers the same question, and a host
+// that reads a procedure over one and runs it over the other must not find the columns disagreeing.
+api.MapPost("/sequence/declares", (SequenceRunRequest req) => SequenceAnswers.Declares(req.Script));
 
 // The script language explained. Two languages, so a flag: the multi-instrument one by
 // default, which is what the desktop app's Help ▸ Script Language… opens.
@@ -418,6 +456,20 @@ api.MapPost("/ai/extract", async (AiExtractRequest req, AiService ai, Cancellati
 // Save Ticked, which is a step of its own because what came out of the datasheet has to be
 // read before any of it is written.
 api.MapPost("/ai/extract/save", (AiSaveExtractRequest req, AiService ai) => ai.SaveExtracted(req));
+
+// The assistant's own requests, built whole in the page and signed here: the key stays on this
+// server, the address and the model are the saved connection's, and the provider's answer goes
+// back as it came. See AiRelay.
+api.MapPost("/ai/relay/{id}", async (string id, HttpRequest request, AiRelay relay, CancellationToken ct)
+    => await relay.ForwardAsync(id, request, ct));
+
+// The assistant's kept chats: the list, one chat, keeping one and throwing one away. Kept here
+// beside the connections rather than in the browser, since the bench is one workspace - see AiChats.
+api.MapGet("/ai/chats", (AiChats chats) => chats.ListAsync());
+api.MapGet("/ai/chats/{id}", (string id, AiChats chats) => chats.LoadAsync(id));
+api.MapPut("/ai/chats/{id}", (string id, HttpRequest request, AiChats chats, CancellationToken ct)
+    => chats.SaveAsync(id, request, ct));
+api.MapDelete("/ai/chats/{id}", (string id, AiChats chats) => chats.DeleteAsync(id));
 
 app.MapHub<BenchHub>("/hub/bench");
 

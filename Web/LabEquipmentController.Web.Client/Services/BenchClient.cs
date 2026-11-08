@@ -1,5 +1,6 @@
 using System.Net.Http.Json;
 using System.Runtime.CompilerServices;
+using System.Text.Json;
 using LabEquipmentController.Web.Client.Contracts;
 using Microsoft.AspNetCore.SignalR.Client;
 
@@ -13,8 +14,11 @@ namespace LabEquipmentController.Web.Client.Services;
 /// Deliberately the only place in the client that knows a URL. A component asking for
 /// instruments should not also be deciding what the route is called, and when the API moves
 /// there is one file to change.
+///
+/// Two clients, one pipeline: <paramref name="ai"/> carries the two calls that wait on a model,
+/// which can run past the 100 seconds <paramref name="http"/> gives everything else.
 /// </remarks>
-public sealed class BenchClient(HttpClient http) : IAsyncDisposable
+public sealed class BenchClient(HttpClient http, AiHttp ai) : IAsyncDisposable
 {
     private HubConnection? _hub;
 
@@ -320,13 +324,48 @@ public sealed class BenchClient(HttpClient http) : IAsyncDisposable
         => await response.Content.ReadFromJsonAsync<AiSettingsReply>()
            ?? new AiSettingsReply(null, "No reply from the server.");
 
-    public async Task<AiScriptReply> AiScriptAsync(AiScriptRequest req)
+    /// <summary>
+    /// How long the page waits for a script before it stops waiting: the connection's own limit,
+    /// which the server enforces and reports in its own words, and half a minute more for that
+    /// report to arrive. The server floors the limit at ten seconds, and so does this. Without a
+    /// connection to read it from, the most the settings allow.
+    /// </summary>
+    public static TimeSpan ScriptWait(int? connectionTimeoutSeconds)
+        => TimeSpan.FromSeconds(Math.Max(10, connectionTimeoutSeconds ?? 900) + 30);
+
+    /// <summary>
+    /// Ask for a script, and wait no longer than <paramref name="wait"/> for it.
+    ///
+    /// The writer is one model call, and the server already puts the connection's limit on it,
+    /// so this clock only ever fires when the server has stopped answering — and the writer has
+    /// no Stop button to get out of that with. When it fires the answer is a reply saying so,
+    /// like any other failure the server reports, rather than an exception for the window to
+    /// catch. See <see cref="ScriptWait"/>.
+    /// </summary>
+    /// <param name="ct">A real cancellation, which is let through rather than said as a failure.</param>
+    public async Task<AiScriptReply> AiScriptAsync(AiScriptRequest req, TimeSpan wait, CancellationToken ct = default)
     {
-        var response = await http.PostAsJsonAsync("api/ai/script", req);
-        return await response.Content.ReadFromJsonAsync<AiScriptReply>()
-               ?? new AiScriptReply("", [], "No reply from the server.");
+        using var clock = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        clock.CancelAfter(wait);
+        try
+        {
+            using var response = await ai.Http.PostAsJsonAsync("api/ai/script", req, clock.Token);
+            return await ReadAiAsync(response, error => new AiScriptReply("", [], error), clock.Token)
+                   ?? new AiScriptReply("", [], "No reply from the server.");
+        }
+        catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+        {
+            return new AiScriptReply("", [],
+                $"The server did not reply within {wait.TotalSeconds:0} s — longer than the AI connection "
+              + "is allowed — so this page stopped waiting. The server may have stopped answering.");
+        }
     }
 
+    /// <summary>
+    /// Read a datasheet. No clock here, on purpose: a guide read locally is one model call per
+    /// part, each with the connection's full limit, so nothing short of the whole document's
+    /// length bounds it. Stop is what ends it early.
+    /// </summary>
     /// <param name="ct">
     /// Cancelled by the Stop button. It reaches the extraction itself: a minimal API's
     /// CancellationToken is the request's, so aborting here aborts the model call rather than
@@ -334,9 +373,39 @@ public sealed class BenchClient(HttpClient http) : IAsyncDisposable
     /// </param>
     public async Task<AiExtractReply> AiExtractAsync(AiExtractRequest req, CancellationToken ct = default)
     {
-        var response = await http.PostAsJsonAsync("api/ai/extract", req, ct);
-        return await response.Content.ReadFromJsonAsync<AiExtractReply>(ct)
+        using var response = await ai.Http.PostAsJsonAsync("api/ai/extract", req, ct);
+        return await ReadAiAsync(response, error => new AiExtractReply(0, 0, [], null, error), ct)
                ?? new AiExtractReply(0, 0, [], null, "No reply from the server.");
+    }
+
+    /// <summary>
+    /// Read an AI reply, having looked at the status first.
+    ///
+    /// The server answers every AI request with a reply, failures included, so anything else
+    /// came from something in between: a proxy's 502 page while the container restarts, a 413
+    /// for a guide over the upload limit. Parsed as a reply, those failed as "'&lt;' is an
+    /// invalid start of a value", which says nothing about what happened. The status does.
+    /// </summary>
+    private static async Task<T?> ReadAiAsync<T>(
+        HttpResponseMessage response, Func<string, T> failed, CancellationToken ct)
+    {
+        if (!response.IsSuccessStatusCode)
+        {
+            // A fetch over HTTP/2 carries no reason phrase, so the code's own name stands in.
+            string reason = string.IsNullOrWhiteSpace(response.ReasonPhrase)
+                ? response.StatusCode.ToString()
+                : response.ReasonPhrase;
+            return failed($"The server answered {(int)response.StatusCode} {reason} instead of a reply.");
+        }
+
+        try
+        {
+            return await response.Content.ReadFromJsonAsync<T>(ct);
+        }
+        catch (Exception ex) when (ex is JsonException or NotSupportedException)
+        {
+            return failed("The server answered, but not with a reply this page can read.");
+        }
     }
 
     /// <summary>Write out the ticked commands from an extraction.</summary>

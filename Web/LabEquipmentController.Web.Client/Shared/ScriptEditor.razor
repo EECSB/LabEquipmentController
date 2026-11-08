@@ -107,8 +107,10 @@
    page you were on. *@
 @if (_aiOpen)
 {
-    @* ScriptAiForm asks for 1320×920 — not the editor's size, which is what a filling window
-       otherwise takes. It is two text boxes and a row of switches; it does not want the screen. *@
+    @* 1320×920: ScriptAiForm's size on a 175% screen (754×526 logical), kept so that everything
+       in the window is in view when it opens (UI-SPEC §9, Known differences). Not the editor's
+       size, which is what a filling window otherwise takes: it is two text boxes and a row of
+       switches, and does not want the screen. *@
     <ToolWindow Title="Write a Script with AI" Fill="true" OpenWidth="1320" OpenHeight="920"
                 OnClosed="() => _aiOpen = false">
         <Ai Tool="AiTool.Script" Session="@SessionId" IsSequence="IsSequence"
@@ -400,6 +402,25 @@
         await Say("Script written by AI — read it before running it.");
         await OnScriptReplaced.InvokeAsync();
         _focusStart = true;
+    }
+
+    /// <summary>
+    /// A script the AI assistant put forward, from its Use This Script: into the editor, asking
+    /// first over a script as Use This Script in the script writer does, and run by nothing but
+    /// Run. The desktop's ScriptForm.TakeWritten and SequenceForm.TakeWritten, word for word.
+    /// </summary>
+    public async Task TakeWrittenAsync(string script)
+    {
+        string written = script.Replace("\r\n", "\n");
+        if (Script.Length > 0 && Script != written
+            && !await JS.InvokeAsync<bool>("lec.askAfterPaint", ReplaceQuestion))
+            return;
+
+        await ScriptChanged.InvokeAsync(written);
+        await Say("Script written by AI — read it before running it.");
+        await OnScriptReplaced.InvokeAsync();
+        _focusStart = true;
+        StateHasChanged();
     }
 
     /// <summary>ScriptForm's and SequenceForm's words, the OK/Cancel box's title aside.</summary>

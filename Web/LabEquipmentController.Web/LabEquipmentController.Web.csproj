@@ -22,6 +22,10 @@
 
   <ItemGroup>
     <PackageReference Include="Microsoft.AspNetCore.Components.WebAssembly.Server" Version="10.0.11" />
+    <!-- The client half of SignalR, for dial-out mode: this server opens the connection to its
+         host and holds it. The server half is already in the framework, for the bench hub the
+         page talks to. -->
+    <PackageReference Include="Microsoft.AspNetCore.SignalR.Client" Version="10.0.11" />
   </ItemGroup>
 
   <ItemGroup>

@@ -25,10 +25,10 @@
 # repo and recreating it under the same name.
 name: Publish to NuGet
 
-# Manual only, on purpose. There is deliberately NO `release:` trigger: this library and
-# the desktop app version independently, so a GitHub release tagged v1.1.0 for the app
-# would otherwise publish version 1.1.0 of the library — permanently, since a version on
-# nuget.org can never be reused or deleted — without anyone having decided to.
+# Manual only, on purpose. There is deliberately NO `release:` trigger. The library carries
+# the same version as the app, the CLI and the container, but a version on nuget.org can
+# never be reused or deleted, so a tag pushed by mistake must not be able to publish one.
+# Run this after the release a tag starts has gone through, on the version in the csproj.
 #
 # An approval gate via a GitHub Environment would be the alternative, but required
 # reviewers are a paid feature on private repositories and this one is private. Typing the

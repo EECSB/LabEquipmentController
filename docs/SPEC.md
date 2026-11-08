@@ -41,7 +41,7 @@ export of what it finds.
 | Target | `net10.0-windows`; the UI-free `Core` library is plain `net10.0` |
 | Runtime | 64-bit Windows 10/11 |
 | Distribution | Self-contained single-file `.exe` (~48 MB), or framework-dependent |
-| Dependencies | No VISA, IVI or vendor SDK — the transports are implemented here. In `Core`, two packages: PdfPig (reading text out of datasheets, §11b) and `System.IO.Ports` (the serial transport, §13). In the desktop app, WebView2 (the guide viewer, §11a) |
+| Dependencies | No VISA, IVI or vendor SDK — the transports are implemented here. In `Core`, two packages: PdfPig (reading text out of datasheets, §11b) and `System.IO.Ports` (the serial transport, §13). In the desktop app, WebView2 (the guide viewer, §11a). In the CLI, `ModelContextProtocol.Core` (`lec mcp`, §11d) |
 
 ## 3. Concepts
 
@@ -1051,6 +1051,79 @@ editor when the user presses Use, and runs when the user presses Run — two del
 because these scripts turn on outputs and apply voltages to real circuits. Nothing generated
 is written to a catalog; §11b's separation holds here too.
 
+## 11d. The AI assistant and `lec mcp`
+
+A conversation with a model that works the bench through typed tools — reads an instrument,
+searches its catalog, looks at its screen, and, when the person allows it, changes a
+setting — and the same tools served to Claude Code and Claude Desktop by `lec mcp`. Built by
+the AI assistant guide (`AI-Assistant-Reference/ADDING-AN-AI-ASSISTANT.md`, written from GDS
+Viewer and Treeality, whose class names are kept so the projects read as one design). Optional
+and off until a connection is set, like §11b and §11c, and on the same connections and keys.
+
+**The three decisions the guide asks for first, and why.**
+
+- **It acts on reads, waits on changes, and only proposes scripts.** A layout editor's tools
+  may act because each change is one press of Undo away. Nothing on a bench is: an output
+  switched on into a circuit stays on until something switches it off. So exactly one tool,
+  `send`, changes an instrument; it takes one command a call, so the card the person approves
+  is the whole of what is sent; and on the window's middle rung, where every conversation
+  starts, it waits for that approval. A script — many changes — is only ever put forward
+  (`propose_script`), and reaches the editor and runs by §11c's two deliberate acts.
+- **Where the model is called from is where the key already is.** The desktop calls the
+  provider itself with the key DPAPI holds (§11b). The page never holds a key: it builds each
+  request whole and posts it to its own server, which signs it with the key in `ai.json`,
+  pins the connection's address and model, and forwards it (`AiRelay`).
+- **The MCP server is a command, beside the instruments.** `lec mcp <address>...` serves the
+  tools over standard input and output for the addresses on its command line and no others —
+  there is no tool to dial an address, since what a model names can come from anywhere — and
+  `--read-only` leaves `send` out. The client the model runs in asks the person before each
+  call; there is no second gate.
+
+**The tools** (`BenchToolRunner`), written once for every host: `list_instruments`,
+`find_commands`, `query`, `send`, `read_errors`, `look_at_screen`, `wait` and
+`propose_script`. Instruments go by the alias a sequence script would give them (§11c's
+`ScriptContext`), so a name learnt in conversation is the name written in a script.
+
+- **`query` reads and nothing else.** One query a call, on one line, with no `;` — a compound
+  message ending in a query would pass for a read while it set a voltage. The self-test and
+  calibration queries act, so they go through `send`. A query whose reply is a binary block —
+  a screen dump, a trace, a file — is refused: read as text it leaves the rest of the block in
+  the connection, and every reply after it is garbage until the instrument is closed.
+- **`send` checks against the catalog.** A header the instrument's catalog does not document
+  is refused with the nearest ones it does, unless the model sets `undocumented` and says why,
+  which the person sees. The IEEE 488.2 common commands and `SYST:ERR?` pass everywhere. The
+  error queue is read before the command and after it, so the answer reports what that
+  command caused and what was already there, apart; an instrument that never answers the error
+  query is asked once and said to be unknown.
+- **An instrument a script is driving is left alone**, as the console leaves it (§9).
+- **`look_at_screen`** sends the model the screen dump the console's Capture Screen takes. A
+  BMP — what most families send — is made a PNG first, in managed code, since Core runs in the
+  browser too.
+
+**The window** (UI-SPEC §5, *The AI assistant*) keeps its chats down the left and the
+conversation's files on the right, starts every visit on the middle rung, lists its commands
+when a slash starts the box, and suggests compacting, priced, once three questions in a
+conversation are sending more than 20,000 tokens of history with each new one. **A chat is
+kept with its files**, from its first question on, after every answer: on the desktop in
+`%AppData%\LabEquipmentController\chats`, a file a chat beside a list of them; on the web by the
+bench's server, in `chats` under its data folder beside `ai.json` (`/api/ai/chats`), since the
+page's connections and key are the server's too — one bench, one set of chats. Off a container
+that folder is the desktop's, so the two builds on one machine keep the same chats. Opened again,
+it carries on, with a line saying when, and what the bench was then if it is not the bench now
+— the names the tools gave out belong to that session, and the model is told so.
+
+**Not built, and why.** The microphone and the camera, which the guide puts in the box's row:
+the desktop has neither without another runtime (WinRT's capture APIs), and the page follows the
+desktop. `Screenshot` stands in for the camera's main use on a bench, which is showing the model
+what a screen shows. The guide's tab link (its sixth layer) has no counterpart here: `lec mcp`
+reaches the instruments themselves, so there is no page for it to borrow.
+
+**Built:** the tools, `lec mcp`, the page's relay, the conversation (`AiChat`, with the approval
+rungs, Stop, compacting, kept chats and the estimate before Send), and the window in both builds:
+`Tools ▸ AI Assistant…` on the desktop and the gear's **AI assistant…** on the web, its port. Run
+as a host's bench (§18) the page's assistant says it cannot ask yet: the connection arrives with
+each of the host's requests, and the relay has none of its own to sign with.
+
 ## 12. Files and formats
 
 | Output | Format |
@@ -1189,6 +1262,51 @@ words on them — for this build and for the web one — is [UI-SPEC.md](UI-SPEC
   values clipped the buttons in both capture windows (one had already been nudged 38 → 54
   and clipped again), so a bar either auto-sizes or takes its height from
   `button.PreferredSize.Height` plus its own padding, in `OnLoad`.
+- **A form built in code gets the auto-scale pass only as the designer sets it up**:
+  `SuspendLayout()`, then `AutoScaleDimensions` and `AutoScaleMode`, then everything built,
+  then `ResumeLayout(false); PerformLayout();`. Set without the suspend, the pass runs at once
+  over the empty form and never again, and every number built after it stays in screen pixels
+  while the fonts follow the display — which is how most of these windows were until
+  2026-11-07, with their sizes picked by eye on this bench's 175% screen. Built that way, the
+  numbers inside are logical pixels. Four things the pass does not do for you:
+  - **A fixed width in a `TableLayoutPanel` cell is cut down before the pass.** The table lays
+    each control out as it is added, at its default 200×100 before the window has docked it,
+    cuts a plain `Width` to the cell it finds, and the pass then scales what is left: a 190-wide
+    picker came out 13 pixels wide at 175%. Give such a control a `MinimumSize` as well.
+  - **A plain `AutoSize` button only grows**, so a pass-stretched one stays stretched. Build
+    buttons through `ButtonStyle`, which also sets the padding it measured the button height
+    with, scaled to the window — a pass-scaled padding inside that height cut the bottoms off
+    the labels. The padding was screen pixels until 2026-11-07; it is logical now, as §1 of
+    `UI-SPEC.md` always said.
+  - **Heights scale by the font's height**, 2.0 at 175% against 1.71 for widths. A window size
+    measured on a real screen is set after the pass with `LogicalToDeviceUnits`, and a strip
+    that hugs a text box is fitted to it in `OnLoad` rather than given a height.
+  - **`ListView` column widths and anything painted** are not touched by it at all; scale those
+    with `LogicalToDeviceUnits`. So is anything built after the pass, which is why a window that
+    builds the same control again later (the waveform window's cards) scales by hand throughout
+    instead, and why the console and the results pane, built at run time elsewhere, join the
+    script windows only after their pass.
+  - **Controls built at run time scale their own numbers**: `InstrumentConsole`,
+    `ResultsPanel` and `ResultPlotPanel` are never reached by a pass in any window that holds
+    them, so every padding, margin, width and painted offset in them goes through
+    `LogicalToDeviceUnits` or `LogicalPixels.Scaled` — `ButtonStyle`'s margin included, which a
+    pass would otherwise have scaled. Until 2026-11-07 some were screen pixels, and at 175% the
+    results table's 160-pixel columns cut readings short that fitted at 100%. Since 2026-11-08
+    those columns are as wide as their widest cell (UI-SPEC §4.7), which no scale cuts short.
+- **A window holding a console takes its minimum height from the console**
+  (`InstrumentConsole.MinimumHeight`): at the window's narrowest, the header, a row of quick
+  commands, the tool strip as it wraps at that width, the queue line, the command row and a few
+  lines of log. `InstrumentWindow` asks once it has adopted its console and `MainForm` whenever
+  one is attached, adding the device list at its five rows; neither asks for more than the
+  screen. Until 2026-11-08 both minimums were numbers of their own, and at either window's
+  smallest the rows above the log took all of it, so the log was the first thing to go. The
+  detached window is also no narrower than the main window's 820, where the command box still
+  has room beside its three buttons; at its old 320 the log's split stopped laying out.
+- **A dropdown's list is as wide as its longest entry** (`DropDownLists.FitToEntries`). A
+  ComboBox opens its list at its own width and cuts whatever is longer, which until 2026-11-08
+  the script editors' Examples lists and the network Interface list did. The Interface box
+  grows to its longest entry as well, as far as its row allows, since the entry picked shows
+  in the box.
 - A **docked Label with `AutoSize` left on ignores a Height set in code**, and clips its own
   text. Turn AutoSize off for any label whose size the layout controls.
 - **Every button in the app is built and sized through `ButtonStyle`** — one padding, one
@@ -1469,15 +1587,55 @@ standalone app makes that is wrong for a bench somebody else drives:
    one sentence.
 3. **A run is readable after it ends.** `GET /api/runs/{id}` answers how a run ended and
    everything it said and recorded, for an hour after the end, and `GET /api/runs` lists what
-   is remembered. The hub tells the story as it happens; this is for whoever was not in the
-   room. Kept in every mode, because it costs nothing and is useful to anything that drives
-   the API.
+   is remembered: how each run stands and how much it said and recorded, without the lines and
+   rows themselves. The hub tells the story as it happens; this is for whoever was not in the
+   room. Kept in every mode, because it costs a little disk and is useful to anything that
+   drives the API. **It is read from where the reader left off**, when the reader says where
+   that is: `outputFrom` and `rowsFrom` ask for the lines and rows from those on, and the same
+   two names in the answer say where its lists start, so a host following a run reads each row
+   once rather than the whole table every few seconds. **An answer is a page**: at most twenty
+   thousand lines and as many rows, and at most 8 MiB of each, with `outputKept` and `rowsKept`
+   saying how many the record holds, so a reader has it all when its lists reach them. **The
+   record is on disk** (`RunFiles`), under the server's data folder, a file for each list of each
+   run, gone when the run is forgotten and swept away by the next server to start if the one
+   that made it was killed. Until 2026-09-23 it was in memory, and kept twenty thousand lines and
+   as many rows. **And what a record does not keep is counted.** Each list keeps up to a GiB,
+   because a `REPEAT` with no end says a great deal, and `outputDropped` and `rowsDropped` say how
+   many more the run produced. Until 2026-09-23 nothing said so: a run that recorded thirty
+   thousand rows was read by its host as twenty thousand.
 4. **The AI features spend the person's own connection.** The host sends the connection —
    provider, address, model, key — with each `POST /api/ai/script` and `POST /api/ai/extract`,
    and it is used for that call and kept nowhere. The server's own key is never spent as a
    bench, the AI Connection box says where connections come from instead of offering fields,
    and a standalone server refuses a connection sent with a request, because a page that could
    hand the server a key to spend would be a page that could hand it anyone's.
+
+**A run's id can be the caller's**, since 2026-09-29, and in every mode. `PUT /api/runs/{id}`
+starts a multi-instrument run as `POST /api/runs/sequence` does, with the same body, under the id
+in the path rather than one this server makes. It is what makes a start safe to lose. With an id
+made here, the id goes back in the answer to the start and nowhere else, so a host that never
+hears that answer — the connection went with it in flight, or it came too late — can neither
+read the run nor stop it, while the run holds every instrument it binds against any other run
+until its deadline. Treeality's Instruments plugin met exactly that on 2026-09-26, and could only
+say the bench may have begun the run. A host that chose the id knows it all the same. Three
+rules make the id safe to act on:
+
+- **The same start sent again begins nothing.** A start under an id this server already has,
+  running or kept, answers the run it began, so a start that arrived twice is one run.
+- **A stop can arrive before its start.** A stop for an id no run has, running or kept, is
+  remembered for as long as a finished run is, and a start under that id arriving afterwards is
+  refused, with a sentence. This is how a host closes a start it has stopped waiting for: a start
+  can still be on its way when the host gives up — queued behind a long answer on a dial-out
+  connection, or in a request this server has not got round to — and once the stop has been
+  answered, a run the host cannot find will never begin. The stop itself answers `404` as before.
+- **An id is 32 lowercase hexadecimal digits**, a GUID as this server writes its own, and not the
+  empty one. Anything else is refused before an instrument is looked at, since an id names the
+  run's files on this server's disk and its group on the hub.
+
+And a call to `/api` or `/hub` that no route answers is `404` since the same day, not the page
+shell at `200`. A server older than the route answers `PUT /api/runs/{id}` with its page, which a
+host has to be able to tell from a start; this one refuses the next route it does not have
+plainly. `Tests/Web/CallersRunIdTests.cs` holds all of it.
 
 Two things the host needs were already so, and are pinned rather than changed: a
 multi-instrument run binds each `DEVICE` line by its alias, so an alias spelled unlike its
@@ -1489,3 +1647,130 @@ else.
 What service mode is not: an account system. There is one caller with one token, and a token is
 not an identity. Who may do what is the host's to decide, and it decides before it forwards
 anything.
+
+## 19. Dial-out mode — the bench opens the connection
+
+Built 2026-09-22, for the case service mode cannot serve: a bench on a factory LAN, behind NAT
+and a firewall, and a host in a datacenter with no address to dial. Switched on by two variables
+together, so that nothing here changes for anyone who does not set them — the standalone app and
+service mode are both exactly as they were.
+
+| Variable | What it does |
+|---|---|
+| `LEC_DIAL_URL` | The host's hub, absolute. This server opens the connection to it and holds it open, reconnecting for as long as it runs. |
+| `LEC_DIAL_TOKEN` | What it dials with, as `Authorization: Bearer`. The **host** issues this and names this bench in it; there is nothing to compare here, and this server keeps no secret of its own for it. |
+
+One without the other is a half-configured bench, and it is said in the log rather than failing
+quietly — somebody set one of the two and believes this bench is dialing.
+
+**The questions still run the same way round.** The host asks and the bench answers; only the
+dialing is reversed. A request arrives as an envelope — a method, a path and a body — and the
+answer goes back under the same id.
+
+**SignalR's client, not a socket of this server's own.** The case this exists for is a bench
+behind a customer's outbound proxy, which is exactly where a raw upgrade gets refused;
+reconnection, keep-alives and a fallback transport are three things worth not owning. Its own
+reconnection policy gives up after half a minute, which suits a browser tab and not a bench on a
+factory floor, so this one is quick at first and then steady, and never gives up.
+
+### What may be asked for is a named list
+
+**And not this server's whole API.** The envelope carries a path, so forwarding it into the
+server's own routes would have been fewer lines — and it would have handed whoever is at the
+other end every route this server has, including connecting to an arbitrary address on the
+customer's LAN, scanning it, and writing this server's settings.
+
+A host that reaches a bench at an address checks its own whitelist before a byte leaves it. A
+bench that dials out has nothing of the host's between it and its instruments, so **the list of
+what may be asked is this bench's own whitelist**, and it is here:
+
+| | |
+|---|---|
+| `GET /api/sessions` | what is connected |
+| `POST /api/sequence/declares` | what a script declares, without running it |
+| `POST /api/sequence/requirements` | what each `DEVICE` line would run on |
+| `POST /api/runs/sequence` | start a run |
+| `PUT /api/runs/{id}` | start a run under the id the host chose, as §18 says (since 2026-09-29) |
+| `GET /api/runs/{id}` | how it is going, and how it went — from where the host left off, as §18's third item reads it |
+| `POST /api/runs/{id}/stop` | stop it, or refuse a start under the id that arrives after the stop |
+
+Which is what running a released procedure takes, and nothing else. A path that is not on it is
+answered `403` with the path named in this server's log. **Connecting an instrument is not on
+it**: that is done at the bench, on the network the bench is on, by whoever is standing there.
+
+Each entry calls the same method the matching route calls, and the answers are serialized with
+the same options, so the two cannot answer differently — `SequenceAnswers` exists because both
+of them answer "what does this script declare", and a host that reads a procedure over one and
+runs it over the other must not find the columns disagreeing.
+
+**They fail the same way too.** A body this server cannot read as the shape that path takes is
+answered `400`, and a call on the list that throws is answered `500` — which is what the
+framework writes when the same request arrives over HTTP. Over a connection nothing writes it
+unless this server does: an exception left to escape is sent nowhere at all, so the host gets no
+answer, waits out its own timeout, and reports a bench that did not answer. That is a network
+story for a body this bench refused, and it takes fifteen seconds to tell. Found by an audit on
+2026-09-22 and pinned by `A_call_that_fails_inside_the_bench_is_a_500_and_not_a_silence`.
+
+### An answer too long for one message
+
+**Goes as several, which the host puts back together.** A hub takes messages up to a size of its
+own choosing — SignalR's default is 32 KB, and Treeality's is 8 MB — and a run's record has no such
+bound: twenty thousand rows of sixteen columns came to 11 MB. Sent as one message it made the host
+close the connection; this server dialed back in, the host asked again, and the run never ended for
+it, twenty-four reconnections in two and a half minutes. Found on 2026-09-23 by the first walk with a
+table of a real size, that project's `e2e/instruments-dial-size.spec.js`.
+
+So an answer whose body is longer than 256 K characters is cut into parts: `part` of `parts`,
+numbered from 0 and sent in order, each with the answer's id and status and the next stretch of the
+body, and never between the two halves of a character outside the basic plane. Written as JSON a
+character takes at most six bytes, so a part is 1.5 MB on the wire at the very worst, and a host
+whose hub takes messages of 2 MB receives any answer this server gives. One that fits is part 0 of
+1, as every answer was before.
+
+The host also asks only for what it has not read yet, and one read answers at most a page
+(§18's third item), so a long run crosses the connection once, a little at a time, rather than
+whole on every look.
+
+### What else changes, and what deliberately does not
+
+**A host drives this server, so a run it started is protected from the page** — the first two
+items of §18, and for the same reasons. `ServiceMode.Driven` is that question, and it is true in
+either mode; `ServiceMode.Enabled` remains "a bearer is configured", which is a different
+question with a different answer here.
+
+**The API is not guarded, unless `LEC_SERVICE_TOKEN` is also set.** A bench that dials out is not
+framed by its host — tunnelling a browser's whole session is the host's own open question — so
+its page is the console for whoever is standing at it, and guarding the API would leave nobody
+able to connect an instrument at all. The two modes compose: set both and the bench dials out
+*and* takes a bearer on its own API.
+
+**The AI features are this server's own**, not the host's. §18's fourth item is about a
+connection that arrives inside a request the host proxies, and nothing proxies a bench that
+dials out.
+
+**A dropped connection is not a lost run.** Nothing in this mode touches a run: the bench goes on
+measuring whether or not a host is listening, and the host asks again by the run id it already
+has — which is §18's third item doing the work it was built for.
+
+`Tests/Web/DialOutTests.cs` holds it, against a real hub on a real port: the connection, the list
+and its refusals, the answers matching the API's, and a measurement bound, started, followed and
+read back down the connection — and since 2026-09-23 a record too long for one message crossing in
+parts, a run read from where the reader left off, the same over the connection as over the API,
+a record longer than one read read to its end a page at a time, and a run past what its record
+keeps saying how much it did not keep. `Tests/Web/RunFilesTests.cs` holds the record on disk: read
+back from any point, bounded, and gone with its run.
+
+**Walked against the real host on 2026-09-22**, the same day it was built, in that project's
+`e2e/instruments-dial.spec.js`: a bench added there with no address at all, a token that instance
+issued and this server started with, a script read down the connection, a measurement run and its rows
+recorded — and then this server stopped and started again, to watch it dial back in by itself.
+
+**Then through a real network**, the same day, in that project's `e2e/instruments-nat.spec.js`: this
+server as a container alone on a Docker network of its own, publishing nothing, dialing out through the
+host's NAT to that instance in a container beside it, and its network pulled while it measured. This
+side held: it logged the drop, went on measuring, and dialed back in by itself, which the host's bench
+list showed 20 and 40 seconds after the network returned in two runs, depending on how far `KeepTrying`
+had got through its quick retries while there was no network. The host's side did not, the first time —
+it ended the run as an error while this server was still measuring — and was fixed there the same day
+(that project's criterion 32). A customer's own network, such as a proxy that refuses the WebSocket
+upgrade, is still a deployment's to meet.
