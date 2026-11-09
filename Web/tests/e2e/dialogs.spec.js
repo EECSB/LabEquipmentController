@@ -208,36 +208,6 @@ test.describe('the About box', () => {
     });
 });
 
-test.describe('the AI connection box', () => {
-    ///
-    ///The same fields the desktop's has, and modal like it.
-    ///
-    test('carries the provider, endpoint, model, key and timeout, and is modal', async ({ page }) => {
-        const menu = await openSettings(page);
-        await menu.getByRole('button', { name: /AI settings/ }).click();
-
-        const sheet = page.locator('dialog.sheet[open]');
-        await expect(sheet).toBeVisible();
-
-        for (const label of ['Provider:', 'Endpoint:', 'Model:', 'API key:', 'Timeout (s):', 'Rates (US$/M):', 'PDF extraction:']) {
-            await expect(sheet).toContainText(label);
-        }
-        await expect(sheet.getByRole('button', { name: 'Apply' })).toBeVisible();
-
-        expect(await isModal(page, 'dialog.sheet[open]')).toBe(true);
-    });
-
-    ///
-    ///Esc shuts it, as it shuts the About box. A modal is one window, whichever of its fields has the focus.
-    ///
-    test('closes on Escape', async ({ page }) => {
-        const menu = await openSettings(page);
-        await menu.getByRole('button', { name: /AI settings/ }).click();
-        await expect(page.locator('dialog.sheet[open]')).toBeVisible();
-        await closeDialog(page);
-    });
-});
-
 test.describe('a tool window', () => {
     //Room for a window and the console it came from at the same time. These windows are wide and
     //tall and they open in the middle, so on a short screen there is nowhere to put one that does
@@ -540,8 +510,8 @@ test.describe('Esc with one thing open inside another', () => {
 
             await page.locator('dialog.tool[open]').getByRole('button', { name: /Script with AI/ }).click();
             const writer = page.locator('dialog.tool[open] dialog.tool[open]');
-            await expect(writer.locator('.chat')).toBeVisible();
-            await writer.locator('textarea.prompt').click();
+            await expect(writer.locator('.aiTranscript')).toBeVisible();
+            await writer.locator('.aiPrompt').click();
             expect(await inNested(page)).toBe(true);
 
             await page.keyboard.press('Escape');
@@ -573,7 +543,7 @@ test.describe('Esc with one thing open inside another', () => {
 
             await page.locator('dialog.tool[open]').getByRole('button', { name: /Script with AI/ }).click();
             const writer = page.locator('dialog.tool[open] dialog.tool[open]');
-            await expect(writer.locator('.chat')).toBeVisible();
+            await expect(writer.locator('.aiTranscript')).toBeVisible();
             await ask(page, 'anything', 1);
             page.once('dialog', (d) => d.accept());
             await writer.getByRole('button', { name: /Use This Script/ }).click();
@@ -863,38 +833,35 @@ test.describe('the AI script window', () => {
 
             await page.locator('dialog.tool[open]')
                 .getByRole('button', { name: /Script with AI/ }).click();
-            await expect(page.locator('dialog.tool[open] .chat')).toBeVisible();
+            await expect(page.locator('dialog.tool[open] .aiTranscript')).toBeVisible();
             await settle(page);
 
-            const card = await boxOf(page, 'dialog.tool[open] .group.tall');
-            const ask = await boxOf(page, 'dialog.tool[open] textarea.prompt');
-            const chat = await boxOf(page, 'dialog.tool[open] .chat');
-            const row = await boxOf(page, 'dialog.tool[open] .row.promptrow');
-            const cost = await boxOf(page, 'dialog.tool[open] .estimate');
+            const card = await boxOf(page, 'dialog.tool[open] .aiBody');
+            const ask = await boxOf(page, 'dialog.tool[open] .aiBox');
+            const panels = await boxOf(page, 'dialog.tool[open] .aiChatRow');
+            const row = await boxOf(page, 'dialog.tool[open] .aiBoxBar');
 
-            //One left edge and one right edge for the lot of them.
-            expect(chat.width).toBe(ask.width);
-            expect(chat.left).toBe(ask.left);
-            expect(row.right).toBe(ask.right);
-            expect(cost.left).toBe(ask.left);
+            //One left edge and one right edge for the lot of them, the row inside the frame: the
+            //chats, the conversation and the files are one row as wide as the box.
+            expect(panels.width).toBe(ask.width);
+            expect(panels.left).toBe(ask.left);
+            expect(row.right).toBeLessThanOrEqual(ask.right);
+            expect(ask.right - row.right).toBeLessThan(12);
 
-            //And that edge is the card's own, give or take the card's padding — which is the
-            //same on both sides, so nothing is a column sitting inside a wider card.
+            //And that edge is the card's own, give or take the margins the panels' arrows sit in,
+            //which are the same on both sides, so nothing is a column sitting inside a wider card.
             expect(ask.left - card.left).toBeCloseTo(card.right - ask.right, 0);
-            expect(ask.left - card.left).toBeLessThan(20);
+            expect(ask.left - card.left).toBeLessThan(40);
             expect(ask.width).toBeGreaterThan(1000);
         });
     });
 
     ///
-    ///The request box opens on a worked request, written in rather than greyed behind it.
+    ///The box starts empty, and the worked request is a press away, as the assistant's examples are.
     ///
-    ///Both editors open on a worked script for the same reason: a blank box teaches nothing about
-    ///what to put in it. A placeholder is not that — it cannot be edited, selected or sent, and it
-    ///goes the moment you type over it. Written, the window opens on something that already works:
-    ///press the button, or change the two numbers in it and press the button.
+    ///Which puts it in the box to send or to change the two numbers in first, and sends nothing.
     ///
-    test('opens on a request that already works', async ({ page, request }) => {
+    test('offers a request that already works', async ({ page, request }) => {
         await withKey(request, async () => {
             await connect(page, instrument.address);
             await consoleButton(page, /Scripts/).click();
@@ -902,14 +869,18 @@ test.describe('the AI script window', () => {
 
             await page.locator('dialog.tool[open]')
                 .getByRole('button', { name: /Script with AI/ }).click();
-            await expect(page.locator('dialog.tool[open] .chat')).toBeVisible();
+            await expect(page.locator('dialog.tool[open] .aiTranscript')).toBeVisible();
 
-            const ask = page.locator('dialog.tool[open] textarea.prompt');
-            await expect(ask).not.toHaveValue('');
+            const ask = page.locator('dialog.tool[open] .aiPrompt');
+            await expect(ask).toHaveValue('');
+            await expect(page.locator('dialog.tool[open] .aiSendStop')).toBeDisabled();
+
+            await page.locator('dialog.tool[open] .aiExample').click();
+            await expect(ask).toBeFocused();
             expect((await ask.inputValue()).length).toBeGreaterThan(40);
 
             //Which means the button that sends it is live, rather than waiting to be given a reason.
-            await expect(page.locator('dialog.tool[open] .row.promptrow button.primary')).toBeEnabled();
+            await expect(page.locator('dialog.tool[open] .aiSendStop')).toBeEnabled();
 
             //And the caption that used to explain what a box is has gone with it. The AI window is
             //the one in front: it was opened from the editor, which is still behind it.
@@ -937,14 +908,14 @@ test.describe('the AI script window', () => {
 
             await page.locator('dialog.tool[open]')
                 .getByRole('button', { name: /Script with AI/ }).click();
-            await expect(page.locator('dialog.tool[open] .chat')).toBeVisible();
+            await expect(page.locator('dialog.tool[open] .aiTranscript')).toBeVisible();
             await settle(page);
 
-            const card = await boxOf(page, 'dialog.tool[open] .group.tall');
-            const chat = await boxOf(page, 'dialog.tool[open] .chat');
-            const ask = await boxOf(page, 'dialog.tool[open] textarea.prompt');
-            const row = await boxOf(page, 'dialog.tool[open] .row.promptrow');
-            const foot = await boxOf(page, 'dialog.tool[open] .row.userow');
+            const card = await boxOf(page, 'dialog.tool[open] .aiBody');
+            const chat = await boxOf(page, 'dialog.tool[open] .aiChatRow');
+            const ask = await boxOf(page, 'dialog.tool[open] .aiPrompt');
+            const row = await boxOf(page, 'dialog.tool[open] .aiBoxBar');
+            const foot = await boxOf(page, 'dialog.tool[open] .aiMeter');
 
             //The transcript takes what is left over; the box is one line until something in it
             //needs more.
@@ -975,7 +946,7 @@ test.describe('the AI script window', () => {
 
             await page.locator('dialog.tool[open]')
                 .getByRole('button', { name: /Script with AI/ }).click();
-            await expect(page.locator('dialog.tool[open] .chat')).toBeVisible();
+            await expect(page.locator('dialog.tool[open] .aiTranscript')).toBeVisible();
             await settle(page);
 
             //Clamped to the viewport the same way the stylesheet clamps its own, so on a screen
@@ -1063,15 +1034,16 @@ async function openWriter(page) {
 
     await page.locator('dialog.tool[open]')
         .getByRole('button', { name: /Script with AI/ }).click();
-    await expect(page.locator('dialog.tool[open] .chat')).toBeVisible();
+    await expect(page.locator('dialog.tool[open] .aiTranscript')).toBeVisible();
 }
 
 ///Ask for something, and wait for the answer to land in the transcript.
 async function ask(page, text, turns) {
     const writer = page.locator('dialog.tool[open]').last();
-    await writer.locator('textarea.prompt').fill(text);
-    await writer.locator('.row.promptrow button.primary').click();
-    await expect(writer.locator('.chat .turn')).toHaveCount(turns, { timeout: 20000 });
+    await writer.locator('.aiPrompt').fill(text);
+    await expect(writer.locator('.aiSendStop')).toBeEnabled();
+    await writer.locator('.aiSendStop').click();
+    await expect(writer.locator('.aiTurnUser')).toHaveCount(turns, { timeout: 20000 });
 }
 
 test.describe('the AI script window as a conversation', () => {
@@ -1091,17 +1063,17 @@ test.describe('the AI script window as a conversation', () => {
             await ask(page, 'now do the same at 5 Vpp', 2);
 
             //Both turns are on screen, oldest first, each with what was asked and what came back.
-            await expect(writer.locator('.chat .turn')).toHaveCount(2);
-            await expect(writer.locator('.chat')).toContainText('set a 1 kHz sine at 2 Vpp');
-            await expect(writer.locator('.chat')).toContainText('now do the same at 5 Vpp');
-            await expect(writer.locator('.chat')).toContainText('# turn 1');
-            await expect(writer.locator('.chat')).toContainText('# turn 2');
+            await expect(writer.locator('.aiTurnUser')).toHaveCount(2);
+            await expect(writer.locator('.aiTranscript')).toContainText('set a 1 kHz sine at 2 Vpp');
+            await expect(writer.locator('.aiTranscript')).toContainText('now do the same at 5 Vpp');
+            await expect(writer.locator('.aiTranscript')).toContainText('# turn 1');
+            await expect(writer.locator('.aiTranscript')).toContainText('# turn 2');
 
             //The model's own note, which this build used to drop on the floor.
-            await expect(writer.locator('.chat')).toContainText('wrote turn 1');
+            await expect(writer.locator('.aiTranscript')).toContainText('wrote turn 1');
 
             //The box empties after sending, because what was in it is now in the transcript.
-            await expect(writer.locator('textarea.prompt')).toHaveValue('');
+            await expect(writer.locator('.aiPrompt')).toHaveValue('');
 
             //And what the model was given the second time carries the first exchange whole.
             expect(seen).toHaveLength(2);
@@ -1116,29 +1088,27 @@ test.describe('the AI script window as a conversation', () => {
     });
 
     ///
-    ///Clear forgets it, and the next request goes on its own.
+    ///New chat puts it away, and the next request goes on its own.
     ///
-    ///The button exists to stop the request growing, so the test that matters is not that the
-    ///screen empties - it is that the transcript stops being sent. A Clear that only cleared the
-    ///view would be a button that lies about what it costs to ask the next question.
+    ///The button is what stops the request growing, so the test that matters is not that the
+    ///screen empties - it is that the transcript stops being sent.
     ///
-    test('clears the conversation, and stops sending it', async ({ page, request }) => {
+    test('starts a new chat, and stops sending the old one', async ({ page, request }) => {
         await withStubModel(request, async (seen) => {
             await openWriter(page);
             const writer = page.locator('dialog.tool[open]').last();
 
             await ask(page, 'set a 1 kHz sine at 2 Vpp', 1);
 
-            //What it costs is said before it is spent, which is what makes Clear a decision.
-            await expect(writer.locator('.estimate')).toContainText('1 turn(s)');
+            //What it costs is said before it is spent, which is what makes it a decision.
+            await expect(writer.locator('#aiEstimate')).toContainText('Next request: about');
 
-            await writer.locator('.clearchat').click();
-            await expect(writer.locator('.chat .turn')).toHaveCount(0);
-            await expect(writer.locator('.estimate')).toContainText('No conversation yet');
-            await expect(writer.locator('.clearchat')).toBeDisabled();
+            await writer.locator('#aiChatsNew').click();
+            await expect(writer.locator('.aiTurnUser')).toHaveCount(0);
+            await expect(writer.locator('#aiChatsNew')).toBeDisabled();
 
             //And there is nothing left to give the editor, because the drafts went with it.
-            await expect(writer.locator('.row.taketurn button')).toHaveCount(0);
+            await expect(writer.locator('.aiUseScript')).toHaveCount(0);
 
             await ask(page, 'read the output back', 1);
 
@@ -1146,6 +1116,179 @@ test.describe('the AI script window as a conversation', () => {
             expect(seen[1].messages[0].content).not.toContain('conversation so far');
             expect(seen[1].messages[0].content).not.toContain('set a 1 kHz sine at 2 Vpp');
         });
+    });
+
+    ///
+    ///It is the AI assistant's window, with the writer's contents in it: the chats down the left,
+    ///the files down the right, and the same controls in the box's frame.
+    ///
+    test('opens with the chats, the files and the box the assistant has', async ({ page, request }) => {
+        await withKey(request, async () => {
+            await openWriter(page);
+            const writer = page.locator('dialog.tool[open]').last();
+            await settle(page);
+
+            await expect(writer.locator('.tool-head .title-icon')).toBeVisible();
+            await expect(writer.locator('.tool-head')).toContainText('SDM3065X');
+
+            await expect(writer.locator('#aiChats')).toContainText('Chats');
+            await expect(writer.locator('#aiChatsNew')).toBeVisible();
+            await expect(writer.locator('.aiChatsKept')).toHaveText("Kept by the bench's server");
+            await expect(writer.locator('#aiFiles')).toContainText('In this conversation');
+
+            const frame = writer.locator('.aiBox');
+            for (const name of ['Attach files', 'Take a picture with the camera', 'Attach a screenshot', 'Compacting', 'AI model', 'Write Script', 'Speak your question'])
+                await expect(frame.getByRole('button', { name, exact: true })).toBeVisible();
+            await expect(frame.getByLabel('Revise the current script')).toBeVisible();
+            await expect(frame.getByLabel("Include the last run's output")).toBeVisible();
+
+            //The assistant's rung is about tools, of which the writer has none.
+            await expect(writer.locator('#aiMode')).toHaveCount(0);
+
+            //What the next request costs, the catalogs included, under the box.
+            await expect(writer.locator('#aiMeter')).toContainText('Next request: about');
+
+            //And the panels shut to their arrows, as the assistant's do.
+            await writer.locator('#aiChatsClose').click();
+            await writer.locator('#aiFilesClose').click();
+            await expect(writer.locator('#aiChatsToggle')).toBeVisible();
+            await expect(writer.locator('#aiFilesToggle')).toBeVisible();
+        });
+    });
+
+    ///
+    ///A chat is kept from its first answer, and opening it again carries it on: what went before
+    ///goes with the next request. In a list of its own, since a chat about a script is not a chat
+    ///with the assistant.
+    ///
+    test('keeps a chat, apart from the assistant\'s, and carries it on when it is opened', async ({ page, request }) => {
+        await withStubModel(request, async (seen) => {
+            await openWriter(page);
+            const writer = page.locator('dialog.tool[open]').last();
+
+            const asked = 'keep this chat ' + Date.now();
+            await ask(page, asked, 1);
+            const row = writer.locator('#aiChats .aiChatItem[data-chat]', { hasText: asked });
+            await expect(row).toHaveCount(1);
+
+            await writer.locator('#aiChatsNew').click();
+            await expect(writer.locator('.aiTurnUser')).toHaveCount(0);
+
+            await row.click();
+            await expect(writer.locator('.aiTurnUser')).toHaveCount(1);
+            await expect(writer.locator('.aiUseScript')).toBeVisible();
+            await expect(writer.locator('.aiTranscript')).toContainText('# turn 1');
+
+            await ask(page, 'now do the same at 5 Vpp', 2);
+            expect(seen[1].messages[0].content).toContain(asked);
+            expect(seen[1].messages[0].content).toContain('# turn 1');
+
+            expect(await (await request.get('/api/ai/chats')).text()).not.toContain(asked);
+            expect(await (await request.get('/api/ai/chats?kind=script')).text()).toContain(asked);
+            expect(await (await request.get('/api/ai/chats?kind=sequence')).text()).not.toContain(asked);
+        });
+    });
+
+    ///
+    ///A file attached goes to the model with the request, and with every request after it until
+    ///it is unticked in the files panel, as the assistant's do.
+    ///
+    test('sends a file with every request until it is unticked', async ({ page, request }) => {
+        await withStubModel(request, async (seen) => {
+            await openWriter(page);
+            const writer = page.locator('dialog.tool[open]').last();
+            const words = 'CH1 goes to the divider output';
+
+            await writer.locator('.aiFileInput').setInputFiles({
+                name: 'wiring.txt', mimeType: 'text/plain', buffer: Buffer.from(words),
+            });
+            await expect(writer.locator('#aiPending')).toContainText('wiring.txt');
+            await expect(writer.locator('#aiFiles')).toContainText('wiring.txt');
+
+            await ask(page, 'read channel 1', 1);
+            await expect(writer.locator('#aiPending')).toHaveCount(0);
+            await expect(writer.locator('.aiTurnUser .aiChip')).toContainText('wiring.txt');
+            expect(JSON.stringify(seen[0].messages[0].content)).toContain(words);
+
+            await ask(page, 'and again', 2);
+            expect(JSON.stringify(seen[1].messages[0].content)).toContain(words);
+
+            await writer.locator('#aiFiles .aiFileTick').uncheck();
+            await ask(page, 'once more', 3);
+            expect(JSON.stringify(seen[2].messages[0].content)).not.toContain(words);
+        });
+    });
+
+    ///
+    ///What a request costs goes up with what is attached, and the box's own words, before anything
+    ///is sent.
+    ///
+    test('says what the next request costs before it is sent', async ({ page, request }) => {
+        await withKey(request, async () => {
+            await openWriter(page);
+            const writer = page.locator('dialog.tool[open]').last();
+            const meter = writer.locator('#aiEstimate');
+            const tokens = async () => parseInt((await meter.innerText()).replace(/[^0-9]/g, ''), 10);
+
+            //The catalogs are most of it, so it is hundreds before a word is typed.
+            await expect.poll(tokens).toBeGreaterThan(500);
+            const empty = await tokens();
+
+            await writer.locator('.aiPrompt').fill('x'.repeat(3500));
+            await expect.poll(tokens).toBeGreaterThan(empty + 900);
+        });
+    });
+
+    ///
+    ///The window's commands, the ones that mean anything without tools.
+    ///
+    test('lists the commands that mean something to a script writer', async ({ page, request }) => {
+        await withKey(request, async () => {
+            await openWriter(page);
+            const writer = page.locator('dialog.tool[open]').last();
+
+            await writer.locator('.aiPrompt').fill('/');
+            const names = await writer.locator('#aiSlashMenu .aiSlashName').allInnerTexts();
+
+            expect(names).toEqual(['/new', '/compact', '/export', '/camera', '/screenshot', '/settings']);
+        });
+    });
+
+    ///
+    ///Which catalogs a multi-instrument script may use is under the sliders, each instrument
+    ///ticked to begin with. An instrument unticked is not described to the model.
+    ///
+    test('offers the bench\'s catalogs under the sliders in the multi-instrument editor', async ({ page, request }) => {
+        const second = await startInstrument({ identity: 'Siglent Technologies,SDG2042X,LEC-E2E-0003,1.00.00.00' });
+        try {
+            await withStubModel(request, async (seen) => {
+                await connect(page, instrument.address);
+                await connect(page, second.address, { expectTabs: 2 });
+                await page.getByRole('button', { name: /Multi-Instrument Scripts/ }).click();
+                await editorReady(page);
+                await page.locator('dialog.tool[open]').getByRole('button', { name: /Script with AI/ }).click();
+                const writer = page.locator('dialog.tool[open] dialog.tool[open]');
+                await expect(writer.locator('.aiTranscript')).toBeVisible();
+
+                await writer.locator('#aiToolPickerToggle').click();
+                const ticks = writer.locator('#aiToolPicker .aiCatalogTick');
+                await expect(ticks).toHaveCount(2);
+                await expect(ticks.nth(0)).toBeChecked();
+                await expect(ticks.nth(1)).toBeChecked();
+
+                await writer.locator('#aiToolPicker .aiToolPickerTool', { hasText: 'SDG2042X' }).locator('input').uncheck();
+                await expect(writer.locator('#aiToolPickerCount')).toHaveText('1');
+                await page.keyboard.press('Escape');
+                await expect(writer.locator('#aiToolPicker')).toHaveCount(0);
+                await expect(writer).toBeVisible();
+
+                await ask(page, 'read the meter', 1);
+                expect(seen[0].messages[0].content).toContain('LEC-E2E-0001');
+                expect(seen[0].messages[0].content).not.toContain('Commands it accepts (1 of 1');
+            });
+        } finally {
+            await second.stop();
+        }
     });
 
     ///
@@ -1161,17 +1304,17 @@ test.describe('the AI script window as a conversation', () => {
             await ask(page, 'set a 1 kHz sine at 2 Vpp', 1);
 
             await page.locator('dialog.tool[open]').last().locator('button.shut').click();
-            await expect(page.locator('dialog.tool[open] .chat')).toHaveCount(0);
+            await expect(page.locator('dialog.tool[open] .aiTranscript')).toHaveCount(0);
 
             await page.locator('dialog.tool[open]')
                 .getByRole('button', { name: /Script with AI/ }).click();
 
             const writer = page.locator('dialog.tool[open]').last();
-            await expect(writer.locator('.chat .turn')).toHaveCount(1);
-            await expect(writer.locator('.chat')).toContainText('set a 1 kHz sine at 2 Vpp');
+            await expect(writer.locator('.aiTurnUser')).toHaveCount(1);
+            await expect(writer.locator('.aiTranscript')).toContainText('set a 1 kHz sine at 2 Vpp');
 
             //Including the draft it was closed with, and the button that takes it.
-            await expect(writer.locator('.row.taketurn button')).toBeEnabled();
+            await expect(writer.locator('.aiUseScript')).toBeEnabled();
         });
     });
 
@@ -1192,15 +1335,15 @@ test.describe('the AI script window as a conversation', () => {
             await ask(page, 'now do the same at 5 Vpp', 2);
 
             //One button per answer, and none left at the foot to mean "whichever was last".
-            await expect(writer.locator('.row.taketurn button')).toHaveCount(2);
-            await expect(writer.locator('.row.userow button')).toHaveCount(0);
+            await expect(writer.locator('.aiUseScript')).toHaveCount(2);
+            await expect(writer.locator('.aiMeter button')).toHaveCount(0);
 
             //Press the older one. The script that lands in the editor is that one, not the
             //newest - which is the only claim worth making here.
             page.once('dialog', (d) => d.accept());
-            await writer.locator('.chat .turn').first().locator('.row.taketurn button').click();
+            await writer.locator('.aiUseScript').first().click();
 
-            await expect(page.locator('dialog.tool[open] .chat')).toHaveCount(0);
+            await expect(page.locator('dialog.tool[open] .aiTranscript')).toHaveCount(0);
             await expect.poll(() => scriptText(page)).toContain('# turn 1');
             expect(await scriptText(page)).not.toContain('# turn 2');
         });
@@ -1229,19 +1372,19 @@ test.describe('the AI script window as a conversation', () => {
             await page.evaluate(() => {
                 const confirm = window.confirm;
                 window.confirm = (text) => {
-                    window.__writerAtAsk = document.querySelectorAll('dialog.tool[open] .chat').length;
+                    window.__writerAtAsk = document.querySelectorAll('dialog.tool[open] .aiTranscript').length;
                     return confirm.call(window, text);
                 };
             });
 
             await ask(page, 'set a 1 kHz sine at 2 Vpp', 1);
-            await page.locator('dialog.tool[open]').last().locator('.row.taketurn button').click();
+            await page.locator('dialog.tool[open]').last().locator('.aiUseScript').click();
 
             await expect.poll(() => asked.length).toBe(1);
             expect(asked[0]).toBe('Replace the script in the editor with the one that was written?\n\n'
                                 + 'Save it first if you want to keep it.');
             expect(await page.evaluate(() => window.__writerAtAsk)).toBe(0);
-            await expect(page.locator('dialog.tool[open] .chat')).toHaveCount(0);
+            await expect(page.locator('dialog.tool[open] .aiTranscript')).toHaveCount(0);
             expect(await scriptText(page)).toBe(before);
             await expect(editor.getByRole('button', { name: /Script with AI/ })).toBeFocused();
 
@@ -1249,9 +1392,9 @@ test.describe('the AI script window as a conversation', () => {
             await editor.getByRole('button', { name: /^New$/ }).click();
             expect(await scriptText(page)).toBe('');
             await editor.getByRole('button', { name: /Script with AI/ }).click();
-            await page.locator('dialog.tool[open]').last().locator('.row.taketurn button').click();
+            await page.locator('dialog.tool[open]').last().locator('.aiUseScript').click();
 
-            await expect(page.locator('dialog.tool[open] .chat')).toHaveCount(0);
+            await expect(page.locator('dialog.tool[open] .aiTranscript')).toHaveCount(0);
             await expect.poll(() => scriptText(page)).toContain('# turn 1');
             expect(asked).toHaveLength(1);
         });
@@ -1289,7 +1432,7 @@ test.describe('the AI script window as a conversation', () => {
 
                 await tool.getByRole('button', { name: /Script with AI/ }).click();
                 const writer = page.locator('dialog.tool[open] dialog.tool[open]');
-                await expect(writer.locator('.chat')).toBeVisible();
+                await expect(writer.locator('.aiTranscript')).toBeVisible();
                 await writer.getByLabel('Revise the current script').uncheck();
                 await ask(page, 'read both meters', 1);
 
@@ -1319,10 +1462,10 @@ test.describe('the AI script window as a conversation', () => {
 
             await page.locator('dialog.tool[open]')
                 .getByRole('button', { name: /Script with AI/ }).click();
-            await expect(page.locator('dialog.tool[open] .chat')).toBeVisible();
+            await expect(page.locator('dialog.tool[open] .aiTranscript')).toBeVisible();
             await settle(page);
 
-            const box = 'dialog.tool[open] textarea.prompt';
+            const box = 'dialog.tool[open] .aiPrompt';
             const one = (await boxOf(page, box)).height;
             expect(one).toBeLessThan(50);
 
@@ -1362,13 +1505,13 @@ test.describe('the AI script window as a conversation', () => {
     ///
     ///Which is what Enter does in a chat. A textarea inserts its own newline unless the keystroke
     ///is stopped, and Blazor can only ask for that at render time rather than per-keystroke - so
-    ///both halves live in lec.chatbox, and what is checked here is that the right one is stopped.
+    ///both halves live in lec.assistant.box, and what is checked here is that the right one is stopped.
     ///
     test('sends on Enter and takes a new line on Shift+Enter', async ({ page, request }) => {
         await withStubModel(request, async () => {
             await openWriter(page);
             const writer = page.locator('dialog.tool[open]').last();
-            const box = writer.locator('textarea.prompt');
+            const box = writer.locator('.aiPrompt');
 
             const enter = async (shift) => await box.evaluate((el, withShift) => {
                 const e = new KeyboardEvent('keydown', {
@@ -1381,12 +1524,12 @@ test.describe('the AI script window as a conversation', () => {
             //Shift+Enter is left alone, so the box takes the line break itself.
             await box.fill('a request in two halves');
             expect(await enter(true)).toBeFalsy();
-            await expect(writer.locator('.chat .turn')).toHaveCount(0);
+            await expect(writer.locator('.aiTurnUser')).toHaveCount(0);
 
             //Plain Enter is stopped, and sends instead.
             expect(await enter(false)).toBeTruthy();
-            await expect(writer.locator('.chat .turn')).toHaveCount(1, { timeout: 20000 });
-            await expect(writer.locator('.chat')).toContainText('a request in two halves');
+            await expect(writer.locator('.aiTurnUser')).toHaveCount(1, { timeout: 20000 });
+            await expect(writer.locator('.aiTranscript')).toContainText('a request in two halves');
             await expect(box).toHaveValue('');
         });
     });
@@ -1404,12 +1547,15 @@ test.describe('the AI script window as a conversation', () => {
             const writer = page.locator('dialog.tool[open]').last();
             await page.route('**/api/ai/script', (route) => route.abort('connectionrefused'));
 
-            await writer.locator('.row.promptrow button.primary').click();
+            await writer.locator('.aiExample').click();
+            await writer.locator('.aiSendStop').click();
 
-            await expect(writer.locator('.row.userow .error')).toContainText('Could not reach the server');
+            await expect(writer.locator('.aiTurnError')).toContainText('Could not reach the server');
             await expect(page.locator('#blazor-error-ui')).toBeHidden();
-            await expect(writer.locator('.row.promptrow button.primary')).toBeEnabled();
-            await expect(writer.locator('.chat .turn')).toHaveCount(0);
+
+            //Its words are back in the box, so asking again is one press.
+            await expect(writer.locator('.aiPrompt')).not.toHaveValue('');
+            await expect(writer.locator('.aiSendStop')).toBeEnabled();
         });
     });
 
@@ -1427,13 +1573,14 @@ test.describe('the AI script window as a conversation', () => {
                 status: 502, contentType: 'text/html', body: '<html><body>502 Bad Gateway</body></html>',
             }));
 
-            await writer.locator('.row.promptrow button.primary').click();
+            await writer.locator('.aiExample').click();
+            await writer.locator('.aiSendStop').click();
 
-            const said = writer.locator('.row.userow .error');
+            const said = writer.locator('.aiTurnError');
             await expect(said).toContainText('502');
             await expect(said).not.toContainText('invalid start');
             await expect(page.locator('#blazor-error-ui')).toBeHidden();
-            await expect(writer.locator('.row.promptrow button.primary')).toBeEnabled();
+            await expect(writer.locator('.aiSendStop')).toBeEnabled();
         });
     });
 });

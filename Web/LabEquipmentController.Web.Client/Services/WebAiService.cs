@@ -1,3 +1,4 @@
+using System.Net.Http.Json;
 using System.Net;
 using System.Text;
 using System.Text.Json;
@@ -42,7 +43,23 @@ public sealed class WebAiService(BenchClient bench, AiHttp ai, WebChatStore chat
         return book;
     }
 
-    public async Task SelectAsync(string id) => await bench.AiSelectAsync(id);
+    public async Task SelectAsync(string id)
+    {
+        await bench.AiSelectAsync(id);
+        await RaiseConnectionsChangedAsync();
+    }
+
+    /// <summary>False when the models are a host's to give, picked and not edited here.</summary>
+    public bool ModelsEditable => !_hosted;
+
+    /// <summary>The microphone's recording, as WAV, written out by a provider that takes audio, with the words to expect.</summary>
+    public async Task<(string? Text, string? Problem)> TranscribeAsync(AiConnection connection, byte[] wav, string vocabulary, CancellationToken ct)
+    {
+        using HttpResponseMessage response = await ai.Http.PostAsJsonAsync(
+            $"api/ai/transcribe/{Uri.EscapeDataString(connection.Id)}", new AiTranscribeRequest(Convert.ToBase64String(wav), vocabulary), ct);
+        AiTranscribeReply? reply = await response.Content.ReadFromJsonAsync<AiTranscribeReply>(ct);
+        return reply is null ? (null, "No reply from the server.") : (reply.Text, reply.Problem);
+    }
 
     public string? WhyNotAsk(AiConnection connection)
     {
@@ -55,13 +72,24 @@ public sealed class WebAiService(BenchClient bench, AiHttp ai, WebChatStore chat
             : $"No API key is set on {connection.EffectiveName}. Add one under AI settings…";
     }
 
-    public ILlmProvider CreateProvider(AiConnection connection, string effort)
-        => LlmProviders.Create(ai.Http, new RelayLlmEndpoint(connection.Id), connection, effort);
+    public ILlmProvider CreateProvider(AiConnection connection, string effort) => CreateProvider(connection, effort, fast: false);
+
+    /// <summary>The same, in fast mode where the model picked offers it.</summary>
+    public ILlmProvider CreateProvider(AiConnection connection, string effort, bool fast)
+        => LlmProviders.Create(ai.Http, new RelayLlmEndpoint(connection.Id), connection, effort, fast);
 
     /// <summary>AI settings was applied: the window reads the connections again.</summary>
     public async Task RaiseConnectionsChangedAsync()
     {
         if (ConnectionsChanged is Func<Task> changed) await changed();
+    }
+
+    /// <summary>Raised when an AI window asks for AI settings, which are under the gear wherever the window was opened from.</summary>
+    public event Func<Task>? SettingsAsked;
+
+    public async Task AskForSettingsAsync()
+    {
+        if (SettingsAsked is Func<Task> asked) await asked();
     }
 }
 
@@ -69,12 +97,16 @@ public sealed class WebAiService(BenchClient bench, AiHttp ai, WebChatStore chat
 /// The chats the bench's server keeps (<c>/api/ai/chats</c>, the server's <c>AiChats</c>), sent
 /// and read as <see cref="ChatStore"/> writes them, so the page's chat is the desktop's on disk.
 /// </summary>
-public sealed class WebChatStore(HttpClient http) : IChatStore
+/// <param name="http">The page's client.</param>
+/// <param name="kind">Which of the server's sets of chats: null for the assistant's, or the script writer's <c>script</c> or <c>sequence</c>.</param>
+public sealed class WebChatStore(HttpClient http, string? kind = null) : IChatStore
 {
+    private readonly string _ofKind = kind is null ? "" : $"?kind={Uri.EscapeDataString(kind)}";
+
     public event Func<Task>? Changed;
 
     public async Task<List<ChatSummary>> ListAsync()
-        => ChatStore.ReadList(await http.GetStringAsync("api/ai/chats"));
+        => ChatStore.ReadList(await http.GetStringAsync("api/ai/chats" + _ofKind));
 
     public async Task<SavedChat?> LoadAsync(string id)
     {
@@ -99,7 +131,7 @@ public sealed class WebChatStore(HttpClient http) : IChatStore
         await RaiseAsync();
     }
 
-    private static string Address(string id) => $"api/ai/chats/{Uri.EscapeDataString(id)}";
+    private string Address(string id) => $"api/ai/chats/{Uri.EscapeDataString(id)}{_ofKind}";
 
     /// <summary>A refusal said in the server's own words, which are in its body as <c>{"error":{"message":…}}</c>.</summary>
     private static async Task Ensure(HttpResponseMessage response)

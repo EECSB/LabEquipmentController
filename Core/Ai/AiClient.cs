@@ -18,6 +18,11 @@ public interface IAiClient
 {
     Task<string> CompleteAsync(AiConnection connection, string apiKey, string instruction,
                                AiPayload payload, JsonNode schema, CancellationToken ct = default);
+
+    /// <summary>The same, adding what the provider says it billed to <paramref name="spent"/>. A client that cannot say leaves it as it was.</summary>
+    Task<string> CompleteAsync(AiConnection connection, string apiKey, string instruction,
+                               AiPayload payload, JsonNode schema, LlmUsage spent, CancellationToken ct)
+        => CompleteAsync(connection, apiKey, instruction, payload, schema, ct);
 }
 
 /// <summary>
@@ -46,9 +51,19 @@ public sealed class AiClient : IAiClient
     /// </summary>
     private static readonly HttpClient Http = new() { Timeout = Timeout.InfiniteTimeSpan };
 
-    public async Task<string> CompleteAsync(AiConnection connection, string apiKey,
-                                            string instruction, AiPayload payload,
-                                            JsonNode schema, CancellationToken ct = default)
+    public Task<string> CompleteAsync(AiConnection connection, string apiKey,
+                                      string instruction, AiPayload payload,
+                                      JsonNode schema, CancellationToken ct = default)
+        => SendAsync(connection, apiKey, instruction, payload, schema, null, ct);
+
+    public Task<string> CompleteAsync(AiConnection connection, string apiKey,
+                                      string instruction, AiPayload payload,
+                                      JsonNode schema, LlmUsage spent, CancellationToken ct)
+        => SendAsync(connection, apiKey, instruction, payload, schema, spent, ct);
+
+    private static async Task<string> SendAsync(AiConnection connection, string apiKey,
+                                                string instruction, AiPayload payload,
+                                                JsonNode schema, LlmUsage? spent, CancellationToken ct)
     {
         if (connection == null) throw new ArgumentNullException(nameof(connection));
         // Named by the box rather than the menu that opens it: both builds call it AI Connection,
@@ -103,6 +118,7 @@ public sealed class AiClient : IAiClient
                   + $"{response.ReasonPhrase}: {AiRequest.ErrorFrom(text)}");
             }
 
+            spent?.Add(AiRequest.UsageFrom(connection.Provider, text));
             return AiRequest.TextFrom(connection.Provider, text);
         }
     }

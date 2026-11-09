@@ -154,6 +154,7 @@ public sealed class AiSettingsStore
             string id = update.Id is { Length: > 0 } named ? named : book.Selected?.Id ?? "";
 
             AiConnection target = book.Find(id) ?? book.Add(provider);
+            bool wasEncrypted = Encrypted(target);
             target.Provider = provider;
             target.Name = (update.Name ?? target.Name).Trim();
             target.BaseUrl = (update.Endpoint ?? "").Trim();
@@ -177,6 +178,9 @@ public sealed class AiSettingsStore
                 target.OutputPrice = rates.Output is >= 0 ? rates.Output : null;
             }
 
+            // Absent leaves it alone; zero or less is back to the provider's default.
+            if (update.MaxTokens is int cap) target.MaxTokens = cap > 0 ? cap : null;
+
             if (!Uri.TryCreate(target.EffectiveBaseUrl, UriKind.Absolute, out Uri? uri)
                 || (uri.Scheme != Uri.UriSchemeHttp && uri.Scheme != Uri.UriSchemeHttps))
             {
@@ -190,6 +194,13 @@ public sealed class AiSettingsStore
             var fromConfig = new HashSet<string>(_state.FromConfiguration);
             switch (update.ApiKey)
             {
+                // A key saved for an encrypted address is never sent in the clear without somebody
+                // typing it again, so moving the connection to plain http lets go of it here, where
+                // nothing else can stand in the way (the AI guide's https rule).
+                case null when wasEncrypted && uri.Scheme == Uri.UriSchemeHttp:
+                    keys.Remove(target.Id);
+                    fromConfig.Remove(target.Id);
+                    break;
                 case null: break;
                 case "": keys.Remove(target.Id); fromConfig.Remove(target.Id); break;
                 default: keys[target.Id] = update.ApiKey.Trim(); fromConfig.Remove(target.Id); break;
@@ -223,6 +234,32 @@ public sealed class AiSettingsStore
 
             Commit(book, _state.Keys, _state.FromConfiguration);
             return made.Id;
+        }
+    }
+
+    /// <summary>Whether a connection's address is encrypted, as a key saved for it was given on the understanding it would be.</summary>
+    private static bool Encrypted(AiConnection connection)
+        => Uri.TryCreate(connection.EffectiveBaseUrl, UriKind.Absolute, out Uri? uri) && uri.Scheme == Uri.UriSchemeHttps;
+
+    /// <summary>
+    /// A copy of a connection, key and all, right after it and selected. Hands back its id, or null
+    /// when there is no such connection.
+    /// </summary>
+    public string? Duplicate(string id)
+    {
+        lock (_gate)
+        {
+            AiConnections book = _state.Book.Clone();
+            AiConnection? copy = book.Duplicate(id);
+            if (copy is null) return null;
+
+            var keys = new Dictionary<string, string>(_state.Keys);
+            var fromConfig = new HashSet<string>(_state.FromConfiguration);
+            if (keys.TryGetValue(id, out string? key)) keys[copy.Id] = key;
+            if (fromConfig.Contains(id)) fromConfig.Add(copy.Id);
+
+            Commit(book, keys, fromConfig);
+            return copy.Id;
         }
     }
 
@@ -343,7 +380,8 @@ public sealed class AiSettingsStore
     private sealed record SavedConnection(
         string? Id, string? Name, string? Provider, string? BaseUrl, string? Model,
         bool? ExtractTextLocally, int TimeoutSeconds, string? Effort, string? ApiKey,
-        decimal? InputPrice = null, decimal? CachedPrice = null, decimal? OutputPrice = null)
+        decimal? InputPrice = null, decimal? CachedPrice = null, decimal? OutputPrice = null,
+        int? MaxTokens = null)
     {
         public static SavedConnection FromFlat(Saved s) => new(
             null, null, s.Provider, s.BaseUrl, s.Model,
@@ -352,7 +390,7 @@ public sealed class AiSettingsStore
         public static SavedConnection Of(AiConnection c, string? key) => new(
             c.Id, c.Name, c.Provider.ToString(), c.BaseUrl, c.Model,
             c.ExtractTextLocally, c.TimeoutSeconds, c.Effort.ToString(), key,
-            c.InputPrice, c.CachedPrice, c.OutputPrice);
+            c.InputPrice, c.CachedPrice, c.OutputPrice, c.MaxTokens);
 
         public AiConnection ToConnection()
         {
@@ -366,6 +404,7 @@ public sealed class AiSettingsStore
                 InputPrice = InputPrice is >= 0 ? InputPrice : null,
                 CachedPrice = CachedPrice is >= 0 ? CachedPrice : null,
                 OutputPrice = OutputPrice is >= 0 ? OutputPrice : null,
+                MaxTokens = MaxTokens is > 0 ? MaxTokens : null,
             };
             if (Id is { Length: > 0 }) made.Id = Id;
             if (Enum.TryParse(Provider, ignoreCase: true, out AiProvider p)) made.Provider = p;

@@ -72,6 +72,37 @@ public sealed class AiConnections
         return true;
     }
 
+    /// <summary>
+    /// A copy of one, right after it in the list and selected: what to change for a second one
+    /// like it. Null when there is no such connection. The caller copies the key, which is not here.
+    /// </summary>
+    public AiConnection? Duplicate(string id)
+    {
+        AiConnection? original = Find(id);
+        if (original is null) return null;
+
+        AiConnection copy = original.Clone();
+        copy.Id = Guid.NewGuid().ToString("N");
+        copy.Name = CopyName(original.EffectiveName, Items.Select(c => c.EffectiveName));
+        Items.Insert(Items.IndexOf(original) + 1, copy);
+        SelectedId = copy.Id;
+        return copy;
+    }
+
+    /// <summary>The name a copy of <paramref name="name"/> is given: "Claude (copy)", then "(copy 2)" and on.</summary>
+    public static string CopyName(string name, IEnumerable<string> taken)
+    {
+        var names = new HashSet<string>(taken);
+        string wanted = $"{name} (copy)";
+        if (!names.Contains(wanted)) return wanted;
+
+        for (int n = 2; ; n++)
+        {
+            string candidate = $"{name} (copy {n})";
+            if (!names.Contains(candidate)) return candidate;
+        }
+    }
+
     /// <summary>Use this one, if it is one of these.</summary>
     public bool Select(string? id)
     {

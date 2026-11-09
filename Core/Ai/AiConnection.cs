@@ -287,6 +287,13 @@ public sealed class AiConnection
     /// <summary>A million output tokens, thinking included, in US dollars, or null for the published rate.</summary>
     public decimal? OutputPrice { get; set; }
 
+    /// <summary>
+    /// The longest an answer may be, in tokens, or null for the provider's default. Only Anthropic's
+    /// request carries a cap; the OpenAI-compatible family leaves it to the server. A ceiling, not
+    /// an allowance: what is billed is what the model writes.
+    /// </summary>
+    public int? MaxTokens { get; set; }
+
     public AiConnection Clone() => new()
     {
         Id = Id,
@@ -300,5 +307,6 @@ public sealed class AiConnection
         InputPrice = InputPrice,
         CachedPrice = CachedPrice,
         OutputPrice = OutputPrice,
+        MaxTokens = MaxTokens,
     };
 }

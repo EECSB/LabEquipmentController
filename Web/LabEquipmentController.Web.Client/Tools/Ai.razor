@@ -1,17 +1,10 @@
 @inject BenchClient Bench
 @inject IJSRuntime JS
-@inject ScriptChats Chats
-@implements IDisposable
 
-@* The desktop's two AI windows, in one component because they share a connection and nothing
-   else: ScriptAiForm, opened from a script editor with the script it is about, and
-   DatasheetExtractForm, opened from a console. Which one you get is the Tool parameter, and
-   the two buttons that open them are in the two places the desktop puts them.
-
-   Neither is a page of its own: a script is written for one instrument out of one
-   instrument's catalog, and a datasheet is read to produce a catalog for one instrument. The
-   connection they spend — provider, model, key — is the one part that belongs to the
-   application rather than to an instrument, and that is under the gear in the title bar. *@
+@* The desktop's DatasheetExtractForm, opened from a console: a datasheet read to produce a
+   catalog for one instrument. Not a page of its own, and the connection it spends (provider,
+   model, key) is the one part that belongs to the application rather than to an instrument,
+   which is under the gear in the title bar. *@
 
 @* Nothing above the tool itself. The desktop puts the provider on one line inside the
    datasheet window and says nothing at all about the key, which is under the gear where it
@@ -47,203 +40,7 @@ else if (!_status.Configured)
     </div>
 }
 
-@if (_status?.Configured == true && Tool == AiTool.Script)
-{
-    @* No caption: the window this is in is called the same thing.
-
-       Laid out as the AI assistant is, because it is the same kind of window and the desktop
-       lays ScriptAiForm out the same way: what the model is told about across the top, the
-       conversation as cards in a sunken pane, and under it the box, one row of pickers and
-       switches with the button that sends at its right end, and the cost of the next request in
-       grey beneath. *@
-    <div class="group tall scriptchat">
-        @* What the model is being given, in one paragraph that can be checked before asking —
-           ScriptAiForm's sentence and its bullet per instrument.
-
-           Which instruments is not a question in a console's script window. The script runs on
-           the instrument whose console it was opened from, so that instrument's catalog is what
-           it is written against, and the desktop asks nobody: ScriptForm hands ScriptAiForm the
-           one instrument, SequenceForm hands it the bench. The ticks are kept for the
-           multi-instrument editor, where several catalogs at once is the point of the window. *@
-        @if (_sessions.Count == 0)
-        {
-            <p class="context">
-                No instrument is connected, so there is no command catalog to write against.
-                Connect one first — otherwise the script can only be guesswork.
-            </p>
-        }
-        else
-        {
-            <p class="context">
-                The model is given the command catalogs below and told to use nothing else.
-                Check what it writes before you run it.
-            </p>
-
-            @if (IsSequence)
-            {
-                <div class="row" style="margin:0 0 .45rem">
-                    @foreach (var s in _sessions)
-                    {
-                        <label class="chip @(_chosen.Contains(s.Id) ? "on" : "")">
-                            <input type="checkbox" checked="@_chosen.Contains(s.Id)"
-                                   title="Include this instrument's catalog in what the model is allowed to use."
-                                   @onchange="e => Toggle(s.Id, (bool?)e.Value == true)" />
-                            @s.ProfileName
-                        </label>
-                    }
-                </div>
-            }
-            else
-            {
-                <ul class="bullets">
-                    @foreach (var s in _sessions.Where(s => _chosen.Contains(s.Id)))
-                    {
-                        <li>@Catalogued(s)</li>
-                    }
-                </ul>
-            }
-        }
-
-        @* Everything asked and everything written, oldest first — and all of it goes back to the
-           model with the next request, which is what makes "now do the same at 5 V" mean
-           anything. Each exchange is the assistant's two cards: the question on the panel's
-           colour, and the answer under it with the script, the button that takes it, and what
-           the catalog check said. *@
-        <div class="chatwrap">
-        <div class="chat" @ref="_chat">
-            @if (_turns.Count == 0)
-            {
-                <p class="note empty">
-                    Nothing asked yet. What comes back appears here, and each new request is asked
-                    with everything above it, so a follow-up like &ldquo;now do the same at
-                    5&nbsp;V&rdquo; means something.
-                </p>
-            }
-            @foreach (var turn in _turns)
-            {
-                <div class="turn">
-                    <div class="card you">
-                        <div class="who">You</div>
-                        <div class="words">@turn.Request</div>
-                    </div>
-
-                    <div class="card answer">
-                        @if (turn.Script.Trim().Length > 0)
-                        {
-                            <pre class="code">@turn.Script</pre>
-
-                            @* Under the script it takes, in the answer it belongs to. One at the foot
-                               of the window could only ever mean the newest, which in a conversation
-                               is the wrong one as often as it is the right one. *@
-                            <div class="row taketurn">
-                                <button @onclick="() => Use(turn)"
-                                        title="Put this script into the editor. It is not run — you still decide that."><Icon Name="insert" /> Use This Script</button>
-                            </div>
-                        }
-
-                        @* The catalog check first, the model's own account second. What must be
-                           read is what the catalog says, not what the thing being checked says
-                           about itself. *@
-                        @if (turn.Undocumented.Count > 0)
-                        {
-                            <p class="small bad">
-                                &#9888; @turn.Undocumented.Count line(s) use commands that are in no
-                                catalog here. Check them against the instrument's guide before
-                                running: @string.Join(", ", turn.Undocumented.Take(8))@(turn.Undocumented.Count > 8 ? ", …" : "")
-                            </p>
-                        }
-                        else if (turn.Script.Trim().Length > 0)
-                        {
-                            <p class="small">
-                                Every command header here is in the catalog. The values after them
-                                were not checked — read the script before you run it.
-                            </p>
-                        }
-                        @if (turn.Notes.Trim().Length > 0)
-                        {
-                            <p class="small">@turn.Notes</p>
-                        }
-                    </div>
-                </div>
-            }
-        </div>
-        </div>
-
-        @* One line, and as many as the text needs. Enter sends, because this is a chat and that
-           is what Enter does in one; Shift+Enter is the newline. Both live in lec.chatbox,
-           because a textarea's own Enter has to be stopped before it inserts anything and Blazor
-           cannot decide that per-keystroke.
-
-           It opens on a worked example, written in rather than greyed behind the box: a
-           placeholder cannot be edited, selected or sent, and it goes the moment you type over
-           it. Written, it is a request that already works. *@
-        <textarea class="prompt" rows="1" @ref="_box" @bind="_request" @bind:event="oninput"
-                  title="Plain English. Say what you want measured or set, and at what values — the more specific, the less the model has to guess. Enter sends it; Shift+Enter starts a new line."
-                  placeholder="@Hint"></textarea>
-
-        @* The assistant's row: the pickers and the switches that decide what gets sent, Clear
-           among the buttons, and the button that sends at the far end. It wraps in a narrow
-           window rather than cutting its end off. *@
-        <div class="row promptrow">
-            <label class="pair" for="@($"{_id}-conn")">
-                <span>Using:</span>
-                <select class="conn" id="@($"{_id}-conn")" value="@_status.SelectedId" @onchange="ConnectionChanged" disabled="@_busy"
-                        title="Which AI connection to spend. Set them up under the gear at the top right; the one picked here is the one every AI window uses.">
-                    @foreach (var c in _status.Connections)
-                    {
-                        <option value="@c.Id">@c.Label</option>
-                    }
-                </select>
-            </label>
-
-            @* Which model and how hard to work it are one decision taken twice, and a window
-               that offers the first without the second is asking you to go to the settings
-               box for the other half. *@
-            <label class="pair" for="@($"{_id}-effort")">
-                <span>Effort:</span>
-                <select class="effort" id="@($"{_id}-effort")" value="@_effort" @onchange="EffortChanged" disabled="@_busy"
-                        title="How hard to ask the model to think before answering. Higher is slower and costs more tokens; provider default sends nothing at all. A sweep across several instruments is worth it, a one-line query is not.">
-                    @foreach (string name in _status.Efforts)
-                    {
-                        <option value="@name">@(name == "Default" ? "Provider default" : name)</option>
-                    }
-                </select>
-            </label>
-
-            <label class="check" title="Send the script currently in the editor and ask for it to be changed, rather than starting again.">
-                <input type="checkbox" checked="@_revise" disabled="@(_busy || CurrentScript is not { Length: > 0 })"
-                       @onchange="e => _revise = e.Value is true" /> Revise the current script
-            </label>
-            <label class="check" title="Send what the last run printed, so a failure can be read and worked around.">
-                <input type="checkbox" checked="@_includeOutput" disabled="@(_busy || RecentOutput is not { Length: > 0 })"
-                       @onchange="e => _includeOutput = e.Value is true" /> Include the last run's output
-            </label>
-
-            <button class="clearchat" @onclick="ClearChat" disabled="@(_busy || _turns.Count == 0)"
-                    title="Forget the conversation. Nothing above is sent again, which is how the request stops growing — and how a new subject starts clean."><Icon Name="clear" /> Clear</button>
-
-            <span class="spacer"></span>
-            @* Write Script and Stop are one button, in one place, as the assistant's Send is. *@
-            <button class="primary send" @onclick="WriteOrStop" disabled="@(!_busy && (_chosen.Count == 0 || _request.Trim().Length == 0))"
-                    title="Send the request, the conversation so far, the command catalogs and the script language to your AI connection (Enter). While it is writing, Stop."><Icon Name="ai" /> @(_busy ? "Stop" : "Write Script")</button>
-        </div>
-
-        @* What the transcript costs to send, where the assistant says what its next question
-           costs. A count of turns on its own does not answer "should I clear this?", so it is
-           characters of transcript: not tokens, but the only honest number the browser has. *@
-        <p class="estimate">@Ledger</p>
-
-        @* The foot of the window: what happened, and nothing else. *@
-        <div class="row userow">
-            @* A ring while it is away. A model asked for a sweep across two instruments takes
-               tens of seconds to answer and says nothing at all while it does. *@
-            @if (_busy) { <span class="spin" aria-hidden="true"></span> }
-            <span class="@(_scriptError is null ? "muted" : "error")">@(_scriptError ?? _scriptStatus)</span>
-        </div>
-    </div>
-}
-
-@if (_status?.Configured == true && Tool == AiTool.Datasheet)
+@if (_status?.Configured == true)
 {
     @* No caption and no preamble. The title bar says what this is and this is the only card in
        it, and the paragraph that used to sit here — that what comes back is kept apart from the
@@ -371,77 +168,13 @@ else if (!_status.Configured)
     /// </summary>
     private const string Where = "Set the provider, model and key under the gear at the top right.";
 
-    /// <summary>Which of the desktop's two AI windows this is.</summary>
-    [Parameter] public AiTool Tool { get; set; } = AiTool.Datasheet;
-
-    /// <summary>The instrument this was opened for. A script drafted from one console is
-    /// about that instrument, not about the whole bench.</summary>
+    /// <summary>The instrument this was opened for: what it reads is filed under this one.</summary>
     [Parameter] public string? Session { get; set; }
-
-    /// <summary>What is in the editor, for "Revise the current script".</summary>
-    [Parameter] public string? CurrentScript { get; set; }
-
-    /// <summary>
-    /// The multi-instrument editor's binding table, as picked by hand: alias to session id. The
-    /// writer is told what the table shows rather than what the rule would say without it.
-    /// </summary>
-    [Parameter] public IReadOnlyDictionary<string, string>? Picks { get; set; }
-
-    /// <summary>What the last run printed, for "Include the last run's output".</summary>
-    [Parameter] public string? RecentOutput { get; set; }
-
-    /// <summary>Whether the editor that opened this speaks the multi-instrument language.</summary>
-    [Parameter] public bool IsSequence { get; set; }
-
-    /// <summary>Where Use This Script puts it.</summary>
-    [Parameter] public EventCallback<string> OnUse { get; set; }
 
     private readonly string _id = "ai" + Guid.NewGuid().ToString("N")[..8];
 
     private AiStatus? _status;
-    private IReadOnlyList<SessionDto> _sessions = [];
-    private readonly HashSet<string> _chosen = [];
-    private string _request = "";
     private bool _busy;
-
-    private bool _revise;
-    private bool _includeOutput;
-    private string? _scriptError;
-    private string _scriptStatus = "";
-
-    /// <summary>
-    /// The conversation — the live list out of <see cref="ScriptChats"/>, not a copy, so it
-    /// is still there when this window is closed and opened again.
-    /// </summary>
-    private List<AiTurn> _turns = [];
-
-    /// <summary>The transcript's box, for scrolling a new answer into view.</summary>
-    private ElementReference _chat;
-
-    /// <summary>The request box, which is sized to what is in it. See lec.chatbox.</summary>
-    private ElementReference _box;
-
-    /// <summary>Whether the newest turn still needs scrolling to. Set when one arrives.</summary>
-    private bool _scrollChat;
-
-    /// <summary>Held for the lifetime of the component so the box's Enter can call back in.</summary>
-    private DotNetObjectReference<Ai>? _self;
-    private bool _boxWired;
-
-    /// <summary>What the transcript costs to send, under the box as the assistant's estimate is — the reason Clear is there.</summary>
-    private string Ledger
-    {
-        get
-        {
-            if (_turns.Count == 0)
-                return "No conversation yet. Only your request and the catalogs get sent.";
-
-            int chars = ScriptChats.Size(_turns);
-            string size = chars < 1024 ? $"{chars} characters" : $"about {chars / 1024.0:0.#} kB";
-            return $"{_turns.Count} turn(s): {size} of transcript goes with every request. "
-                 + "Clear to start again without it.";
-        }
-    }
 
     private ElementReference _file;
 
@@ -458,127 +191,11 @@ else if (!_status.Configured)
     private string _extractStatus = "Pick a datasheet, then Extract.";
     private CancellationTokenSource? _extracting;
 
-    /// <summary>One instrument's line in the paragraph, in ScriptAiForm's words.</summary>
-    private static string Catalogued(SessionDto s)
-        => s.CatalogCommandCount > 0
-            ? $"{s.ProfileName}: {s.CatalogCommandCount:N0} documented commands"
-            : $"{s.ProfileName}: no catalog — only *IDN?, *RST, *CLS and *OPC? can be checked";
-
-    /// <summary>
-    /// The request the box opens on: a real one, for the kind of instrument this window was
-    /// opened from. Written into the box rather than shown behind it — see the note there.
-    /// </summary>
-    private string Example => IsSequence
-        ? "Sweep the generator from 100 Hz to 100 kHz in 20 log steps and record the scope's peak-to-peak voltage at each one."
-        : "Set a 1 kHz sine at 2 Vpp on channel 1, turn the output on, wait a second, then read it back.";
-
-    /// <summary>And the same words behind an emptied box, which is the one time they are needed
-    /// again — said as an example there, because that is all a placeholder can be.</summary>
-    private string Hint => "e.g. " + Example;
-
     protected override async Task OnInitializedAsync()
     {
-        _turns = Chats.For(IsSequence);
         _status = await Bench.AiStatusAsync();
-        _sessions = await Bench.SessionsAsync();
         _extractLocally = _status?.ExtractTextLocally ?? false;
         _effort = _status?.Effort ?? "Default";
-
-        // Ticked when there is something for them to send, as the desktop ticks them: a
-        // switch that is on and has nothing to offer is a switch that lies.
-        _revise = CurrentScript is { Length: > 0 };
-        _includeOutput = RecentOutput is { Length: > 0 };
-
-        // And the box opens on a request rather than empty, the way both editors open on a
-        // worked script. Only if nothing has been typed yet: this runs on the way in, but the
-        // window is rebuilt each time it is opened and there is no sense in which a request
-        // being written could be overwritten by it.
-        if (Tool == AiTool.Script && _request.Length == 0) _request = Example;
-
-        if (Session is { Length: > 0 } one) _chosen.Add(one);
-        else foreach (var s in _sessions) _chosen.Add(s.Id);
-    }
-
-    private void Toggle(string id, bool on)
-    {
-        if (on) _chosen.Add(id); else _chosen.Remove(id);
-    }
-
-    // ------------------------------------------------------------------ the script
-
-    /// <summary>The request out, for Stop to let go of. Null while nothing is being written.</summary>
-    private CancellationTokenSource? _writing;
-
-    /// <summary>
-    /// Write Script, or Stop while a request is out: one button in one place, as the assistant's
-    /// Send is.
-    /// </summary>
-    private async Task WriteOrStop()
-    {
-        if (_busy)
-        {
-            _writing?.Cancel();
-            return;
-        }
-        if (_chosen.Count == 0 || _request.Trim().Length == 0) return;
-        await Write();
-    }
-
-    private async Task Write()
-    {
-        string asked = _request.Trim();
-
-        _busy = true; _scriptError = null;
-        _writing = new CancellationTokenSource();
-        // "Thinking", not "Writing": nothing is being written yet, and on a model asked for
-        // effort most of the wait is spent before the first word of the answer exists.
-        _scriptStatus = "Thinking…";
-        try
-        {
-            // The conversation goes with it. Sent from here rather than remembered on the
-            // server: two script editors open at once are two conversations, and the server
-            // has no notion of a window to keep them apart with. The editor's script goes up
-            // for its names whether or not it is to be revised, and the table's picks with it.
-            var reply = await Bench.AiScriptAsync(new AiScriptRequest(
-                asked, _chosen.ToList(), IsSequence,
-                _revise ? CurrentScript : null,
-                _includeOutput ? RecentOutput : null,
-                _turns.ToList(),
-                EditorScript: IsSequence ? CurrentScript : null,
-                Picks: IsSequence ? Picks : null),
-                BenchClient.ScriptWait(_status?.TimeoutSeconds),
-                _writing.Token);
-
-            if (reply.Error is not null) { _scriptError = reply.Error; _scriptStatus = "Failed."; return; }
-
-            _turns.Add(new AiTurn(asked, reply.Script, reply.Notes, reply.Undocumented));
-
-            // The box empties, because the request is now in the transcript above it and a
-            // chat you have to clear by hand before each turn is a form, not a chat.
-            _request = "";
-            _scrollChat = true;
-            _scriptStatus = "Written. Read it, then press Use This Script — or ask for a change.";
-        }
-        catch (OperationCanceledException) when (_writing?.IsCancellationRequested == true)
-        {
-            // Stop pressed. The conversation is as it was before the request went.
-            _scriptStatus = "Stopped.";
-        }
-        catch (Exception ex)
-        {
-            // A request that came back as an exception rather than a reply: the server could not
-            // be reached at all. It used to leave the click handler, so Blazor raised its
-            // unhandled-error bar and this line went on saying "Thinking…". The writer's own
-            // clock comes back as a reply, so the only cancel told apart above is Stop.
-            _scriptError = Failure(ex);
-            _scriptStatus = "Failed.";
-        }
-        finally
-        {
-            _busy = false;
-            _writing?.Dispose();
-            _writing = null;
-        }
     }
 
     /// <summary>
@@ -589,42 +206,6 @@ else if (!_status.Configured)
     private static string Failure(Exception ex) => ex is HttpRequestException
         ? $"Could not reach the server ({ex.Message})."
         : ex.Message;
-
-    /// <summary>
-    /// Forget the conversation.
-    ///
-    /// The whole thing, and the newest draft with it: what is left is what a freshly-opened
-    /// window would have had, which is what "clear" has to mean for the figure above it to be
-    /// true afterwards.
-    /// </summary>
-    private void ClearChat()
-    {
-        if (_turns.Count == 0) return;
-
-        _turns.Clear();
-        _scriptError = null;
-        _scriptStatus = "Conversation cleared. The next request goes on its own.";
-    }
-
-    /// <summary>Put one answer's script into the editor — any of them, not only the newest.</summary>
-    private async Task Use(AiTurn turn)
-    {
-        if (turn.Script.Trim().Length > 0) await OnUse.InvokeAsync(turn.Script);
-    }
-
-    /// <summary>
-    /// Enter in the request box. Called from lec.chatbox, which has already stopped the
-    /// textarea inserting a line for it.
-    /// </summary>
-    [JSInvokable]
-    public async Task SendRequest()
-    {
-        if (_busy || _chosen.Count == 0 || _request.Trim().Length == 0) return;
-        await Write();
-        StateHasChanged();
-    }
-
-    // --------------------------------------------------------------- the datasheet
 
     /// <summary>
     /// The same setting the AI box carries, in the second place the desktop puts it. Applied
@@ -774,40 +355,12 @@ else if (!_status.Configured)
     /// </summary>
     protected override async Task OnAfterRenderAsync(bool first)
     {
-        // Not on the first render for either of these: whether there is a connection at all is
-        // asked over the wire, so the first thing this component draws is "Checking…" and the
-        // card arrives a render or two later.
-        if (!_boxWired && Tool == AiTool.Script && _status?.Configured == true)
-        {
-            _boxWired = true;
-            _self ??= DotNetObjectReference.Create(this);
-            await JS.InvokeVoidAsync("lec.chatbox", _box, _self);
-        }
-
-        // A new answer is at the bottom of the transcript, which is where a chat is read from.
-        // After the render rather than during it: the turn has to be in the DOM before its
-        // height counts towards what there is to scroll. The box is re-measured in the same
-        // breath — it was just emptied, and nothing fires input when Blazor does that.
-        if (_scrollChat)
-        {
-            _scrollChat = false;
-            await JS.InvokeVoidAsync("lec.scrollToEnd", _chat);
-            await JS.InvokeVoidAsync("lec.fitBox", _box);
-        }
-
-        if (_dropWired || Tool != AiTool.Datasheet || _status?.Configured != true) return;
+        if (_dropWired || _status?.Configured != true) return;
         _dropWired = true;
         await JS.InvokeVoidAsync("lec.dropFile", _drop, _file);
     }
 
     private bool _dropWired;
-
-    public void Dispose()
-    {
-        // A request still out is let go with the window, as the desktop's FormClosing does.
-        _writing?.Cancel();
-        _self?.Dispose();
-    }
 
     private sealed record FilePayload(string name, string base64);
 }

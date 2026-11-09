@@ -107,15 +107,9 @@
    page you were on. *@
 @if (_aiOpen)
 {
-    @* 1320×920: ScriptAiForm's size on a 175% screen (754×526 logical), kept so that everything
-       in the window is in view when it opens (UI-SPEC §9, Known differences). Not the editor's
-       size, which is what a filling window otherwise takes: it is two text boxes and a row of
-       switches, and does not want the screen. *@
-    <ToolWindow Title="Write a Script with AI" Fill="true" OpenWidth="1320" OpenHeight="920"
-                OnClosed="() => _aiOpen = false">
-        <Ai Tool="AiTool.Script" Session="@SessionId" IsSequence="IsSequence"
-            CurrentScript="@Script" RecentOutput="@RecentOutput" Picks="@Picks" OnUse="UseScript" />
-    </ToolWindow>
+    @* The AI assistant's window, with this editor's script and output in it. *@
+    <Assistant Writer="@(new ScriptWriterContext(IsSequence, SessionId, Script, RecentOutput, Picks))"
+               OnUse="UseScript" OnClosed="() => _aiOpen = false" />
 }
 
 @if (_referenceOpen)

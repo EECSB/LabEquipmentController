@@ -1115,12 +1115,24 @@ it carries on, with a line saying when, and what the bench was then if it is not
 **Not built, and why.** The microphone and the camera, which the guide puts in the box's row:
 the desktop has neither without another runtime (WinRT's capture APIs), and the page follows the
 desktop. `Screenshot` stands in for the camera's main use on a bench, which is showing the model
-what a screen shows. The guide's tab link (its sixth layer) has no counterpart here: `lec mcp`
-reaches the instruments themselves, so there is no page for it to borrow.
+what a screen shows.
+
+**The tab link** (the guide's sixth layer): `lec mcp` also listens on 127.0.0.1 (port 43717,
+`--link-port` for another, `0` for none), and a bench page that presses Start under MCP server in
+its AI settings dials it and shows a code. Told the code, `link_tab` joins the two, and every tool
+then works the instruments open on that page, each call listed on it, until `unlink_tab`, Stop, or
+the page going. It is how Claude reaches an instrument the bench already holds, an instrument
+taking one connection at a time, and it is why the addresses on `lec mcp`'s command line are
+optional. The code is the lock: eight digits only the person's own page shows, compared in
+constant time, on a socket bound to loopback. An ending is said, never assumed: the next call is
+refused with why rather than run on the instruments on the command line.
 
 **Built:** the tools, `lec mcp`, the page's relay, the conversation (`AiChat`, with the approval
 rungs, Stop, compacting, kept chats and the estimate before Send), and the window in both builds:
-`Tools ▸ AI Assistant…` on the desktop and the gear's **AI assistant…** on the web, its port. Run
+`Tools ▸ AI Assistant…` on the desktop and the gear's **AI assistant…** on the web, which is GDS
+Viewer's window (UI-SPEC §9, 11) with its AI settings: the models in one picker, the https rule on
+a saved key, speech written out by the browser or by the AI provider, and the cap on tool rounds.
+A spreadsheet goes as its rows (`OfficeText`), and a Word document as its words. Run
 as a host's bench (§18) the page's assistant says it cannot ask yet: the connection arrives with
 each of the host's requests, and the relay has none of its own to sign with.
 

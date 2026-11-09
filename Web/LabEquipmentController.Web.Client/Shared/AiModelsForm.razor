@@ -1,0 +1,545 @@
+@implements IDisposable
+@inject BenchClient Bench
+@inject WebAiService Assistant
+
+@* The saved AI models: a picker, and the form that adds and edits them. GDS Viewer's AiModels,
+   over the server's connections rather than the browser's, since the key is the server's to hold:
+   it goes up when one is typed and never comes back down, so nothing that can read this page can
+   read the key out of it.
+
+   One list, picked from everywhere: the chat's model menu, the script writer's and the datasheet
+   window's are the same list, and picking here picks there. *@
+@if (_status is null)
+{
+    @if (_failed)
+    {
+        <p class="aiFormError">
+            The server did not answer, so there is nothing here to edit. This reads the models off the
+            server rather than keeping a copy of its own, which is why it would rather show you nothing
+            than settings that might not be the ones in use.
+        </p>
+    }
+    else
+    {
+        <p class="aiFormNote">Asking the server…</p>
+    }
+}
+else if (_status.HostConnections)
+{
+    @* The server is a host's bench: the connection arrives with each request from the host. *@
+    <p id="aiHostModels" class="aiFormNote">@_status.Reason</p>
+}
+else
+{
+    <div class="aiModelRow">
+        @* The chosen model's name heads the picker and is renamed there; its menu lists the models
+           with Rename, Duplicate and Delete on each and New at the end, and Save is joined to its
+           end, orange while there is something to save. Picking the model again puts back what is
+           saved, in place of Cancel. *@
+        <SavedPicker @ref="_picker"
+                     Id="aiModelPicker"
+                     AddId="aiModelAdd"
+                     Items="PickerItems()"
+                     SelectedKey="@PickerKey()"
+                     Noun="model"
+                     UnsavedName="@_formName"
+                     NamePlaceholder="Name it, e.g. Claude"
+                     AddTitle="Add a model"
+                     Error="@_nameError"
+                     OnPick="PickAsync"
+                     OnRename="RenameAsync"
+                     OnDuplicate="DuplicateAsync"
+                     OnDelete="DeleteAsync"
+                     OnAdd="StartAdd">
+            <HeadEnd>
+                <button id="aiModelSave" type="button" class="aiAct savedPickerSave @(HasSomethingToSave() ? "savedPickerUnsaved" : null)" disabled="@_busy"
+                        @onclick="SaveAsync" title="@(HasSomethingToSave() ? "These settings have changes that are not saved. Save them to the model named in the picker." : "Save these settings to the model named in the picker.")"
+                        aria-label="@(_adding ? "Add the model" : "Save the model")">
+                    <svg viewBox="0 0 16 16" aria-hidden="true">
+                        <path d="M3 8.4l3.2 3.2L13 4.6" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" />
+                    </svg>
+                    Save
+                </button>
+            </HeadEnd>
+        </SavedPicker>
+
+        <span class="aiInfoAnchor">
+            <button id="aiModelsInfo" type="button" class="aiInfoButton" aria-label="About the models" aria-describedby="aiModelsInfoPop">
+                <svg viewBox="0 0 16 16" width="22" height="22" aria-hidden="true">
+                    <circle cx="8" cy="8" r="6.3" fill="none" stroke="currentColor" stroke-width="1.4" />
+                    <path d="M8 7.2v4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" />
+                    <circle cx="8" cy="4.9" r="0.95" fill="currentColor" />
+                </svg>
+            </button>
+            <span id="aiModelsInfoPop" class="aiInfoPop" role="tooltip">Add a model to turn the AI windows on: Anthropic, OpenAI, Gemini, or your own OpenAI-compatible server, with your own key.</span>
+        </span>
+    </div>
+
+    <div class="aiModelForm">
+        <div class="aiFormRow">
+            <span class="aiFormLabel">Provider</span>
+            <div class="sidebarPanelPick" role="group" aria-label="Provider">
+                @foreach (var (kind, says) in Kinds)
+                {
+                    <button id="aiProvider@(kind)" type="button" class="sidebarPanelChoice @(_form.Kind == kind ? "sidebarPanelChoiceOn" : null)"
+                            aria-pressed="@(_form.Kind == kind ? "true" : "false")" @onclick="() => ChooseKind(kind)">@says</button>
+                }
+            </div>
+        </div>
+
+        <div class="aiFormNote">@KindNote()</div>
+
+        @if (_form.Kind != Anthropic || _form.Address.Length > 0)
+        {
+            <label class="aiFormRow">
+                <span class="aiFormLabel">Address</span>
+                <input id="aiModelBaseUrl" class="aiField" placeholder="@AddressPlaceholder()" @bind="_form.Address" @bind:event="oninput" spellcheck="false"
+                       title="Scheme and host only. The provider's own address unless you set it for a local server or a proxy." />
+            </label>
+        }
+
+        <label class="aiFormRow">
+            <span class="aiFormLabel">Model</span>
+            <input id="aiModelId" class="aiField" placeholder="@ModelPlaceholder()" @bind="_form.Model" @bind:event="oninput" spellcheck="false"
+                   title="The model's name as the provider spells it." />
+        </label>
+
+        <label class="aiFormRow">
+            <span class="aiFormLabel">API key</span>
+            <input id="aiModelKey" class="aiField" type="password" autocomplete="off" spellcheck="false" @bind="_form.Key" @bind:event="oninput" placeholder="@KeyPlaceholder()"
+                   title="Held by the server, not by this browser, and never sent back to it." />
+        </label>
+
+        @if (!_adding && _status.KeyFromConfiguration && _form.Key.Length == 0)
+        {
+            <div class="aiFormNote">Set as <code>Ai__ApiKey</code> where the server runs. Type one here to use a different key instead; from then on this one wins.</div>
+        }
+
+        @* Only Anthropic sends a cap: the OpenAI-compatible family leaves it to the server, so the box would do nothing there. *@
+        @if (_form.Kind == Anthropic)
+        {
+            <label class="aiFormRow" title="The longest an answer may be. A ceiling, not an allowance: what is billed is what the model writes, so raise it if an answer stops mid-sentence.">
+                <span class="aiFormLabel">Max tokens</span>
+                <input id="aiModelMaxTokens" class="aiField aiNumber" type="number" min="1" placeholder="@AnthropicProvider.DefaultMaxTokens" @bind="_form.MaxTokens" />
+            </label>
+        }
+
+        <label class="aiFormRow" title="How long to wait for one request. A whole programming guide takes longer than a page.">
+            <span class="aiFormLabel">Timeout (s)</span>
+            <input id="aiModelTimeout" class="aiField aiNumber" type="number" min="15" max="900" step="15" @bind="_form.Timeout" />
+        </label>
+
+        @* The model's own rates: blank takes the published rate, shown in the box when there is one. *@
+        <div class="aiFormRow" title="What a million tokens cost on this model, in US dollars: read, read back from the provider's cache, and written. Blank uses the published rate where there is one.">
+            <span class="aiFormLabel">
+                Price
+                <span class="aiPriceUnit" title="US dollars per million tokens">$ / M tokens</span>
+            </span>
+
+            <div class="aiPriceFields">
+                <label class="aiPriceField">
+                    in
+                    <input id="aiPriceInput" class="aiField aiPriceNumber" type="number" min="0" step="any" placeholder="@PricePlaceholder(p => p.Input)" @bind="_form.InputPrice" />
+                </label>
+                <label class="aiPriceField">
+                    cached
+                    <input id="aiPriceCached" class="aiField aiPriceNumber" type="number" min="0" step="any" placeholder="@PricePlaceholder(p => p.Cached)" @bind="_form.CachedPrice" />
+                </label>
+                <label class="aiPriceField">
+                    out
+                    <input id="aiPriceOutput" class="aiField aiPriceNumber" type="number" min="0" step="any" placeholder="@PricePlaceholder(p => p.Output)" @bind="_form.OutputPrice" />
+                </label>
+            </div>
+        </div>
+
+        <div id="aiPriceNote" class="aiFormNote">@PriceNote()</div>
+
+        @* Where the provider cannot take a file there is no choice to offer, so it is ticked and locked. *@
+        <label class="aiFormCheck" title="@PdfTitle()">
+            <input id="aiModelPdfAsText" class="form-check-input" type="checkbox" checked="@PdfAsText" disabled="@(Preset?.SupportsPdfUpload != true)"
+                   @onchange="e => _form.Local = e.Value is true" />
+            Send PDFs as their text
+        </label>
+
+        @if (HeldBack)
+        {
+            <div id="aiKeyHeldBack" class="aiFormWarning">
+                The key saved with this model was given for an encrypted address, so it is not sent or saved for this one,
+                which is not. Type it again to use it here, or give the address https and it comes back.
+            </div>
+        }
+
+        @if (_formError.Length > 0)
+        {
+            <div id="aiModelError" class="aiFormError">@_formError</div>
+        }
+    </div>
+}
+
+@code {
+    /// <summary>Raised whenever the server has been heard from, for the window's note on where keys are kept.</summary>
+    [Parameter] public EventCallback<AiStatus> OnStatus { get; set; }
+
+    private const string Anthropic = "Anthropic";
+    private const string OpenAi = "OpenAI";
+    private const string Gemini = "Gemini";
+    private const string Other = "Other";
+
+    private static readonly (string Kind, string Says)[] Kinds =
+    [
+        (Anthropic, "Anthropic"),
+        (OpenAi, "OpenAI"),
+        (Gemini, "Gemini"),
+        (Other, "Other"),
+    ];
+
+    /// <summary>What the form holds: a saved model as it was loaded, or a new one being filled in.</summary>
+    private sealed class FormState
+    {
+        public string Kind { get; set; } = Anthropic;
+        public string Address { get; set; } = "";
+        public string Model { get; set; } = "";
+        public string Key { get; set; } = "";
+        public int Timeout { get; set; } = 300;
+        public bool? Local { get; set; }
+        public decimal? InputPrice { get; set; }
+        public decimal? CachedPrice { get; set; }
+        public decimal? OutputPrice { get; set; }
+        public int? MaxTokens { get; set; }
+
+        public bool Same(FormState other)
+            => Kind == other.Kind && Address.Trim() == other.Address.Trim() && Model.Trim() == other.Model.Trim() && Key.Length == 0 && other.Key.Length == 0
+            && Timeout == other.Timeout && Local == other.Local && InputPrice == other.InputPrice && CachedPrice == other.CachedPrice
+            && OutputPrice == other.OutputPrice && MaxTokens == other.MaxTokens;
+    }
+
+    private AiStatus? _status;
+    private bool _failed;
+    private bool _busy;
+    private bool _adding;
+    private string _formName = "";
+    private string? _nameError;
+    private string _formError = "";
+    private FormState _form = new();
+    private SavedPicker? _picker;
+
+    protected override async Task OnInitializedAsync()
+    {
+        Assistant.ConnectionsChanged += OnConnectionsChanged;
+        try
+        {
+            Take(await Bench.AiStatusAsync(), keepForm: false);
+            await OnStatus.InvokeAsync(_status);
+        }
+        catch (Exception e) when (e is HttpRequestException or TaskCanceledException or System.Text.Json.JsonException)
+        {
+            _failed = true;
+        }
+    }
+
+    public void Dispose() => Assistant.ConnectionsChanged -= OnConnectionsChanged;
+
+    /// <summary>Another window changed the models. Read them again, and keep what this form holds that is not saved.</summary>
+    private async Task OnConnectionsChanged()
+    {
+        if (_busy) return;
+        AiStatus status = await Bench.AiStatusAsync();
+        await InvokeAsync(() =>
+        {
+            Take(status, keepForm: HasSomethingToSave());
+            StateHasChanged();
+        });
+    }
+
+    private void Take(AiStatus status, bool keepForm)
+    {
+        _status = status;
+        if (!keepForm) ShowSelected();
+    }
+
+    private AiConnectionDto? Chosen => _status?.Connections.FirstOrDefault(c => c.Id == _status.SelectedId);
+
+    /// <summary>The model picked, in the form; or the form for a new one, when there are none.</summary>
+    private void ShowSelected()
+    {
+        if (Chosen is not AiConnectionDto chosen)
+        {
+            StartAdd();
+            return;
+        }
+
+        _adding = false;
+        _form = FromSaved(chosen);
+        _formName = chosen.Label;
+        _formError = "";
+        _nameError = null;
+    }
+
+    /// <summary>New: a blank form, its name typed in the picker's head.</summary>
+    private void StartAdd()
+    {
+        _adding = true;
+        _form = new FormState();
+        _formName = "";
+        _formError = "";
+        _nameError = null;
+    }
+
+    private FormState FromSaved(AiConnectionDto chosen)
+    {
+        string kind = chosen.Kind switch
+        {
+            nameof(AiProvider.Anthropic) => Anthropic,
+            nameof(AiProvider.Gemini) => Gemini,
+            _ => SameAddress(chosen.BaseUrl, PresetFor(OpenAi)?.DefaultBaseUrl) ? OpenAi : Other,
+        };
+
+        return new FormState
+        {
+            Kind = kind,
+            Address = SameAddress(chosen.BaseUrl, PresetFor(kind)?.DefaultBaseUrl) ? "" : chosen.BaseUrl,
+            Model = chosen.Model,
+            Timeout = _status!.TimeoutSeconds is >= 15 and <= 900 ? _status.TimeoutSeconds : 300,
+            Local = chosen.ExtractTextLocally,
+            InputPrice = chosen.InputPrice,
+            CachedPrice = chosen.CachedPrice,
+            OutputPrice = chosen.OutputPrice,
+            MaxTokens = chosen.MaxTokens,
+        };
+    }
+
+    private static bool SameAddress(string? one, string? other)
+        => string.Equals((one ?? "").Trim().TrimEnd('/'), (other ?? "").Trim().TrimEnd('/'), StringComparison.OrdinalIgnoreCase);
+
+    private AiProviderDto? PresetFor(string kind) => _status?.Providers.FirstOrDefault(p => p.Name == ProviderName(kind));
+
+    private AiProviderDto? Preset => PresetFor(_form.Kind);
+
+    private static string ProviderName(string kind) => kind switch
+    {
+        Anthropic => nameof(AiProvider.Anthropic),
+        Gemini => nameof(AiProvider.Gemini),
+        _ => nameof(AiProvider.OpenAiCompatible),
+    };
+
+    private IReadOnlyList<SavedPickerItem> PickerItems()
+        => [.. (_status?.Connections ?? []).Select(c => new SavedPickerItem(c.Id, c.Label))];
+
+    /// <summary>The model the picker's head names: the one in the form, or none while a new one is being added.</summary>
+    private string? PickerKey() => _adding ? null : _status?.SelectedId;
+
+    /// <summary>Whether Save has anything to do, which it shows in orange. Undoing a change takes it away.</summary>
+    private bool HasSomethingToSave()
+    {
+        if (_adding) return _formName.Trim().Length > 0 || !_form.Same(new FormState());
+        return Chosen is AiConnectionDto chosen && !_form.Same(FromSaved(chosen));
+    }
+
+    private bool Taken(string name, string? exceptId)
+        => _status!.Connections.Any(c => c.Id != exceptId && (string.Equals(c.Label, name, StringComparison.Ordinal) || string.Equals(c.Name, name, StringComparison.Ordinal)));
+
+    // ------------------------------------------------------------------- the server
+
+    /// <summary>Run one of the server's edits, and take the state it hands back. Answers whether it went.</summary>
+    private async Task<bool> ActAsync(Func<Task<AiSettingsReply>> what, bool keepForm = false)
+    {
+        _busy = true;
+        _formError = "";
+        try
+        {
+            AiSettingsReply reply = await what();
+            if (reply.Error is not null)
+            {
+                _formError = reply.Error;
+                return false;
+            }
+            if (reply.Status is not null)
+            {
+                Take(reply.Status, keepForm);
+                await OnStatus.InvokeAsync(reply.Status);
+            }
+            await Assistant.RaiseConnectionsChangedAsync();
+            return true;
+        }
+        catch (Exception e) when (e is HttpRequestException or TaskCanceledException or System.Text.Json.JsonException)
+        {
+            _formError = e.Message;
+            return false;
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private async Task PickAsync(string id)
+    {
+        await ActAsync(() => Bench.AiSelectAsync(id));
+        // Picking the model again puts back what is saved, in place of Cancel.
+        ShowSelected();
+    }
+
+    /// <summary>
+    /// A name typed in the picker's head, answered with why it was refused or null. For the model
+    /// being added the name is only its name until Save; a saved one is renamed at once, keeping
+    /// any edits in the form.
+    /// </summary>
+    private async Task<string?> RenameAsync(string? key, string name)
+    {
+        _nameError = null;
+
+        if (key is null)
+        {
+            _formName = name;
+            StateHasChanged();
+            return null;
+        }
+
+        if (Taken(name, key))
+        {
+            _nameError = "A model with that name already exists.";
+            StateHasChanged();
+            return _nameError;
+        }
+
+        AiConnectionDto? chosen = Chosen;
+        AiStatus status = _status!;
+        if (chosen is null || chosen.Id != key) return null;
+
+        // As it is saved, whatever the form holds: a rename is not a save of the rest of it.
+        await ActAsync(() => Bench.AiApplyAsync(new AiSettingsUpdate(
+            status.Provider, status.Endpoint, status.Model, status.ExtractTextLocally, status.TimeoutSeconds, null, null, key, name,
+            new AiRates(chosen.InputPrice, chosen.CachedPrice, chosen.OutputPrice))), keepForm: true);
+
+        _formName = name;
+        StateHasChanged();
+        return null;
+    }
+
+    private async Task DuplicateAsync(string id) => await ActAsync(() => Bench.AiDuplicateAsync(id));
+
+    private async Task DeleteAsync(string id) => await ActAsync(() => Bench.AiRemoveAsync(id));
+
+    private async Task SaveAsync()
+    {
+        string name = _formName.Trim();
+        _formError = "";
+        _nameError = null;
+
+        if (_adding && name.Length == 0)
+        {
+            _nameError = "Name the model first.";
+            _picker?.BeginRename();
+            return;
+        }
+
+        if (_adding && Taken(name, null))
+        {
+            _nameError = "A model with that name already exists.";
+            _picker?.BeginRename();
+            return;
+        }
+
+        if (_form.Kind == Other && _form.Address.Trim().Length == 0)
+        {
+            _formError = "A server of your own needs its address.";
+            return;
+        }
+
+        if (_form.Kind == Other && _form.Model.Trim().Length == 0)
+        {
+            _formError = "Give the model's id, which the server lists.";
+            return;
+        }
+
+        if (_form.InputPrice < 0 || _form.CachedPrice < 0 || _form.OutputPrice < 0)
+        {
+            _formError = "A price is a number of dollars, zero or more.";
+            return;
+        }
+
+        bool typed = _form.Key.Trim().Length > 0;
+        bool stored = !_adding && Chosen is { Configured: true } && !HeldBack;
+        if (_form.Kind != Other && !typed && !stored)
+        {
+            _formError = $"{_form.Kind} needs an API key.";
+            return;
+        }
+
+        // Three states, as the server takes them: a value replaces the key, empty forgets it, null leaves it.
+        string? key = typed ? _form.Key.Trim() : HeldBack ? "" : null;
+        string? savedName = _adding ? name : Chosen?.Name;
+
+        await ActAsync(() => Bench.AiApplyAsync(new AiSettingsUpdate(
+            ProviderName(_form.Kind), _form.Address.Trim(), _form.Model.Trim(), _form.Local, _form.Timeout, key, null,
+            // An id the server does not have adds the model, and nothing is kept if it is refused.
+            _adding ? Guid.NewGuid().ToString("N") : _status!.SelectedId, savedName,
+            new AiRates(_form.InputPrice, _form.CachedPrice, _form.OutputPrice), _form.MaxTokens ?? 0)));
+    }
+
+    // ------------------------------------------------------------------- what the form says
+
+    /// <summary>Another provider is another address and its own model, but only over what nobody typed.</summary>
+    private void ChooseKind(string kind)
+    {
+        if (IsSomeDefault(_form.Address, p => p.DefaultBaseUrl)) _form.Address = "";
+        if (IsSomeDefault(_form.Model, p => p.DefaultModel)) _form.Model = "";
+        _form.Kind = kind;
+        _form.Local = null;
+    }
+
+    private bool IsSomeDefault(string value, Func<AiProviderDto, string> of)
+        => value.Trim().Length == 0 || (_status?.Providers.Any(p => of(p) == value.Trim()) ?? false);
+
+    /// <summary>The saved key is not in play while the form's address is not encrypted and nothing was typed in its place.</summary>
+    private bool HeldBack => !_adding && _form.Key.Length == 0 && Chosen is { Configured: true } chosen
+                          && IsHttps(chosen.BaseUrl) && !IsHttps(FormAddress);
+
+    private string FormAddress => _form.Address.Trim().Length > 0 ? _form.Address.Trim() : Preset?.DefaultBaseUrl ?? "";
+
+    private static bool IsHttps(string address) => address.TrimStart().StartsWith("https://", StringComparison.OrdinalIgnoreCase);
+
+    private bool PdfAsText => _form.Local ?? Preset?.SupportsPdfUpload != true;
+
+    private string PdfTitle()
+        => "Read a PDF's words out of it and send those in place of the file. For a model that cannot read a PDF, or to spend less. "
+         + "A scan has no words to read, so it needs this off and a model that reads PDFs. " + (Preset?.PdfCostNote ?? "");
+
+    private string KindNote() => _form.Kind switch
+    {
+        Anthropic => "Claude. A key comes from console.anthropic.com.",
+        OpenAi => "A key comes from platform.openai.com.",
+        Gemini => "A key comes from aistudio.google.com, which has a free tier.",
+        _ => "Any OpenAI-compatible server, such as Ollama, LM Studio or vLLM, that this bench's server can reach.",
+    };
+
+    private string AddressPlaceholder() => _form.Kind == Other ? "http://localhost:11434" : $"{Preset?.DefaultBaseUrl} (default)";
+
+    private string ModelPlaceholder() => _form.Kind == Other ? "the model's name on that server" : $"{Preset?.DefaultModel} (default)";
+
+    private string KeyPlaceholder()
+    {
+        if (_adding) return _form.Kind == Other ? "Only if the server asks for one" : "Paste your API key";
+        return Chosen is { Configured: true } && !HeldBack ? "A key is stored. Type to replace it." : "Paste your API key";
+    }
+
+    private string TypedModel() => _form.Model.Trim().Length > 0 ? _form.Model.Trim() : Preset?.DefaultModel ?? "";
+
+    private LlmPrice? Published()
+        => Enum.TryParse(ProviderName(_form.Kind), out AiProvider provider)
+            ? AiPricing.Published(TypedModel(), provider, DateOnly.FromDateTime(DateTime.Today))
+            : null;
+
+    /// <summary>The published rate a blank price box stands for, or nothing where none is known.</summary>
+    private string PricePlaceholder(Func<LlmPrice, decimal> rate)
+        => Published() is LlmPrice published ? rate(published).ToString("0.00##", System.Globalization.CultureInfo.InvariantCulture) : "";
+
+    private string PriceNote()
+    {
+        string model = TypedModel();
+        if (model.Length == 0) return "";
+        return Published() is not null
+            ? $"Grayed: {model}'s published rates, read {AiPricing.ReadOn}. Leave a box blank to use them."
+            : $"No published rate is known here for {model}. Without one the chat shows the tokens an answer took, and no cost.";
+    }
+}

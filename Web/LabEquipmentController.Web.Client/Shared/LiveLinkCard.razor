@@ -1,0 +1,204 @@
+@implements IDisposable
+@inject IJSRuntime JS
+
+@* The live link: Claude, in Claude Desktop or Claude Code, working the instruments open on this
+   bench through lec mcp, GDS Viewer's card (see LiveLink for how the two ends find each other).
+
+   A code, and the person saying it to Claude: Start shows one, "link to my bench page, code
+   4821 7356" in the chat is what links it. The code is the whole of the trust: the socket is to
+   this computer only, and lec mcp sends calls to no page but the one whose code the model was
+   given. Closing the window leaves the link up: LiveLinkChip says so, and opens AI settings again. *@
+<div id="liveLinkCard" class="aiSettingsCard">
+    <div class="aiSettingsCardTitle">
+        <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">
+            <path d="M5.8 1.6v3M10.2 1.6v3M3.6 4.6h8.8v2.6a4.4 4.4 0 0 1-8.8 0zM8 11.6v2.8"
+                  fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" />
+        </svg>
+        MCP server
+    </div>
+
+    <p class="aiLead liveLinkLead">
+        Lets Claude, in Claude Desktop or Claude Code, work the instruments open on this bench through <code>lec mcp</code>. You watch
+        each call land here, and Claude asks you before each command it sends.
+    </p>
+
+    @if (Link is not null)
+    {
+        @if (Link.State == LiveLinkState.Waiting)
+        {
+            <div id="liveLinkCodeBox" class="liveLinkPanel liveLinkCodeBox">
+                <div class="liveLinkCodeText">
+                    <div class="liveLinkCodeSays">Tell Claude: link to my bench page, code</div>
+
+                    <div class="liveLinkCodeLine">
+                        <div id="liveLinkCode" class="liveLinkCode" @ref="_code">@Link.Code</div>
+
+                        <button id="liveLinkCopy" type="button" class="aiAct liveLinkButton liveLinkCopy" @onclick="CopyAsync"
+                                aria-label="@(_copied ? "Copied" : "Copy")" title="Copy &quot;Link to my bench page, code @Link.Code&quot;, to paste into Claude">
+                            @if (_copied)
+                            {
+                                <svg viewBox="0 0 16 16" width="13" height="13" aria-hidden="true">
+                                    <path d="M3 8.4 6.4 11.8 13 4.6" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" />
+                                </svg>
+                            }
+                            else
+                            {
+                                <svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
+                                    <rect x="5.2" y="1.8" width="9" height="9" rx="1.4" />
+                                    <path d="M10.8 13.2v0.6a1.4 1.4 0 0 1-1.4 1.4H3.2a1.4 1.4 0 0 1-1.4-1.4V6.6a1.4 1.4 0 0 1 1.4-1.4h0.6" stroke-linecap="round" stroke-linejoin="round" />
+                                </svg>
+                            }
+                        </button>
+                    </div>
+                </div>
+
+                <button id="liveLinkStop" type="button" class="aiAct aiDecline liveLinkButton" @onclick="StopAsync" title="Stop waiting. The code goes with it.">
+                    <svg viewBox="0 0 16 16" width="11" height="11" aria-hidden="true">
+                        <rect x="3" y="3" width="10" height="10" rx="1.5" fill="currentColor" />
+                    </svg>
+                    Stop
+                </button>
+            </div>
+
+            <p id="liveLinkStatus" class="liveLinkStatus"><span class="liveLinkDot"></span>Waiting for lec mcp on port @Link.Port…</p>
+
+            @if (Link.Notice.Length > 0)
+            {
+                <p id="liveLinkNotice" class="aiFormNote">@Link.Notice</p>
+            }
+
+            @if (_copyRefused)
+            {
+                <p id="liveLinkCopyRefused" class="aiFormNote">This page was not allowed the clipboard, so the code is selected instead: Ctrl+C copies it.</p>
+            }
+        }
+        else if (Link.State == LiveLinkState.Linked)
+        {
+            <div class="liveLinkPanel liveLinkPanelLinked">
+                <p id="liveLinkStatus" class="liveLinkStatus liveLinkLinked">
+                    <span class="liveLinkDot"></span>
+                    <span>Linked to @(Link.Client.Length == 0 ? "Claude" : Link.Client). It works the instruments open on this bench; what it sends is listed here.</span>
+                </p>
+
+                <button id="liveLinkStop" type="button" class="aiAct aiDecline liveLinkButton" @onclick="StopAsync" title="End the link. Claude is told.">
+                    <svg viewBox="0 0 16 16" width="11" height="11" aria-hidden="true">
+                        <rect x="3" y="3" width="10" height="10" rx="1.5" fill="currentColor" />
+                    </svg>
+                    Stop
+                </button>
+            </div>
+        }
+        else
+        {
+            <div class="liveLinkPanel liveLinkStart">
+                <label class="liveLinkPortLabel" for="liveLinkPort">Port</label>
+
+                <input id="liveLinkPort" class="aiField liveLinkPort" type="number" min="1" max="65535" step="1" value="@_port" @onchange="PortChanged"
+                       title="The port lec mcp listens on: @LiveLink.DefaultPort, unless it was started with --link-port" />
+
+                <button id="liveLinkStart" type="button" class="aiAct liveLinkButton" @onclick="Start" title="Wait for lec mcp on this port, and show the code to tell Claude.">
+                    <svg viewBox="0 0 16 16" width="11" height="11" aria-hidden="true">
+                        <path d="M4.5 2.6v10.8a.6.6 0 0 0 .9.5l8.4-5.4a.6.6 0 0 0 0-1L5.4 2.1a.6.6 0 0 0-.9.5z" fill="currentColor" />
+                    </svg>
+                    @(Link.State == LiveLinkState.Ended ? "Link again" : "Start")
+                </button>
+            </div>
+
+            @if (Link.State == LiveLinkState.Ended)
+            {
+                <p id="liveLinkStatus" class="liveLinkStatus liveLinkEnded"><span class="liveLinkDot"></span>The link ended: @Link.Ending</p>
+            }
+
+            <p class="aiFormNote">
+                lec mcp has to be added to Claude first: <code>claude mcp add lec -- lec mcp</code> for Claude Code, or the
+                few lines the command-line tool's README gives for Claude Desktop.
+            </p>
+        }
+
+        @if (Link.Calls.Count > 0)
+        {
+            @* Newest first: the one being answered now is the one worth reading. *@
+            <div id="liveLinkCalls" class="liveLinkCalls">
+                @for (int i = Link.Calls.Count - 1; i >= 0; i--)
+                {
+                    LiveLinkCall call = Link.Calls[i];
+                    <div class="liveLinkCall @(call.Text is null ? "liveLinkCallRunning" : null) @(call.IsError ? "liveLinkCallRefused" : null)">
+                        <span class="liveLinkCallName">@call.Name.Replace('_', ' ')</span>
+                        <span class="liveLinkCallSaid" title="@call.Text">@(call.Text ?? "Working…")</span>
+                    </div>
+                }
+            </div>
+        }
+    }
+
+    <p class="aiFormNote">
+        The link is to this computer only, 127.0.0.1, and only the lec mcp given the code can use it. What Claude reads from
+        the instruments goes to its provider with the rest of your conversation, as anything you show it does.
+    </p>
+</div>
+
+@code {
+    [Parameter] public LiveLink? Link { get; set; }
+
+    private LiveLink? _watching;
+    private ElementReference _code;
+
+    /// <summary>The port Start waits on. Not kept: nearly everybody uses lec mcp's own, and a link is a choice made each time.</summary>
+    private int _port = LiveLink.DefaultPort;
+
+    private bool _copied;
+    private bool _copyRefused;
+    private int _copyRun;
+
+    protected override void OnParametersSet()
+    {
+        if (ReferenceEquals(Link, _watching)) return;
+        if (_watching is not null) _watching.Changed -= RedrawAsync;
+        _watching = Link;
+        if (_watching is not null) _watching.Changed += RedrawAsync;
+    }
+
+    public void Dispose()
+    {
+        if (_watching is not null) _watching.Changed -= RedrawAsync;
+    }
+
+    private async Task RedrawAsync() => await InvokeAsync(StateHasChanged);
+
+    private void PortChanged(ChangeEventArgs e)
+    {
+        if (int.TryParse(e.Value?.ToString(), System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out int typed)
+            && typed is >= 1 and <= 65535)
+            _port = typed;
+    }
+
+    private void Start() => Link?.Start(_port);
+
+    private async Task StopAsync()
+    {
+        if (Link is not null) await Link.StopAsync();
+    }
+
+    /// <summary>The request with its code onto the clipboard, saying so on the button for a moment.</summary>
+    private async Task CopyAsync()
+    {
+        if (Link is null) return;
+
+        string? refused = await JS.InvokeAsync<string?>("lec.copyText", $"Link to my bench page, code {Link.Code}");
+        _copied = refused is null;
+        _copyRefused = !_copied;
+        int run = ++_copyRun;
+
+        if (!_copied)
+        {
+            await JS.InvokeVoidAsync("lec.assistant.selectText", _code);
+            return;
+        }
+
+        StateHasChanged();
+        await Task.Delay(2000);
+        if (run != _copyRun) return;
+        _copied = false;
+        StateHasChanged();
+    }
+}

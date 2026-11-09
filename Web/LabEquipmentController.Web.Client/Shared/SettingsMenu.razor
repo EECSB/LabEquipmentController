@@ -1,4 +1,7 @@
 @inject IJSRuntime JS
+@inject AssistantState State
+@inject WebAiService Models
+@implements IDisposable
 
 @* One gear at the end of the title bar, where a window keeps its own controls.
 
@@ -87,18 +90,26 @@
     }
 </div>
 
-<AiSettingsDialog @ref="_ai" />
+@if (_settingsOpen)
+{
+    <AiSettings @ref="_ai" OnClosed="() => _settingsOpen = false" />
+}
+
+@* That a link is up, while AI settings, where its card is, are shut: a bench Claude can reach
+   should say so wherever the person is looking. *@
+<LiveLinkChip Link="State.Link" Hidden="_settingsOpen" OnOpen="OpenAi" />
 <AboutDialog @ref="_about" />
 <WindowDialog @ref="_reference" />
 
 @* One assistant window for the tab, built while it is open; what it holds outlives it (AssistantState). *@
 @if (_assistantOpen)
 {
-    <Assistant @ref="_assistant" OnClosed="() => _assistantOpen = false" OnSettings="OpenAi" />
+    <Assistant @ref="_assistant" OnClosed="() => _assistantOpen = false" />
 }
 
 @code {
-    private AiSettingsDialog? _ai;
+    private AiSettings? _ai;
+    private bool _settingsOpen;
     private Assistant? _assistant;
     private bool _assistantOpen;
     private AboutDialog? _about;
@@ -109,6 +120,17 @@
 
     /// <summary>Whether the button went down on the sheet outside the menu rather than in it.</summary>
     private bool _downOutside;
+
+    protected override void OnInitialized() => Models.SettingsAsked += SettingsAsked;
+
+    /// <summary>An AI window asked for AI settings: <c>/settings</c>, or Manage models.</summary>
+    private Task SettingsAsked() => InvokeAsync(async () =>
+    {
+        await OpenAi();
+        StateHasChanged();
+    });
+
+    public void Dispose() => Models.SettingsAsked -= SettingsAsked;
 
     private void Toggle()
     {
@@ -148,10 +170,16 @@
         _ = JS.InvokeVoidAsync("lec.focus", _menu);
     }
 
+    /// <summary>AI settings: a window of its own, or the one already open brought forward.</summary>
     private async Task OpenAi()
     {
         _open = false;
-        if (_ai is not null) await _ai.ShowAsync();
+        if (_settingsOpen && _ai is not null)
+        {
+            await _ai.RaiseAsync();
+            return;
+        }
+        _settingsOpen = true;   // the window shows itself once it has been rendered
     }
 
     /// <summary>The assistant's window, or the one already open brought forward.</summary>

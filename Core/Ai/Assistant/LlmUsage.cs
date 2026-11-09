@@ -153,6 +153,28 @@ public sealed class LlmUsage
         };
     }
 
+    /// <summary>
+    /// What one Gemini Interactions answer says it cost, or null when it says nothing.
+    ///
+    /// Thinking is counted apart from what was written, as Google's own example adds up (7 in, 23
+    /// out, 49 thinking, 79 in all), and billed as output, so here it is part of the output.
+    /// </summary>
+    public static LlmUsage? FromInteractions(JsonElement root)
+    {
+        if (!TryUsage(root, out JsonElement usage)) return null;
+
+        long thought = Count(usage, "total_thought_tokens");
+
+        return new LlmUsage
+        {
+            InputTokens = Count(usage, "total_input_tokens"),
+            CachedInputTokens = Count(usage, "total_cached_tokens"),
+            OutputTokens = Count(usage, "total_output_tokens") + thought,
+            ReasoningTokens = thought,
+            Requests = 1,
+        };
+    }
+
     private static bool TryUsage(JsonElement root, out JsonElement usage)
     {
         usage = default;

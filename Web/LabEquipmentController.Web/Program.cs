@@ -443,12 +443,16 @@ api.MapPut("/ai", (AiSettingsUpdate update, AiService ai) => ai.Apply(update));
 api.MapPost("/ai/connections", (AiService ai, string? provider) => ai.AddConnection(provider));
 
 api.MapDelete("/ai/connections/{id}", (string id, AiService ai) => ai.RemoveConnection(id));
+api.MapPost("/ai/connections/{id}/duplicate", (string id, AiService ai) => ai.DuplicateConnection(id));
 
 // One selection for the whole server, not one per window — see AiService.SelectConnection.
 api.MapPost("/ai/connections/{id}/select", (string id, AiService ai) => ai.SelectConnection(id));
 
 api.MapPost("/ai/script", async (AiScriptRequest req, AiService ai, CancellationToken ct)
     => await ai.WriteScriptAsync(req, ct));
+
+// What the script writer's window says the next request will cost, before it is sent.
+api.MapPost("/ai/script/size", (AiScriptRequest req, AiService ai) => ai.ScriptSize(req));
 
 api.MapPost("/ai/extract", async (AiExtractRequest req, AiService ai, CancellationToken ct)
     => await ai.ExtractAsync(req, ct));
@@ -463,13 +467,17 @@ api.MapPost("/ai/extract/save", (AiSaveExtractRequest req, AiService ai) => ai.S
 api.MapPost("/ai/relay/{id}", async (string id, HttpRequest request, AiRelay relay, CancellationToken ct)
     => await relay.ForwardAsync(id, request, ct));
 
-// The assistant's kept chats: the list, one chat, keeping one and throwing one away. Kept here
+// The assistant's microphone, when it is set to have the AI provider write out what was said.
+api.MapPost("/ai/transcribe/{id}", async (string id, AiTranscribeRequest asked, AiRelay relay, CancellationToken ct)
+    => await relay.TranscribeAsync(id, asked, ct));
+
+// The AI windows' kept chats: the list, one chat, keeping one and throwing one away. Kept here
 // beside the connections rather than in the browser, since the bench is one workspace - see AiChats.
-api.MapGet("/ai/chats", (AiChats chats) => chats.ListAsync());
-api.MapGet("/ai/chats/{id}", (string id, AiChats chats) => chats.LoadAsync(id));
-api.MapPut("/ai/chats/{id}", (string id, HttpRequest request, AiChats chats, CancellationToken ct)
-    => chats.SaveAsync(id, request, ct));
-api.MapDelete("/ai/chats/{id}", (string id, AiChats chats) => chats.DeleteAsync(id));
+api.MapGet("/ai/chats", (string? kind, AiChats chats) => chats.ListAsync(kind));
+api.MapGet("/ai/chats/{id}", (string id, string? kind, AiChats chats) => chats.LoadAsync(id, kind));
+api.MapPut("/ai/chats/{id}", (string id, string? kind, HttpRequest request, AiChats chats, CancellationToken ct)
+    => chats.SaveAsync(id, request, ct, kind));
+api.MapDelete("/ai/chats/{id}", (string id, string? kind, AiChats chats) => chats.DeleteAsync(id, kind));
 
 app.MapHub<BenchHub>("/hub/bench");
 

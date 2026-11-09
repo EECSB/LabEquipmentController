@@ -25,7 +25,7 @@ dotnet run --project Cli/LabEquipmentController.Cli.csproj -- scan --range 192.1
 | `lec capture <address>` | Read a scope trace as CSV or SVG |
 | `lec plot <csv-file>` | Draw a recorded CSV as an SVG chart |
 | `lec catalog <text>` | Search all 36 catalogs, by syntax or description |
-| `lec mcp <address>…` | Serve instruments to an MCP client — Claude Code, Claude Desktop |
+| `lec mcp [<address>…]` | Serve instruments to an MCP client — Claude Code, Claude Desktop |
 | `lec version` | Version, runtime, and the catalog totals |
 
 Addresses take a bare host (raw socket on 5025), `host:port`, `vxi://host`,
@@ -123,6 +123,13 @@ configuration file.
   it back whole; nothing here runs it. Save it and use `lec run` or `lec seq`.
 - **Standard output is the protocol's.** What a person would want to read, such as which
   instruments answered, goes to standard error, which clients keep as the server's log.
+- **It can work the bench page you have open instead.** An instrument takes one connection at a
+  time, so one the bench already holds cannot also be reached from here. Under the gear on the
+  bench page, AI settings, MCP server, press Start and tell Claude the code it shows: `link_tab`
+  joins the two, and every tool then works the instruments open on that page, each call listed
+  there, until `unlink_tab` or Stop. `claude mcp add lec -- lec mcp` needs no addresses for this.
+  It listens on 127.0.0.1 port 43717 (`--link-port` for another, `0` for none), and the code is
+  the lock.
 
 ## Build a standalone binary
 

@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 
@@ -13,9 +14,16 @@ public sealed class AiPayload
     public byte[]? Bytes { get; private init; }
     public string? MimeType { get; private init; }
 
+    /// <summary>
+    /// Files that go ahead of the text, as <see cref="AiAttachment.Parts"/> has them: what a person
+    /// attached to a request. Empty for everything else, and then the request is what it always was.
+    /// </summary>
+    public IReadOnlyList<AttachmentPart> Parts { get; private init; } = [];
+
     public bool IsDocument => Bytes != null;
 
-    public static AiPayload FromText(string text) => new() { Text = text };
+    public static AiPayload FromText(string text, IReadOnlyList<AttachmentPart>? parts = null)
+        => new() { Text = text, Parts = parts ?? [] };
 
     public static AiPayload FromDocument(byte[] bytes, string mimeType)
         => new() { Bytes = bytes, MimeType = mimeType };
@@ -71,6 +79,7 @@ public static class AiRequest
                 ["data"] = Convert.ToBase64String(payload.Bytes!),
             });
         }
+        foreach (AttachmentPart part in payload.Parts) input.Add(GeminiPart(part));
         input.Add(new JsonObject { ["type"] = "text", ["text"] = Prompt(instruction, payload) });
 
         var body = new JsonObject
@@ -97,6 +106,14 @@ public static class AiRequest
         return body.ToJsonString(Compact);
     }
 
+    /// <summary>One part of a request's files as the Interactions API takes it: a picture or a PDF as its bytes, the rest as text.</summary>
+    public static JsonObject GeminiPart(AttachmentPart part) => part.Kind switch
+    {
+        AttachmentKind.Image => new JsonObject { ["type"] = "image", ["mime_type"] = part.MediaType, ["data"] = part.Base64 },
+        AttachmentKind.Pdf => new JsonObject { ["type"] = "document", ["mime_type"] = part.MediaType, ["data"] = part.Base64 },
+        _ => new JsonObject { ["type"] = "text", ["text"] = part.Text },
+    };
+
     // Anthropic Messages API: content blocks inside one user message. A PDF is a "document"
     // block with a base64 source. max_tokens is required, not optional.
     private static string Anthropic(AiConnection cn, string instruction, AiPayload payload, JsonNode schema)
@@ -115,6 +132,7 @@ public static class AiRequest
                 },
             });
         }
+        foreach (AttachmentPart part in payload.Parts) content.Add(AnthropicProvider.Block(part));
         content.Add(new JsonObject
         {
             ["type"] = "text",
@@ -162,6 +180,21 @@ public static class AiRequest
             throw new NotSupportedException(
                 "This endpoint cannot take an uploaded document; extract the text first.");
 
+        string prompt = Prompt(instruction, payload)
+                      + "\n\nReply with JSON matching this schema and nothing else:\n"
+                      + schema.ToJsonString(Compact);
+
+        // Plain text unless there are files to go ahead of it: not every server of one's own
+        // takes the array form, and a request with nothing attached has no reason to ask it to.
+        JsonNode content = prompt;
+        if (payload.Parts.Count > 0)
+        {
+            var parts = new JsonArray();
+            foreach (AttachmentPart part in payload.Parts) parts.Add(OpenAiProvider.Part(part));
+            parts.Add(new JsonObject { ["type"] = "text", ["text"] = prompt });
+            content = parts;
+        }
+
         var body = new JsonObject
         {
             ["model"] = cn.EffectiveModel,
@@ -170,9 +203,7 @@ public static class AiRequest
                 new JsonObject
                 {
                     ["role"] = "user",
-                    ["content"] = Prompt(instruction, payload)
-                                + "\n\nReply with JSON matching this schema and nothing else:\n"
-                                + schema.ToJsonString(Compact),
+                    ["content"] = content,
                 },
             },
             ["response_format"] = new JsonObject { ["type"] = "json_object" },
@@ -293,6 +324,26 @@ public static class AiRequest
                 return t.GetValue<string>();
         }
         return null;
+    }
+
+    /// <summary>What one reply says it was billed, or null where it says nothing or will not read.</summary>
+    public static LlmUsage? UsageFrom(AiProvider provider, string json)
+    {
+        try
+        {
+            using JsonDocument document = JsonDocument.Parse(json);
+            return provider switch
+            {
+                AiProvider.Gemini => LlmUsage.FromInteractions(document.RootElement),
+                AiProvider.Anthropic => LlmUsage.FromAnthropic(document.RootElement),
+                AiProvider.OpenAiCompatible => LlmUsage.FromOpenAi(document.RootElement),
+                _ => null,
+            };
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
     }
 
     /// <summary>

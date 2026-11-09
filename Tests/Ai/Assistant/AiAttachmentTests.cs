@@ -48,7 +48,9 @@ public class AiAttachmentTests
     [InlineData("dragged", "application/pdf", AttachmentKind.Pdf)]
     [InlineData("dragged", "application/vnd.openxmlformats-officedocument.wordprocessingml.document", AttachmentKind.Document)]
     [InlineData("notes", "text/plain", AttachmentKind.Text)]
-    [InlineData("table.xlsx", "", AttachmentKind.Unsupported)]
+    [InlineData("table.xlsx", "", AttachmentKind.Document)]
+    [InlineData("macros.xlsm", "", AttachmentKind.Document)]
+    [InlineData("dragged", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", AttachmentKind.Document)]
     [InlineData("old.xls", "", AttachmentKind.Unsupported)]
     [InlineData("old.doc", "", AttachmentKind.Unsupported)]
     [InlineData("screen.bmp", "image/bmp", AttachmentKind.Unsupported)]
@@ -63,10 +65,10 @@ public class AiAttachmentTests
     [Fact]
     public void A_file_that_could_be_made_readable_is_turned_away_with_what_to_do_instead()
     {
-        Assert.Contains("Excel workbook, which the assistant does not read. Save the sheet as a CSV, or print it to a PDF",
-                        AiAttachment.Problem("readings.xlsx", "", [1]));
-        Assert.Contains("Save the sheet as a CSV", AiAttachment.Problem("old.xls", "", [1]));
-        Assert.Contains("Save the sheet as a CSV",
+        Assert.Contains("Excel workbook from before 2007, which the assistant does not read. Save the sheet as an .xlsx or a CSV",
+                        AiAttachment.Problem("old.xls", "", [1]));
+        Assert.Contains("is not an Excel workbook", AiAttachment.Problem("readings.xlsx", "", [1]));
+        Assert.Contains("is not an Excel workbook",
                         AiAttachment.Problem("dragged", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", [1]));
         Assert.Contains("Word document from before 2007, which the assistant does not read. Save it as a .docx or a PDF",
                         AiAttachment.Problem("manual.doc", "", [1]));
@@ -149,11 +151,50 @@ public class AiAttachmentTests
         Assert.Contains(".docx", accepted);
         Assert.Contains(".scpi", accepted);
         Assert.Contains(".seq", accepted);
-        Assert.DoesNotContain(".xlsx", accepted);
+        Assert.Contains(".xlsx", accepted);
+        Assert.DoesNotContain(".xls", accepted);
         Assert.All(accepted, extension => Assert.NotEqual(AttachmentKind.Unsupported, AiAttachment.KindOf("x" + extension, "")));
     }
 
     // -------------------------------------------------------------------------- reading text
+
+    /// <summary>A workbook of its smallest honest shape: one sheet, inline strings and a number.</summary>
+    private static byte[] Workbook()
+    {
+        using var memory = new MemoryStream();
+        using (var zip = new System.IO.Compression.ZipArchive(memory, System.IO.Compression.ZipArchiveMode.Create, leaveOpen: true))
+        {
+            void Part(string name, string xml)
+            {
+                using var writer = new StreamWriter(zip.CreateEntry(name).Open());
+                writer.Write(xml);
+            }
+
+            Part("[Content_Types].xml", """<?xml version="1.0"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/></Types>""");
+            Part("_rels/.rels", """<?xml version="1.0"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>""");
+            Part("xl/workbook.xml", """<?xml version="1.0"?><workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets><sheet name="Limits" sheetId="1" r:id="rId1"/></sheets></workbook>""");
+            Part("xl/_rels/workbook.xml.rels", """<?xml version="1.0"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/></Relationships>""");
+            Part("xl/worksheets/sheet1.xml", """<?xml version="1.0"?><worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData><row r="1"><c r="A1" t="inlineStr"><is><t>Vmax</t></is></c><c r="B1"><v>5.5</v></c></row></sheetData></worksheet>""");
+        }
+        return memory.ToArray();
+    }
+
+    [Fact]
+    public void An_Excel_workbook_goes_as_its_rows_with_each_rows_number()
+    {
+        var file = new AiAttachment("limits.xlsx", "", Workbook());
+
+        Assert.Null(AiAttachment.Problem(file.Name, file.MediaType, file.Data));
+        Assert.Null(file.Unreadable);
+        Assert.Contains("1\tVmax\t5.5", file.Text);
+    }
+
+    [Fact]
+    public void A_zip_that_is_no_workbook_is_turned_away_as_one()
+    {
+        Assert.Contains("is not an Excel workbook", AiAttachment.Problem("readings.xlsx", "", [0x50, 0x4B, 3, 4]));
+    }
+
 
     [Fact]
     public void Text_is_utf8_unless_a_mark_says_otherwise_and_latin1_when_it_is_not()

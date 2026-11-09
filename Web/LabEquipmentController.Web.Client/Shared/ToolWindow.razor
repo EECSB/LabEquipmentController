@@ -17,6 +17,10 @@
 
 <dialog class="tool" @ref="_el" aria-label="@Title" style="@Sized">
     <div class="tool-head">
+        @if (TitleIcon is not null)
+        {
+            <span class="title-icon" aria-hidden="true">@TitleIcon</span>
+        }
         <span class="name">@Title</span>
         @if (!string.IsNullOrWhiteSpace(Subtitle))
         {
@@ -51,6 +55,9 @@
     [Parameter] public RenderFragment<ToolWindow>? Head { get; set; }
 
     [Parameter] public RenderFragment? ChildContent { get; set; }
+
+    /// <summary>A small picture before the title: the AI assistant's spark.</summary>
+    [Parameter] public RenderFragment? TitleIcon { get; set; }
 
     /// <summary>
     /// Whether what is inside fills the window rather than scrolling inside it. True for the

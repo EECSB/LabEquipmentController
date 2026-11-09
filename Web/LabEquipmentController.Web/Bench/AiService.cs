@@ -72,7 +72,7 @@ public sealed class AiService
                 one.Id, labels[i], one.Name, one.Info.Label, one.EffectiveModel,
                 _settings.ConfiguredFor(one.Id),
                 one.Provider.ToString(), one.EffectiveBaseUrl, one.ExtractTextLocally,
-                one.InputPrice, one.CachedPrice, one.OutputPrice));
+                one.InputPrice, one.CachedPrice, one.OutputPrice, one.MaxTokens));
         }
 
         return new AiStatus(
@@ -107,6 +107,13 @@ public sealed class AiService
         _settings.Add(provider);
         return new AiSettingsReply(Status(), null);
     }
+
+    /// <summary>A copy of one, key and all, right after it and selected, and the state after.</summary>
+    public AiSettingsReply DuplicateConnection(string id)
+        => HostSupplied ? new AiSettingsReply(null, ServiceMode.HostConnectionsMessage)
+            : _settings.Duplicate(id) is not null
+                ? new AiSettingsReply(Status(), null)
+                : new AiSettingsReply(null, "There is no such connection.");
 
     /// <summary>Forget one, and its key with it.</summary>
     public AiSettingsReply RemoveConnection(string id)
@@ -196,13 +203,23 @@ public sealed class AiService
         if (instruments.Count == 0)
             return new AiScriptReply("", [], "Connect an instrument first — the model is only allowed the commands in its catalog.");
 
+        var (files, turnedAway) = Attached(req.Files);
+        if (turnedAway is not null) return new AiScriptReply("", [], turnedAway);
+
+        // A copy, because this is one request's choice and the connection is the server's.
+        if (req.Effort is not null)
+        {
+            connection = connection.Clone();
+            connection.Effort = ScriptAuthor.EffortFrom(req.Effort);
+        }
+
         try
         {
             var author = new ScriptAuthor(_client);
             var result = await author.WriteAsync(
                 req.Request, instruments, req.IsSequence, connection, apiKey,
-                req.CurrentScript, req.RecentOutput, Conversation(req.History), ct);
-            return new AiScriptReply(result.Script, result.Undocumented, null, result.Notes);
+                req.CurrentScript, req.RecentOutput, Conversation(req.History), files, ct);
+            return new AiScriptReply(result.Script, result.Undocumented, null, result.Notes, result.Usage);
         }
         catch (Exception ex)
         {
@@ -211,6 +228,50 @@ public sealed class AiService
         }
     }
 
+    /// <summary>How long a request is before the conversation, the files and the box, for the window's line that says what the next one costs.</summary>
+    public AiScriptSize ScriptSize(AiScriptRequest req)
+    {
+        IReadOnlyList<ScriptContextInstrument> instruments = Describe(req);
+        return new AiScriptSize(instruments.Count == 0
+            ? 0
+            : new ScriptAuthor(_client).PromptCharacters(instruments, req.IsSequence, req.CurrentScript, req.RecentOutput));
+    }
+
+    /// <summary>
+    /// The files a request came with, held to what the window holds them to, since a page can say
+    /// anything: what each one is, and how much one conversation sends.
+    /// </summary>
+    private static (List<AiAttachment> Files, string? Refusal) Attached(IReadOnlyList<AiScriptFile>? sent)
+    {
+        var files = new List<AiAttachment>();
+        if (sent is not { Count: > 0 }) return (files, null);
+
+        long total = 0;
+        foreach (AiScriptFile file in sent)
+        {
+            byte[] data;
+            try
+            {
+                data = Convert.FromBase64String(file.Base64);
+            }
+            catch (FormatException)
+            {
+                return ([], $"{file.Name} did not arrive whole.");
+            }
+
+            if (AiAttachment.Problem(file.Name, file.MediaType, data) is string problem) return ([], problem);
+
+            total += data.Length;
+            if (total > AiAttachment.MostConversationBytes)
+                return ([], $"These files come to more than the {AiAttachment.Size(AiAttachment.MostConversationBytes)} one conversation can send.");
+
+            files.Add(new AiAttachment(file.Name, file.MediaType, data));
+        }
+
+        return (files, null);
+    }
+
+    /// <summary>A level from the window's menu on the scale this path sends: the two above High, which only some Claude models have, are High here.</summary>
     /// <summary>
     /// The instruments a request may use, described as the desktop describes them — by the same
     /// Core code (<see cref="ScriptContext"/>), so both builds tell the model the same things.

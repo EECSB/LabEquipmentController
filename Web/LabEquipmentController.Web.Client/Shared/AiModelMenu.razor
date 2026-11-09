@@ -1,0 +1,232 @@
+@implements IAsyncDisposable
+@inject IJSRuntime JS
+
+@* The model and its effort in one button, along the foot of the box, and the menu it opens over
+   the conversation's foot: GDS Viewer's #aiModelMenuToggle and #aiModelMenu. The saved models with
+   a check on the one picked and their provider beside each, then the effort, a row that opens its
+   levels in the menu's place, fast mode's switch on a model that has it, and Manage models.
+
+   A model or a level chosen closes it and the switch leaves it up. Escape steps back out of the
+   levels before it closes the menu, and a press anywhere else closes it. Both AI windows use it,
+   so the two cannot come to differ. *@
+
+<div class="aiModelHolder" @ref="_root">
+    @if (_open)
+    {
+        <div class="aiModelMenu" role="menu" aria-label="Model and effort" tabindex="-1" data-popup @ref="_card">
+            @if (_levels)
+            {
+                <button type="button" class="aiModelMenuItem aiModelMenuBack" @onclick="() => _levels = false">
+                    <svg class="aiModelMenuChevron" viewBox="0 0 16 16" aria-hidden="true">
+                        <path d="M10 3.5 5.5 8l4.5 4.5" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" />
+                    </svg>
+                    Effort
+                </button>
+
+                @foreach (AiMenuLevel level in Levels)
+                {
+                    <button type="button" class="aiModelMenuItem" role="menuitemradio" aria-checked="@(Effort == level.Value ? "true" : "false")"
+                            data-effort="@level.Value" @onclick="() => ChooseLevel(level.Value)">
+                        <span class="aiModelMenuName">@level.Label</span>
+                        @if (Effort == level.Value) { <Check /> }
+                    </button>
+                }
+            }
+            else
+            {
+                @if (Models.Count == 0)
+                {
+                    <div class="aiModelMenuNote">No model yet. Add one under AI settings.</div>
+                }
+
+                @foreach (AiMenuModel model in Models)
+                {
+                    bool on = model.Id == SelectedId;
+                    <button type="button" class="aiModelMenuItem" role="menuitemradio" aria-checked="@(on ? "true" : "false")"
+                            data-model="@model.Id" @onclick="() => ChooseModel(model.Id)">
+                        <span class="aiModelMenuName">@model.Name</span>
+                        <span class="aiModelMenuValue">@model.Provider</span>
+                        @if (on) { <Check /> }
+                    </button>
+                }
+
+                @if (EffortSaid is string said)
+                {
+                    <div class="aiModelMenuLine"></div>
+
+                    <button type="button" class="aiModelMenuItem aiModelMenuEffort" role="menuitem"
+                            title="How hard the model thinks before answering, for this question only. Thinking is billed as output. Default sends no level, and the model thinks as its provider has it think."
+                            @onclick="() => _levels = true">
+                        <span class="aiModelMenuName">Effort</span>
+                        <span class="aiModelMenuValue">@said</span>
+                        <svg class="aiModelMenuChevron" viewBox="0 0 16 16" aria-hidden="true">
+                            <path d="M6 3.5 10.5 8 6 12.5" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" />
+                        </svg>
+                    </button>
+                }
+
+                @if (SupportsFast)
+                {
+                    <div class="aiModelMenuLine"></div>
+                    <div class="aiModelMenuGroup">Fast mode</div>
+
+                    <button type="button" class="aiModelMenuItem" role="menuitemcheckbox" aria-checked="@(Fast ? "true" : "false")"
+                            title="The same model, writing up to two and a half times as fast, at twice the price. Anthropic's Opus models only."
+                            @onclick="() => FastChanged.InvokeAsync(!Fast)">
+                        <span class="aiModelMenuName">Enable fast mode</span>
+                        <span class="aiSwitch @(Fast ? "aiSwitchOn" : null)" aria-hidden="true"></span>
+                    </button>
+
+                    <div class="aiModelMenuNote">Up to 2.5× as fast, at twice the price.</div>
+                }
+
+                @if (OnManage.HasDelegate)
+                {
+                    <div class="aiModelMenuLine"></div>
+
+                    <button type="button" class="aiModelMenuItem aiModelMenuManage" role="menuitem" @onclick="ManageAsync">
+                        <span class="aiModelMenuName">Manage models</span>
+                        <svg class="aiModelMenuChevron" viewBox="0 0 16 16" aria-hidden="true">
+                            <path d="M6 3.5 10.5 8 6 12.5" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" />
+                        </svg>
+                    </button>
+                }
+            }
+        </div>
+    }
+
+    <button type="button" class="aiModelToggle @(_open ? "aiModelToggleOn" : null)" disabled="@Disabled"
+            aria-haspopup="menu" aria-expanded="@(_open ? "true" : "false")" aria-label="AI model"
+            title="@Title" @onclick="Toggle">
+        <span class="aiModelToggleName">@Chosen</span>
+
+        @if (EffortSaid is string quiet)
+        {
+            <span class="aiModelToggleEffort">@quiet</span>
+        }
+
+        @if (Fast)
+        {
+            <svg class="aiModelToggleFast" viewBox="0 0 16 16" aria-hidden="true">
+                <path d="M9.2 1.5 3.5 9h4l-1 5.5L12.5 7h-4z" fill="currentColor" />
+            </svg>
+        }
+
+        <svg class="aiModelToggleArrow" viewBox="0 0 16 16" aria-hidden="true">
+            <path d="M4.5 6.5 8 10l3.5-3.5" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" />
+        </svg>
+    </button>
+</div>
+
+@code {
+    /// <summary>The saved models, in the order they are kept.</summary>
+    [Parameter] public IReadOnlyList<AiMenuModel> Models { get; set; } = [];
+
+    /// <summary>The id of the model picked, or null with none.</summary>
+    [Parameter] public string? SelectedId { get; set; }
+
+    /// <summary>The button's words: the model's name, or what to do without one.</summary>
+    [Parameter] public string Chosen { get; set; } = "";
+
+    /// <summary>The effort beside the name, or null on a model that takes none.</summary>
+    [Parameter] public string? EffortSaid { get; set; }
+
+    /// <summary>The levels the model takes, Default first.</summary>
+    [Parameter] public IReadOnlyList<AiMenuLevel> Levels { get; set; } = [];
+
+    /// <summary>The level chosen: "" for Default.</summary>
+    [Parameter] public string Effort { get; set; } = "";
+
+    [Parameter] public bool SupportsFast { get; set; }
+    [Parameter] public bool Fast { get; set; }
+    [Parameter] public bool Disabled { get; set; }
+    [Parameter] public string Title { get; set; } = "";
+
+    [Parameter] public EventCallback<string> OnModel { get; set; }
+    [Parameter] public EventCallback<string> OnEffort { get; set; }
+    [Parameter] public EventCallback<bool> FastChanged { get; set; }
+
+    /// <summary>Manage models: AI settings, where they are added, changed and taken out. Left unset, the row is not drawn.</summary>
+    [Parameter] public EventCallback OnManage { get; set; }
+
+    private ElementReference _root;
+    private ElementReference _card;
+    private DotNetObjectReference<AiModelMenu>? _self;
+    private bool _open;
+    private bool _levels;
+    private bool _focus;
+
+    protected override async Task OnAfterRenderAsync(bool first)
+    {
+        if (first)
+        {
+            _self = DotNetObjectReference.Create(this);
+            await JS.InvokeVoidAsync("lec.assistant.outside", _root, _self, nameof(Dismissed));
+            await JS.InvokeVoidAsync("lec.assistant.escape", _root, _self, nameof(EscapePressed));
+        }
+
+        if (_focus && _open)
+        {
+            _focus = false;
+            await JS.InvokeVoidAsync("lec.focus", _card);
+        }
+    }
+
+    /// <summary>A press anywhere but the menu or its button, reported by lec.assistant.outside.</summary>
+    [JSInvokable]
+    public void Dismissed()
+    {
+        if (!_open) return;
+        _open = false;
+        _levels = false;
+        StateHasChanged();
+    }
+
+    private void Toggle()
+    {
+        _open = !_open;
+        _levels = false;
+        _focus = _open;
+    }
+
+    /// <summary>Esc while the menu is up: out of the levels first, then the menu.</summary>
+    [JSInvokable]
+    public void EscapePressed()
+    {
+        if (_levels) _levels = false;
+        else _open = false;
+        StateHasChanged();
+    }
+
+    private async Task ChooseModel(string id)
+    {
+        _open = false;
+        await OnModel.InvokeAsync(id);
+    }
+
+    private async Task ChooseLevel(string level)
+    {
+        _open = false;
+        _levels = false;
+        await OnEffort.InvokeAsync(level);
+    }
+
+    private async Task ManageAsync()
+    {
+        _open = false;
+        await OnManage.InvokeAsync();
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        try
+        {
+            await JS.InvokeVoidAsync("lec.assistant.outsideOff", _root);
+        }
+        catch (Exception e) when (e is JSDisconnectedException or JSException or InvalidOperationException)
+        {
+            // The page is going: there is nothing left to take the listener off.
+        }
+        _self?.Dispose();
+    }
+}

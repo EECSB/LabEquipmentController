@@ -1,0 +1,143 @@
+@implements IDisposable
+@inject AiPreferences Preferences
+@inject AssistantState State
+
+@* AI settings, GDS Viewer's window: the MCP server, then the models with the note on where keys are
+   kept, how the microphone writes speech out, and how long the assistant may go on calling tools
+   before it asks. A window rather than a modal box, so the bench can still be worked on beside it
+   (UI-SPEC §5, The AI assistant). *@
+<ToolWindow @ref="_window" Title="AI settings" Fill="true" OpenWidth="520" OpenHeight="680" OnClosed="() => OnClosed.InvokeAsync()">
+    <div class="aiBody aiSettingsBody">
+        @if (_status?.HostConnections != true)
+        {
+            <LiveLinkCard Link="State.Link" />
+        }
+
+        <div class="aiSettingsCard">
+            <div class="aiSettingsCardTitle">
+                <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">
+                    <path fill="currentColor" d="M6.4 1.6c.3 2.6 1.6 4 4.2 4.3-2.6.3-3.9 1.7-4.2 4.3-.3-2.6-1.6-4-4.2-4.3 2.6-.3 3.9-1.7 4.2-4.3z" />
+                    <path fill="currentColor" d="M11.6 8.6c.2 1.6 1 2.4 2.6 2.6-1.6.2-2.4 1-2.6 2.6-.2-1.6-1-2.4-2.6-2.6 1.6-.2 2.4-1 2.6-2.6z" />
+                </svg>
+                Models
+            </div>
+
+            <AiModelsForm OnStatus="status => _status = status" />
+
+            @if (_status?.HostConnections == true)
+            {
+                <p id="aiKeysKept" class="aiFormNote aiKeysKept">
+                    <strong>Each person's own key.</strong> This server is a host's bench: the host sends the connection of whoever is
+                    asking with each request, the key is spent for that call and kept nowhere here.
+                </p>
+            }
+            else
+            {
+                <p id="aiKeysKept" class="aiFormNote aiKeysKept">
+                    <svg viewBox="0 0 16 16" width="12" height="12" aria-hidden="true">
+                        <rect x="3" y="7" width="10" height="7" rx="1.5" fill="none" stroke="currentColor" stroke-width="1.4" />
+                        <path d="M5.5 7V5a2.5 2.5 0 0 1 5 0v2" fill="none" stroke="currentColor" stroke-width="1.4" />
+                    </svg>
+                    <span>
+                        <strong>One key, shared.</strong> Keys are held by this bench's server, sent only to their provider and never back to this
+                        page. There are no accounts here, so anyone who can reach this address can spend them and change these settings:
+                        right on a private bench network, wrong on a public one.
+                    </span>
+                </p>
+            }
+
+            @* How the assistant's microphone turns speech into words. *@
+            <div class="aiSettingsPart">
+                <div class="aiFormRow aiSpeechRow">
+                    <span class="aiFormLabel aiSettingsCardTitle aiCardLabel">
+                        <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" aria-hidden="true">
+                            <rect x="5.75" y="1.75" width="4.5" height="8" rx="2.25" />
+                            <path d="M3.6 7.6a4.4 4.4 0 0 0 8.8 0M8 12v2.2M5.9 14.2h4.2" />
+                        </svg>
+                        Speech to text
+                    </span>
+
+                    <div class="sidebarPanelPick" role="group" aria-label="Speech to text">
+                        <button id="aiSpeechBrowser" type="button" class="sidebarPanelChoice @(_mode == SpeechMode.Browser ? "sidebarPanelChoiceOn" : null)"
+                                aria-pressed="@(_mode == SpeechMode.Browser ? "true" : "false")" @onclick="() => ChooseAsync(SpeechMode.Browser)">Browser</button>
+                        <button id="aiSpeechProvider" type="button" class="sidebarPanelChoice @(_mode == SpeechMode.Provider ? "sidebarPanelChoiceOn" : null)"
+                                aria-pressed="@(_mode == SpeechMode.Provider ? "true" : "false")" @onclick="() => ChooseAsync(SpeechMode.Provider)">AI provider</button>
+                    </div>
+                </div>
+
+                <p id="aiSpeechNote" class="aiFormNote">@SpeechNote()</p>
+            </div>
+
+            @* How long the assistant may go on calling tools before it asks. *@
+            <div class="aiSettingsPart">
+                <label class="aiFormRow aiRoundsRow">
+                    <span class="aiFormLabel aiRoundsLabel aiSettingsCardTitle aiCardLabel">
+                        <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                            <path d="M2.5 5.2h10.5M10.4 2.6l2.6 2.6-2.6 2.6M13.5 10.8H3M5.6 8.2 3 10.8l2.6 2.6" />
+                        </svg>
+                        Tool rounds before asking
+                    </span>
+                    <input id="aiToolRounds" type="number" class="aiField aiNumber" min="@AiPreferences.FewestRounds" max="@AiPreferences.MostRounds" step="1"
+                           value="@_rounds" @onchange="RoundsChangedAsync" />
+                </label>
+
+                <p id="aiToolRoundsNote" class="aiFormNote">
+                    Each round sends the whole conversation again, and is billed. When an answer takes this many rounds, the assistant
+                    pauses and asks whether to go on for another as many.
+                </p>
+            </div>
+        </div>
+    </div>
+</ToolWindow>
+
+@code {
+    /// <summary>The window has shut, by its ✕ or Esc.</summary>
+    [Parameter] public EventCallback OnClosed { get; set; }
+
+    private ToolWindow? _window;
+    private AiStatus? _status;
+    private SpeechMode _mode = SpeechMode.Browser;
+    private int _rounds = LlmProviders.DefaultToolRounds;
+
+    /// <summary>Brings the window forward when it is asked for again.</summary>
+    public Task RaiseAsync() => _window?.RaiseAsync() ?? Task.CompletedTask;
+
+    protected override async Task OnInitializedAsync()
+    {
+        Preferences.Changed += OnPreferenceChanged;
+        _mode = await Preferences.SpeechAsync();
+        _rounds = await Preferences.ToolRoundsAsync();
+    }
+
+    public void Dispose() => Preferences.Changed -= OnPreferenceChanged;
+
+    private async Task OnPreferenceChanged()
+    {
+        _mode = await Preferences.SpeechAsync();
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private async Task ChooseAsync(SpeechMode chosen)
+    {
+        _mode = chosen;
+        await Preferences.SetSpeechAsync(chosen);
+    }
+
+    /// <summary>A number typed is kept, brought into range; anything else puts back the one there was.</summary>
+    private async Task RoundsChangedAsync(ChangeEventArgs e)
+    {
+        int typed = int.TryParse(e.Value?.ToString(), System.Globalization.NumberStyles.Integer, System.Globalization.CultureInfo.InvariantCulture, out int parsed)
+            ? parsed
+            : _rounds;
+
+        // Set to something else first, so a value brought back into range is drawn again even when it equals the old one.
+        _rounds = -1;
+        StateHasChanged();
+
+        _rounds = await Preferences.SetToolRoundsAsync(typed);
+    }
+
+    private string SpeechNote() => _mode == SpeechMode.Provider
+        ? "The microphone records until pressed again, and an OpenAI or Gemini model writes it out, told the instruments' names. More accurate with a bench's words, and billed; Claude models take no audio."
+        : "Words appear as you speak, free, by the browser's own recognition. Chrome's and Edge's send the audio to Google and Microsoft; other browsers have none.";
+}

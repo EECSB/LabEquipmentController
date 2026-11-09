@@ -1,5 +1,6 @@
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using LabEquipmentController.Web.Client.Contracts;
 
 namespace LabEquipmentController.Web.Bench;
 
@@ -94,6 +95,39 @@ public sealed class AiRelay
         {
             log.LogWarning("AI relay could not reach {Url}: {Message}", LlmEndpoints.ChatUrl(connection), ex.Message);
             return Said(StatusCodes.Status502BadGateway, $"This server could not reach {LlmEndpoints.ChatUrl(connection)}: {ex.Message}. Check the connection's address, and that the server can reach the internet.");
+        }
+    }
+
+    /// <summary>
+    /// A recording from the page's microphone, written out by the connection's provider under the
+    /// key this server holds. The page says which connection, as it does for a question; the
+    /// address is the provider's own and is not the page's to choose.
+    /// </summary>
+    public async Task<AiTranscribeReply> TranscribeAsync(string id, AiTranscribeRequest asked, CancellationToken ct)
+    {
+        AiConnection? connection = settings.Book.Find(id);
+        if (connection is null)
+            return new AiTranscribeReply(null, "That AI connection is not on this server any more. Pick another under AI settings.");
+
+        byte[] wav;
+        try
+        {
+            wav = Convert.FromBase64String(asked.Wav);
+        }
+        catch (FormatException)
+        {
+            return new AiTranscribeReply(null, "The page sent a recording that could not be read.");
+        }
+
+        try
+        {
+            var (text, problem) = await SpeechTranscriber.TranscribeAsync(Http, connection, settings.KeyFor(id), wav, asked.Vocabulary, ct);
+            return new AiTranscribeReply(text, problem);
+        }
+        catch (HttpRequestException ex)
+        {
+            log.LogWarning("AI transcription could not reach {Provider}: {Message}", connection.Info.Label, ex.Message);
+            return new AiTranscribeReply(null, $"This server could not reach {connection.Info.Label}: {ex.Message}");
         }
     }
 

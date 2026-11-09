@@ -530,9 +530,8 @@ public sealed class SequenceForm : Form
     {
         IReadOnlyList<ScriptContextInstrument> bench = BenchForAi();
 
-        string? written = ScriptAiForm.Ask(
-            this, bench, isSequence: true, _editor.Text, _output.Text);
-        if (written != null) TakeWritten(written);
+        ScriptWriters.Open(this, bench, isSequence: true,
+            () => _editor.Text, () => _output.Text, TakeWritten);
     }
 
     /// <summary>

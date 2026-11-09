@@ -511,7 +511,8 @@ public sealed record HostAiConnection(
 public sealed record AiConnectionDto(
     string Id, string Label, string Name, string Provider, string Model, bool Configured,
     string Kind = "", string BaseUrl = "", bool? ExtractTextLocally = null,
-    decimal? InputPrice = null, decimal? CachedPrice = null, decimal? OutputPrice = null)
+    decimal? InputPrice = null, decimal? CachedPrice = null, decimal? OutputPrice = null,
+    int? MaxTokens = null)
 {
     /// <summary>The connection as Core describes one, keyless, for the assistant's providers.</summary>
     public AiConnection ToConnection() => new()
@@ -525,6 +526,7 @@ public sealed record AiConnectionDto(
         InputPrice = InputPrice,
         CachedPrice = CachedPrice,
         OutputPrice = OutputPrice,
+        MaxTokens = MaxTokens,
     };
 }
 
@@ -538,7 +540,14 @@ public sealed record AiConnectionDto(
 public sealed record AiSettingsUpdate(
     string Provider, string Endpoint, string Model, bool? ExtractTextLocally,
     int TimeoutSeconds, string? ApiKey, string? Effort = null,
-    string? Id = null, string? Name = null, AiRates? Rates = null);
+    string? Id = null, string? Name = null, AiRates? Rates = null,
+    int? MaxTokens = null);
+
+/// <summary>A recording for the provider to write out: a 16 kHz WAV in base64, and the words to expect.</summary>
+public sealed record AiTranscribeRequest(string Wav, string Vocabulary);
+
+/// <summary>The words the provider heard, or why there are none.</summary>
+public sealed record AiTranscribeReply(string? Text, string? Problem);
 
 /// <summary>
 /// What a million tokens cost on a connection's model, in US dollars, as the user typed them —
@@ -551,17 +560,6 @@ public sealed record AiRates(decimal? Input, decimal? Cached, decimal? Output);
 public sealed record AiSettingsReply(AiStatus? Status, string? Error);
 
 /// <summary>
-/// Which of the two AI windows is wanted. They are two forms on the desktop —
-/// <c>ScriptAiForm</c>, opened from a script editor, and <c>DatasheetExtractForm</c>, opened
-/// from a console — reached from different buttons and doing different jobs.
-/// </summary>
-public enum AiTool
-{
-    Script,
-    Datasheet,
-}
-
-/// <summary>
 /// One exchange already had, on its way back to the model — Core's <c>ScriptTurn</c>, which
 /// the browser cannot reach.
 ///
@@ -571,6 +569,9 @@ public enum AiTool
 /// </summary>
 public sealed record AiTurn(string Request, string Script, string Notes, IReadOnlyList<string> Undocumented);
 
+/// <summary>A file sent with a request to the script writer, as the window attached it.</summary>
+public sealed record AiScriptFile(string Name, string MediaType, string Base64);
+
 /// <param name="CurrentScript">The script to revise, when it is sent to be: "Revise the current script".</param>
 /// <param name="EditorScript">
 /// What is in a multi-instrument editor, revised or not. Its DEVICE lines say what it already
@@ -579,17 +580,26 @@ public sealed record AiTurn(string Request, string Script, string Notes, IReadOn
 /// </param>
 /// <param name="Picks">The binding table's picks, alias to session id, so the writer is told what the table shows.</param>
 /// <param name="Host">The connection a host sends with the request, in service mode; null otherwise.</param>
+/// <param name="Files">What is attached and ticked in the window's files panel, all of it with every request.</param>
+/// <param name="Effort">
+/// How hard to think, as the window's menu names it: "" for the model's default. Null leaves it at
+/// what the connection has saved, which is what a caller that says nothing about it has always had.
+/// </param>
 public sealed record AiScriptRequest(
     string Request, IReadOnlyList<string> SessionIds, bool IsSequence, string? CurrentScript, string? RecentOutput,
     IReadOnlyList<AiTurn>? History = null, string? EditorScript = null, IReadOnlyDictionary<string, string>? Picks = null,
-    HostAiConnection? Host = null);
+    HostAiConnection? Host = null, IReadOnlyList<AiScriptFile>? Files = null, string? Effort = null);
+
+/// <summary>How long a request to the writer is before the conversation, the files and the box: see ScriptAuthor.PromptCharacters.</summary>
+public sealed record AiScriptSize(int Characters);
 
 /// <param name="Notes">
 /// The model's own one-line account of what it did. The desktop has always shown this under
 /// the draft it is about; this build dropped it on the floor until the window became a
 /// conversation and there was somewhere for it to live.
 /// </param>
-public sealed record AiScriptReply(string Script, IReadOnlyList<string> Undocumented, string? Error, string Notes = "");
+/// <param name="Usage">What the provider says it billed for the request, or null where it said nothing.</param>
+public sealed record AiScriptReply(string Script, IReadOnlyList<string> Undocumented, string? Error, string Notes = "", LlmUsage? Usage = null);
 
 /// <param name="Host">The connection a host sends with the request, in service mode; null otherwise.</param>
 public sealed record AiExtractRequest(string FileName, string Base64, HostAiConnection? Host = null);

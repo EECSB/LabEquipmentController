@@ -1,0 +1,42 @@
+@implements IDisposable
+
+@* That a live link is up, while AI settings, where its card is, are shut: a bench Claude can reach
+   should say so wherever the person is looking. Its own component so that a call coming down the
+   link redraws this and nothing else. *@
+@if (Link is not null && !Hidden && (Link.State == LiveLinkState.Waiting || Link.State == LiveLinkState.Linked))
+{
+    <button id="liveLinkChip" type="button" class="liveLinkChip @(Link.State == LiveLinkState.Linked ? "liveLinkChipLinked" : null)" @onclick="OnOpen" title="@Title()">
+        <span class="liveLinkDot" aria-hidden="true"></span>
+        @(Link.State == LiveLinkState.Linked ? "Linked to Claude" : "MCP server waiting")
+    </button>
+}
+
+@code {
+    [Parameter] public LiveLink? Link { get; set; }
+
+    /// <summary>Whether AI settings are up, whose MCP server card says it all already.</summary>
+    [Parameter] public bool Hidden { get; set; }
+
+    [Parameter] public EventCallback OnOpen { get; set; }
+
+    private LiveLink? _watching;
+
+    protected override void OnParametersSet()
+    {
+        if (ReferenceEquals(Link, _watching)) return;
+        if (_watching is not null) _watching.Changed -= RedrawAsync;
+        _watching = Link;
+        if (_watching is not null) _watching.Changed += RedrawAsync;
+    }
+
+    public void Dispose()
+    {
+        if (_watching is not null) _watching.Changed -= RedrawAsync;
+    }
+
+    private async Task RedrawAsync() => await InvokeAsync(StateHasChanged);
+
+    private string Title() => Link?.State == LiveLinkState.Linked
+        ? "Claude can work the instruments on this bench through lec mcp. Open AI settings to see what it did, or to stop it."
+        : $"Waiting for lec mcp, with the code {Link?.Code}. Open AI settings to see it.";
+}

@@ -28,7 +28,7 @@ public enum AttachmentKind
     /// <summary>Anything that is text already — a script, a sequence, a CSV of readings — sent as its words.</summary>
     Text,
 
-    /// <summary>A Word document (.docx), sent as its words, read out of it here with <see cref="DocumentText.ReadDocx(byte[], string)"/>.</summary>
+    /// <summary>A Word document (.docx) or an Excel workbook (.xlsx), sent as its words, read out of it here with <see cref="DocumentText.ReadDocx(byte[], string)"/> and <see cref="OfficeText.Workbook"/>.</summary>
     Document,
 }
 
@@ -109,10 +109,15 @@ public sealed class AiAttachment
     /// </summary>
     private static readonly string[] BenchText = [".scpi", ".seq", ".py"];
 
-    /// <summary>Excel, which this library has no reader for — every version of it, the binary one included.</summary>
-    private static readonly string[] WorkbookFiles = [".xlsx", ".xlsm", ".xls"];
+    /// <summary>The Excel from before 2007, which is another format altogether and is not read.</summary>
+    private static readonly string[] WorkbookFiles = [".xls"];
 
-    private static readonly string[] WorkbookTypes =
+    private static readonly string[] WorkbookTypes = ["application/vnd.ms-excel"];
+
+    /// <summary>Excel workbooks: a zip of XML, as a .docx is, read out as their cells by <see cref="OfficeText"/>.</summary>
+    private static readonly string[] ReadableWorkbooks = [".xlsx", ".xlsm"];
+
+    private static readonly string[] ReadableWorkbookTypes =
     [
         "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         "application/vnd.ms-excel.sheet.macroenabled.12",
@@ -289,6 +294,18 @@ public sealed class AiAttachment
                     }
                     break;
 
+                case AttachmentKind.Document when IsWorkbook(Name, MediaType):
+                    try
+                    {
+                        (string cells, bool cut) = OfficeText.Workbook(Data, MostTextCharacters);
+                        _text = cut ? cells + "\n[The workbook goes on past what is sent here.]" : cells;
+                    }
+                    catch (Exception failed) when (failed is not OutOfMemoryException)
+                    {
+                        _unreadable = $"{Called(Name)} could not be read as an Excel workbook: {failed.Message}";
+                    }
+                    break;
+
                 case AttachmentKind.Document:
                     try
                     {
@@ -310,7 +327,7 @@ public sealed class AiAttachment
     }
 
     /// <summary>For a file picker, so it opens on what can be attached. Anything else can still be picked, and is turned away with a reason.</summary>
-    public static string Accept => string.Join(",", ImageExtensions.Concat([".pdf", ".docx"]).Concat(CommonText).Concat(BenchText));
+    public static string Accept => string.Join(",", ImageExtensions.Concat([".pdf", ".docx"]).Concat(ReadableWorkbooks).Concat(CommonText).Concat(BenchText));
 
     /// <summary>
     /// What a file is. **The name decides before the type does**: a browser calls a CSV something
@@ -326,14 +343,14 @@ public sealed class AiAttachment
 
         if (ImageExtensions.Contains(extension)) return AttachmentKind.Image;
         if (extension == ".pdf") return AttachmentKind.Pdf;
-        if (extension == ".docx") return AttachmentKind.Document;
+        if (extension == ".docx" || ReadableWorkbooks.Contains(extension)) return AttachmentKind.Document;
         if (CommonText.Contains(extension) || BenchText.Contains(extension)) return AttachmentKind.Text;
         if (Refused.Contains(extension)) return AttachmentKind.Unsupported;
 
         // No extension it knows: the type is all there is.
         if (ImageTypes.Contains(type)) return AttachmentKind.Image;
         if (type == "application/pdf") return AttachmentKind.Pdf;
-        if (type == DocumentType) return AttachmentKind.Document;
+        if (type == DocumentType || ReadableWorkbookTypes.Contains(type)) return AttachmentKind.Document;
         if (type.StartsWith("text/", StringComparison.Ordinal) || type is "application/json" or "application/xml")
             return AttachmentKind.Text;
 
@@ -363,8 +380,8 @@ public sealed class AiAttachment
 
         if (WorkbookFiles.Contains(extension)
          || (kind == AttachmentKind.Unsupported && WorkbookTypes.Contains((mediaType ?? "").Trim().ToLowerInvariant())))
-            return $"{called} is an Excel workbook, which the assistant does not read. Save the sheet as a CSV, "
-                 + "or print it to a PDF, and attach that.";
+            return $"{called} is an Excel workbook from before 2007, which the assistant does not read. Save the sheet "
+                 + "as an .xlsx or a CSV, and attach that.";
 
         if (extension == ".doc")
             return $"{called} is a Word document from before 2007, which the assistant does not read. Save it as a "
@@ -408,10 +425,16 @@ public sealed class AiAttachment
             AttachmentKind.Image when ImageType(data) is null => $"{called} is not a PNG, JPEG, GIF or WebP picture, whatever its name says.",
             AttachmentKind.Pdf when !IsPdf(data) => $"{called} is not a PDF, whatever its name says.",
             AttachmentKind.Text when !LooksLikeText(data) => $"{called} is not a text file, whatever its name says.",
+            AttachmentKind.Document when Opens(data, 0, CompoundFile) && IsWorkbook(name, mediaType) =>
+                $"{called} is locked with a password, or is an Excel workbook from before 2007 with a new name. Save it "
+              + "unlocked as an .xlsx or a CSV, and attach that.",
             AttachmentKind.Document when Opens(data, 0, CompoundFile) =>
                 $"{called} is locked with a password, or is a Word document from before 2007 with a new name. Save it "
               + "unlocked as a .docx or a PDF, and attach that.",
-            AttachmentKind.Document when !IsWordPackage(data) => $"{called} is not a Word document, whatever its name says.",
+            AttachmentKind.Document when IsWorkbook(name, mediaType) && OfficeText.MainElement(data) != "workbook" =>
+                $"{called} is not an Excel workbook, whatever its name says.",
+            AttachmentKind.Document when !IsWorkbook(name, mediaType) && !IsWordPackage(data) =>
+                $"{called} is not a Word document, whatever its name says.",
             _ => null,
         };
     }
@@ -649,6 +672,14 @@ public sealed class AiAttachment
     private static string Called(string name) => string.IsNullOrWhiteSpace(name) ? "The file" : name;
 
     /// <summary>A zip with a Word document's body in it: what a .docx is, read no further than its directory.</summary>
+    /// <summary>Whether a file taken as a document is a workbook: by its name first, as every kind is, then its type.</summary>
+    private static bool IsWorkbook(string? name, string? mediaType)
+    {
+        string extension = Path.GetExtension(name ?? "").ToLowerInvariant();
+        return ReadableWorkbooks.Contains(extension)
+            || (extension != ".docx" && ReadableWorkbookTypes.Contains((mediaType ?? "").Trim().ToLowerInvariant()));
+    }
+
     private static bool IsWordPackage(byte[] data)
     {
         try

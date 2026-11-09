@@ -200,7 +200,7 @@ is its floor.
 | Waveform capture | `WaveformForm` | tool window, same component |
 | Live readout | `MultimeterReadoutForm` | tool window, `Tools/Readout.razor` |
 | AI datasheet extraction | `DatasheetExtractForm` | tool window, `Tools/Ai.razor` |
-| AI script writing | `ScriptAiForm` | same tool window, other half |
+| AI script writing | `AssistantForm`, given a `ScriptWriterJob` by `ScriptWriters` | `Tools/Assistant.razor`, given `Writer` |
 | AI assistant | `AssistantForm` | tool window, `Tools/Assistant.razor` |
 | AI connection | `AiSettingsForm` | modal, `AiSettingsDialog.razor` |
 | About | `AboutForm` | modal, `AboutDialog.razor` |
@@ -776,7 +776,7 @@ They are **windows, not panels**, and everything that follows from that holds in
 | **Waveform** | the same shape, and **three groups on its control row**: `Channels` ▸ a chip per channel, then `Capture Waveform`, then `Run` · `every N ms`. Then the trace, then along the foot the point count, a Vpp per captured channel and the span on the left, with `Save CSV…` and a **camera** at the right — the same glyph and the same gesture the plot carries, aimed at the trace as drawn here rather than at the instrument's own screen, which is the other window. The dark ground is drawn inside the SVG, not applied to it, so it survives being serialised into the image |
 | **Readout** | **One card filling the window**, as `MultimeterReadoutForm` is docked: `Measure:` picker · `shown in` unit picker · `every` N `ms` ▸ `Start` / `Stop` along the top, on that form's own distances (§1); the large value and the run figures under it; the plot taking everything left; and `Clear` · `Save CSV…` at the end of the plot's picker strip, beside the button that saves the picture — the desktop has one row of actions along the foot of the window, and a second row of two buttons under a strip that already ends in empty space is a row spent saying nothing. **No caption**: the title bar says `Readout` and says which instrument as well. Opens 980×520 |
 | **AI Datasheet Extraction** | the file on the left, what will read it on the right: a **drop box** of 18 rem by 6, and beside it a column carrying `Using:` (a picker of the connections), `Effort:` (a picker in both builds, as the script writer has), `Extract text locally before sending`, and `Extract` / `Stop`. The two stand in a frame of their own and the box is as tall as the frame — the column sets the height and the target fills it, because they are one control between them: a file, and what will be done with it. A wider gap between the two than the ordinary one between two controls, and air under the switch, so `Extract` reads as the end of the column rather than the third thing in a list. Then the grid — tick · `Command` · `Category` · `Description` — **always there, filling the window**; status and `Save Ticked` along the foot. The box is the web's answer to the desktop's path box: a browser will not be talked out of drawing its own control on a file input, so the input is hidden and the box stands in its place — dashed while empty, solid once it holds a name, and lit while a file is over the window. It is a target rather than a strip because that is what it is for, and there is **no `Browse…`** beside it: the box is the button, and a second control opening the same picker only asks which one to press |
-| **Write a Script with AI** | **Laid out as the AI assistant is** (*The AI assistant*, below), because it is the same kind of window and two AI windows that put the same controls in different places are two layouts to learn for one job. Across the top, what the model is being given, as a sentence and a bullet per instrument (`ScriptAiForm.ContextSummary`). Then **the conversation**, in the assistant's sunken pane and as its cards: each exchange is the question, `You` and the words, on the window's own white, and under it the answer, with the script in a code box (every line up to twenty, then it scrolls), a `Use This Script` of its own, and what the catalog check made of it in small grey, or in the warning colour where a line is in no catalog. The window is a chat: every exchange stays on screen, oldest first, and **all of it goes back with the next request**, which is what makes "now do the same at 5 V" a request at all rather than a sentence about nothing. **`Use This Script` belongs to the answer, not to the window**: under the script it takes, one per turn. A single one at the foot could only ever mean the newest, which in a conversation is the wrong one as often as it is the right one. Then the composer, as the assistant's: the request box is **one line, and as many as the text needs**, up to a ceiling after which it scrolls inside itself. **Enter sends; Shift+Enter starts a new line.** Sending empties the box, because what was in it is now in the transcript above. It **opens on a worked request, written in rather than greyed behind it**; the same words stand behind the box once it is empty, as an example. Under the box, **one row, as the assistant's**: `Using:` (a picker of the connections), `Effort:`, `Revise the current script`, `Include the last run's output` and `Clear`, wrapping onto another line in a narrow window rather than cutting its end off, and **`Write Script` at the far right**, which reads **`Stop`** while a request is out, as the assistant's `Send` does. **Both pickers**, as the datasheet window has both: which model and how hard to work it are one decision taken twice. Under the row, in small grey where the assistant says what its next question costs, what the conversation costs: `N turn(s): about X kB of transcript goes with every request`. Characters rather than tokens, since nothing here can count tokens and no two providers count them alike, but deciding whether to `Clear` is the whole reason a number is there. `Clear` forgets the lot. Then, at the foot, the status line and nothing else. The transcript is **there from the moment the window opens**, empty, and **everything runs the full width of the window**. **The transcript takes the window and the composer keeps its own height**: the history scrolls and the box you type in does not move. The conversation **outlives the window**: this one closes the moment a draft is used, so a history kept inside it would be a chat of exactly one turn; the desktop keeps a static keyed on the language, the web a `ScriptChats` service, and reopening opens on what it was closed with. The window opens at **754×526**, which is what `ScriptAiForm` asks for (1320×920 on a 175% screen, which is what the web opens it at: see *Known differences* in §9). **No instrument picker**: a console's script runs on that console's instrument, and the desktop asks nobody; `ScriptForm` hands over the one, `SequenceForm` the bench. The web keeps ticks in the multi-instrument editor only, where choosing among several catalogs is the point |
+| **Write a Script with AI** | **It is the AI assistant's own window in both builds** (*The AI assistant*, below): `AssistantForm` given a `ScriptWriterJob` on the desktop, `Tools/Assistant.razor` given `Writer` on the web, so the two windows cannot come to differ. On the desktop there is one window for each language, made the first time it is asked for and **hidden rather than closed**, as the assistant's is, and it is not modal: the editor can be read and changed with it open, and what the switches send is what the editor holds when the request goes. `Use This Script` hides the window and hands the script to the editor that opened it, which asks before replacing what is there; if that editor has been shut the line over the box says to copy it from the card. It opens at the assistant's 1100×860. The chats are kept on this computer, under `chats\scripts` and `chats\sequences`, apart from the assistant's. The desktop has no camera and no microphone (§9, 11), and hands over the bench rather than offering catalog ticks: a console's script runs on that console's instrument and `SequenceForm` hands over every instrument open. It refuses to open, in a box saying why, with no connection or no instrument to write for. The web's and the desktop's are the same layout. The chats down the left, with `New chat` in place of `Clear`, each kept and opened again to carry on, in a list for each of the two languages and apart from the assistant's. The files down the right: what was sent, ticked to go with every request, and what is waiting to go with the next; attached with the paperclip, the camera, a screenshot, a paste or a drop, and read by the model for what they say about the job, the catalogs still being the only commands it may use. The question in a blue bubble, the script on a card with its `Use This Script` and its catalog check, the model's own note in a grey bubble, `Thinking…` while it is away, and what the answer was billed under it. A failed request is a red line in the conversation, and its words go back in the box. The box and a slim row are one rounded frame: the paperclip, the camera and the screenshot, the two switches where the assistant has its rung, then the sliders, the model and effort button, the (i), Write Script's arrow (a square while it is Stop) and the microphone. Under the sliders, a multi-instrument editor's catalogs, ticked to begin with, and `Compact` for either editor. What the next request costs, the catalogs and the files counted, is on the line under the box, and the effort is this request's, as the assistant's is. An answer still coming when the window shuts is kept when it lands. A slash lists the commands that mean something without tools: `/new`, `/compact`, `/export`, `/camera`, `/screenshot`, `/settings` and, in the multi-instrument editor, `/tools`. The box starts empty, with the worked request as a pill that puts it there |
 
 The script toolbar is **three groups** — the file pair; the three ways a script comes into being,
 an example or a snippet or a model writing one; and running it — with a wider gap between groups
@@ -945,12 +945,68 @@ hidden rather than closed**, as GDS Viewer's floating window is: the conversatio
 waiting and what was spent outlive closing it, and asking again shows the same window. Only New
 Chat starts another conversation. It opens at **1100×860** (`AssistantForm`), clamped to the screen.
 
-Three columns, as the AI guide lays them out. Each side panel is **closed by the cross at its top
+**The web's window is GDS Viewer's** (§9, 11): in the browser it is GDS Viewer's `AskAi`, the
+reference being written in the same framework, the same markup and the same `.ai*` rules
+(`wwwroot/assistant.css`), with only the blues and the dark ground this app's. **The desktop's
+`AssistantForm` is laid out to match it**, control for control where it has the control, its
+colours worked out from the same rules (`ChatLook`), asked for on 2026-11-09. What the
+conversation does is the same in both builds, Core's `AiChat`. What the web has that the desktop
+does not is the camera, the microphone, the draggable dividers, Fast mode and the live link. How
+the web's looks:
+
+- **The chats and the files are open to begin with**, each a bordered panel beside the conversation,
+  sized by dragging the divider at its inner edge (kept in this browser) and closed by its own
+  cross. Chats: `New chat`, `Chats`, the chat on screen as the first row (*Not kept yet* until its
+  first question), a row per kept chat with its picture buttons for saving as text and deleting
+  (shown under the pointer and on the chat on screen), and where they are kept at the foot. `Delete`
+  still asks in the row. A panel closed leaves **a tab in the window's margin, centred top to
+  bottom**, 22 by 48 with a 14-pixel chevron (GDS Viewer's is 14 by 28; these are made to be seen).
+  In a window too narrow for all three, the panels lie over the conversation.
+- **The conversation is bubbles and cards**: a question on the right in blue with the files it went
+  with over it, an answer on the left in grey with what it was billed under it, a call on a card
+  (amber for one that reads, blue for one that changes an instrument) with what it was asked in the
+  code face, `auto` when it ran unasked, `Approve and Send` and `Decline`, and what the model was
+  told; a compaction's briefing in green; a pause with `Continue`.
+- **An empty conversation offers examples**: three pills, each put in the box by a press rather
+  than sent. The box starts empty, its placeholder saying what to do. What the assistant is working
+  on is said in the opening words, and in the title bar beside the spark and the title.
+- **The box and everything about the next question are one rounded frame**: the words on top, and
+  along its foot a slim row of borderless controls: the paperclip, the camera, a screenshot and the
+  rung at the start; the tool picker (a count of what is off), **the model and its effort in one
+  button**, the (i), Send (an arrow; a square while it is Stop) and the microphone at the end. A
+  press in the frame's spare room puts the caret in the box, which stops growing at 200 pixels.
+- **The model's menu**: the saved models with a check on the one picked and their provider beside
+  each, `Effort` opening its levels in the menu's place, `Fast mode` on a model that has it, and
+  `Manage models` into AI settings. A press anywhere else closes it; Esc steps back out of the
+  levels, then closes it, and leaves the window up.
+- **The tool picker** groups the tools with `all` and `none` on each group, two to a row, and holds
+  `Compact` with what it would cost.
+- **Under the box**, `Next request: about 6,100 tokens, $0.018 to send`, `Spent:` at the far end
+  once anything has been, and a link to the provider's `rates`. The (i) takes them off that line,
+  and shows them in a card while it is pointed at.
+- **No status line.** The conversation says what happened; anything it does not show (a chat saved
+  as text, a script handed to an editor, a command that cannot run now) is one line over the box,
+  gone with the next key.
+- **The camera** opens live in a card over the box and its shutter attaches the frame. **The
+  microphone** writes speech into the box, by the browser's own recognition as the words are said,
+  or recorded (two minutes at most) and written out by the AI provider, chosen under AI settings,
+  with a level meter in the box's corner either way. Told the instruments' names, the provider does
+  better with a bench's words; it is billed, and with a Claude model picked the recording goes to
+  the first saved OpenAI or Gemini model.
+- **AI settings is GDS Viewer's window too** (§6, *AI Connection*): a window beside the bench and
+  not a modal box, with the MCP server card, then the models, then `Speech to text` and `Tool rounds
+  before asking`, each kept in this browser.
+- **A chip at the page's bottom left** says `MCP server waiting` or `Linked to Claude` while AI
+  settings are shut; a bench Claude can reach says so wherever the person is looking. A press opens
+  AI settings.
+
+On the desktop too, three boxes in a row with **the box and its slim row across the foot of all
+three**. Each side panel is **closed by the cross at its top
 right**, and while it is closed **an arrow in the window's margin on its side** opens it again,
 the whole margin being the button; the files' arrow carries how many files the conversation has
 sent. The margin is **32** wide and the arrow sits **in its middle, top to bottom**, bold at twice
 the window's text size and in the text's colour, so it reads as something to press. Open or shut is the person's to choose and holds across conversations. A window too narrow
-for both and the conversation between them (under 240 + 260 + 620) keeps the files and **folds the
+for both and the conversation between them (under 240 + 260 + 460) keeps the files and **folds the
 chats to their arrow while it is that narrow**, without changing the choice: wider again, they
 come back. Pressed then, the chats' arrow chooses them over the files, which shut to make the
 room; an arrow that opened nothing would be a control that does not work. The desktop measures
@@ -959,12 +1015,12 @@ share).
 
 | Part | Controls, in order |
 |---|---|
-| **Chats** (left, open to begin with) | `Chats` · `New Chat` · ✕; a grey line saying where they are kept, *Kept on this computer.* or *Kept by the bench's server.*; then a row per kept chat, the one kept last first: its title (the first question, cut to a row) in bold while it is the chat on screen, and under it when it was kept and the bench it was about (`gen SDG2042X, dmm SDM3065X`) with `Save` and `Delete` at the end. A press on a row opens that chat and carries it on. `Delete` asks **in the row** (`Delete it?` `Delete` `Keep`), never in a dialog; deleting the chat on screen starts a new one. **Nothing is switched while an answer is coming**: New Chat greys out and a press on a row only says why, in the status line and in the row's tooltip |
-| **The conversation** (middle) | the context line, what the model will be told about (*Working on the 2 instruments open: …*); the transcript, which takes the height; under it the **suggestion to compact**, only once it is worth it, priced both ways (*Every question now sends about 24,000 tokens of history again (about $0.072 each time). Compacting puts a briefing in its place, for about $0.080 once.*) with `Compact` and `Not Now`; then the composer: the chips of the files waiting, each with ✕; the reason Send waits, in red, when there is one; **the command list** while a slash starts the box; the box; the row; the estimate (*The next question sends about 6,100 tokens (about $0.018 to read), and again with every round of tool calls.*) |
-| **The row** | `Using:` (the connections) · `Effort:` (per question, never saved, its default saying what it is) · `Changes:` (the rung: `Ask before every step`, `Ask before changes`, `Change without asking`, on the middle one at every start and never remembered) · `Attach Files…` · `Screenshot` · `Tools…` (a count of what is off when anything is), wrapping onto more lines as the window narrows, each label kept with its list; **`Send`** at the right end, which is **`Stop`** while an answer comes. A double-click on Send does not stop what it sent |
-| **Files** (right, shut to begin with) | `Files` · ✕; **In this conversation**: a tick per file a question has sent (or a briefing keeps), with its size, the question it went with in its tooltip. Unticked, it is left out of every question after and stops counting against the conversation's budget; ticking one back is held to that budget, and a refusal is said under the list. **With the next question**: the files waiting, each with ✕. Under both, what the ticked files add to every question, in tokens |
-| **Cards** | `You` and the words, with the files it carried (`left out` on one unticked); an answer, with what it was billed under it (`3 requests · 9,360 tokens in · 288 out · $0.032`); a call: its name and arguments on one line in the code face, then `ran without asking`, `approved`, `declined` (red) or `waits for you: this changes the instrument` on a yellow card with **`Approve and Send`** and `Decline` (a read that waits has `Approve`), then what the model was told, the instrument's screen when it took one, and **a proposed script in a read-only box with `Use This Script`**, which puts it in that instrument's script editor or the multi-instrument editor and runs nothing; a pause at the limit on rounds, yellow, with `Continue`; a briefing, `Briefing: the conversation above, compacted. The model is sent this in its place.`, with the files it keeps unticked; and the app's own lines in grey: where a chat was opened again (*This chat was opened again on 7 November 2026 at 17:56. It was about psu E36313A; open now: none.*) and where the conversation started afresh. Over a briefing, **`Show the N turns before the briefing`** shows what it folded away, dimmed, and hides it again |
-| **Foot** | the status line: what is being asked, what ended it, and what has been spent since the app started |
+| **Chats** (left, open to begin with) | `New chat` · ✕; `Chats`; then a row per kept chat, the one kept last first: its title (the first question, cut to a row) in bold on a tint while it is the chat on screen, and under it the bench it was about (`gen SDG2042X, dmm SDM3065X`) and when it was kept, with a picture button each for saving it as text and deleting it, shown under the pointer and on the chat on screen; at the foot, where they are kept, *Kept on this computer* or *Kept by the bench's server*. A press on a row opens that chat and carries it on. Delete asks **in the row** (`Delete it?` `Delete` `Keep`), never in a dialog; deleting the chat on screen starts a new one. **Nothing is switched while an answer is coming**: New chat greys out and a press on a row only says why, over the box and in the row's tooltip |
+| **The conversation** (middle) | the transcript in a rounded box, opening on what the window works on, examples to start from as pills that a press puts in the box, and what is sent where; `Thinking…` at its end while an answer is away. Under all three boxes: the **suggestion to compact**, only once it is worth it, priced both ways (*Every question now sends about 24,000 tokens of history again (about $0.072 each time). Compacting puts a briefing in its place, for about $0.080 once.*) with `Compact` and `Not Now`; then the command list while a slash starts the box; one line about what the conversation does not show, gone with the next key; the reason Send waits, in red, when there is one; the chips of the files waiting, each with ✕; the rounded frame; and the line under it (*Next request: about 6,100 tokens, $0.018 to send*, `Spent:` once anything has been, and a link to the provider's `rates`). What the assistant is working on is also in the title bar |
+| **The frame** | the box, starting empty with what to type in grey, and under a rule a slim row of borderless controls: the paperclip, `Screenshot` and the rung (`Ask before every step`, `Ask before changes`, `Change without asking`, on the middle one at every start and never remembered) at the start; the writer has `Revise the current script` and `Include the last run's output` where the rung is. At the end: the sliders (the tool list with `Compact`, a count of what is off when anything is; the writer's has `Compact` alone), the model (its menu lists the saved models and their providers, `Effort` per question and never saved, its default saying what it is, and `Manage models…`), the (i), which takes the line under the frame away and leaves the figures in its tooltip, and **Send**, an arrow, a square while it is Stop. On the desktop Send and the (i) while it is on are square and grey, as the app's other buttons are; on the web they are blue. The start wraps as the window narrows and the end keeps its width. A double-click on Send does not stop what it sent, and a press in the frame's spare room puts the caret in the box |
+| **Files** (right, open to begin with) | **In this conversation** · ✕: a tick per file a question has sent (or a briefing keeps), with its size, the question it went with in its tooltip. Unticked, it is left out of every question after and stops counting against the conversation's budget; ticking one back is held to that budget, and a refusal is said under the list. **With the next question**: the files waiting, each with ✕. Under both, what the ticked files add to every question, in tokens |
+| **Cards** | a question on the right in a blue bubble, the files it carried as pills over it (`left out` on one unticked); an answer on the left in a grey bubble, with what it was billed under it (`3 requests · 9,360 tokens in · 288 out · $0.032`); a call on a card, amber for one that reads and blue for one that changes an instrument: what happened (`Looked: query`, `Wants to change an instrument: send`), its name and arguments on one line in the code face, then `ran without asking`, `approved`, `declined` (red) or `waits for you: this changes the instrument`, with **`Approve and Send`** and `Decline` (a read that waits has `Approve`), then what the model was told, the instrument's screen when it took one, and **a proposed script in a read-only box with `Use This Script`**, which puts it in that instrument's script editor or the multi-instrument editor and runs nothing; a failure, red; a pause at the limit on rounds, amber, with `Continue`; a briefing, green, `Briefing: the conversation above, compacted. The model is sent this in its place.`, with the files it keeps unticked; and the app's own lines in grey: where a chat was opened again (*This chat was opened again on 7 November 2026 at 17:56. It was about psu E36313A; open now: none.*) and where the conversation started afresh. Over a briefing, **`Show the N turns before the briefing`** shows what it folded away, dimmed, and hides it again |
+| **Foot** | nothing: as on the web there is no status line |
 
 **The keys.** Enter sends and Shift+Enter starts a new line. A paste of a picture or of files from
 Explorer attaches them, unless there is text on the clipboard as well, which is pasted. Files
@@ -980,8 +1036,9 @@ written.
 | `/new` | New Chat |
 | `/compact` | compacts the conversation now, suggested or not |
 | `/export` | saves the conversation on screen as text, as a row's `Save` does |
-| `/tools` | opens `Tools…` |
-| `/screenshot` | presses `Screenshot` |
+| `/tools` | opens the sliders' list; not in the script writer |
+| `/camera` | the web's alone: opens the camera's card |
+| `/screenshot` | presses the screenshot button |
 | `/settings` | opens AI Connection (the web: AI settings) |
 | `/status` | asks what is open and what each instrument reads now, with any words after it added |
 | `/errors` | asks for every instrument's error queue, read and explained, likewise |
@@ -1002,7 +1059,7 @@ in the multi-instrument editor, each opened or raised, asking first over a scrip
 (`Replace the script in the editor with the one that was written?`) as the script writer's own
 does, and running nothing. On the web the editors belong to the bench page: from a console open
 in a tab of its own, or with the bench page not open in that tab, the card says to copy the script
-instead. `Tools…` is a checklist of the tools grouped as
+instead. The sliders hold a checklist of the tools grouped as
 **Reading**, **Changing an instrument** and **Proposing**, kept open while ticks change, with
 `Every tool on` and `Compact the conversation` under them; the tools switched off stay off through
 New Chat.
@@ -1032,6 +1089,20 @@ listing cannot disagree. The desktop makes it a real link and opens it with the 
 makes it an anchor. A build whose assembly carries no repository shows **no row at all**
 rather than a dead one, which is the same rule the rest of the box is held to.
 
+**On the web this is AI settings, GDS Viewer's window rather than this box** (§9, 11; 520×680, not
+modal). The models are **one picker**: the chosen model's name heads it and is renamed in place
+with its pencil; its menu lists the models with Rename, Duplicate and Delete on each and `New model`
+at the end, a new one's name typed into the head; and **`Save` is joined to its end, orange only
+while the form differs from what is saved**, so there is no Cancel: picking the model again puts
+back what is saved. Under it the provider as four buttons (`Anthropic`, `OpenAI`, `Gemini`, `Other`,
+the last two both this box's OpenAI-compatible endpoint), `Address` (not for Anthropic unless one is
+set), `Model`, `API key`, `Max tokens` (Anthropic only), `Timeout (s)`, `Price` in, cached and out,
+and `Send PDFs as their text`, the desktop's *Extract text locally*. The effort is chosen in each
+AI window. **A key saved for an https address is held back from an http one**: the form says so,
+Save forgets it unless one is typed, and the server enforces it whatever the page sends. The key
+stays on the server and never comes back to the page, and `One key, shared` says so. The rest of
+this entry is the desktop's.
+
 **AI Connection** — `Connection:` (a picker, with `New` and `Delete`) · `Name:` ·
 `Provider:` · `Endpoint:` · `Model:` · `Effort:` · `API key:` · `Timeout (s):` ·
 `Rates (US$/M):` (`Input`, `Cached` and `Output`, a small box each) ·
@@ -1055,10 +1126,11 @@ differently: Gemini as `generation_config.thinking_level`, an OpenAI-compatible 
 default sends no such field at all**, which is what a connection starts on and the only safe
 setting for an endpoint that has never heard of it — some refuse a request carrying a
 parameter they do not know. It is reachable from the windows that spend it as well as from
-this box — the script writer in both builds, the datasheet window on the web only so far
-(§9) — for the same reason the PDF checkbox is: it is a decision taken while looking at the
-work it applies to. Setting it anywhere sets it on the connection itself, so no two places
-can disagree about what is in force. `Tests/Ai/AiRequestTests.cs` pins the three shapes.
+this box — the script writer on the desktop, the datasheet window on the web (§9) — for the
+same reason the PDF checkbox is: it is a decision taken while looking at the work it applies
+to. Setting it in those sets it on the connection itself, so no two places can disagree about
+what is in force. The web's two chat windows choose it for the request instead, and never save
+it (§9, 11). `Tests/Ai/AiRequestTests.cs` pins the three shapes.
 
 ### Several connections
 
@@ -1222,6 +1294,17 @@ Only these. Each is something a browser forces, not a preference.
     connections and key are too; the line under `Chats` says which. And the window is taken out
     of the page when it shuts, where the desktop's is hidden, so what it holds is kept beside it
     for the tab's life (`AssistantState`) and comes back with it.
+11. **The AI windows are GDS Viewer's.** Asked for on 2026-11-08: the page is Blazor and so is GDS
+    Viewer, so the web's AI assistant, Write a Script with AI and AI settings are those windows,
+    their markup and their rules, rather than ports of `AssistantForm` and AI
+    Connection. The controls those three have are all here; what differs is where they are and how
+    they look (§5, *The AI assistant*; §6, *AI Connection*). The camera, the microphone, the
+    draggable dividers, the model's menu, the rounds cap and the MCP server card are the web's
+    alone. The writer is the assistant's window itself (`Tools/Assistant.razor`), its conversation
+    asked of the server's `ScriptAuthor`, which has the catalogs and checks what comes back. Since
+    2026-11-09 the desktop's two windows go the other way and follow this layout (§5, *The AI
+    assistant*), the writer there asking `ScriptAuthor` directly. AI Connection is still the
+    desktop's own.
 
 Everything else on the web that has no desktop counterpart is a debt, not a feature. The
 inventory taken on 2026-08-21 was settled on **2026-09-20**, and nothing from it is
@@ -1235,7 +1318,7 @@ above. Anything of this kind added from here is a debt again.
 
 Found while writing the tests, and recorded rather than quietly kept:
 
-- **The idle status line.** `ScriptForm`, `SequenceForm` and `ScriptAiForm` all open with their
+- **The idle status line.** `ScriptForm` and `SequenceForm` both open with their
   status label reading `Ready.`. The web opens with it **empty** and keeps the line's height, so
   the first real message does not move anything. Asked for directly: a window that has just opened
   has nothing to report.
@@ -1276,8 +1359,9 @@ Found while writing the tests, and recorded rather than quietly kept:
 - **Two opening sizes taken from screen pixels.** Until 2026-11-07 the code-built desktop
   windows scaled their fonts and not their sizes (SPEC §14), and the sizes that were chosen by
   eye were chosen on this bench's 175% screen, in its pixels. They are logical pixels now, at the
-  same size on that screen: `ScriptAiForm` asks for 754×526 and `CommandReferenceForm` for 983×640
-  where they used to say 1320×920 and 1720×1120. The web copied the old numbers as CSS pixels
+  same size on that screen: the desktop's script writer asked for 754×526 until it became the
+  assistant's window (1100×860), and `CommandReferenceForm` asks for 983×640, where they used to say
+  1320×920 and 1720×1120. The web copied the old numbers as CSS pixels
   (`ScriptEditor.razor`, and `ConsoleTools.Opens` for the reference), so it opens those two windows
   1.75 times the desktop's size at any scale. Kept that way, decided on 2026-11-07: at that size
   everything in the two windows is in view when they open. Neither build changes for it. The other

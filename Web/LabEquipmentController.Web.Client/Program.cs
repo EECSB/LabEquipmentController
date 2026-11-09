@@ -45,6 +45,7 @@ builder.Services.AddScoped<ScriptChats>();
 // the way a script it puts forward reaches the bench page's editors.
 builder.Services.AddScoped(services => new WebChatStore(services.GetRequiredService<HttpClient>()));
 builder.Services.AddScoped<WebAiService>();
+builder.Services.AddScoped<AiPreferences>();
 builder.Services.AddScoped<AssistantState>();
 builder.Services.AddScoped<ScriptHandoff>();
 

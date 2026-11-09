@@ -74,6 +74,12 @@ public class AiProviderTests
         Assert.Equal("https://api.anthropic.com/v1/messages", sent.Uri);
         Assert.Equal("claude-haiku-5-5", (string?)sent.Body["model"]);
         Assert.Equal(AnthropicProvider.DefaultMaxTokens, (int?)sent.Body["max_tokens"]);
+
+        // A connection's own cap goes in its place.
+        var capped = new AiStandIn(AiStandIn.AnthropicText("ok"));
+        var connection = new AiConnection { Provider = AiProvider.Anthropic, Model = "claude-sonnet-5", MaxTokens = 16000 };
+        await new AnthropicProvider(capped.Client(), new DirectLlmEndpoint(connection, "test-key"), connection).CompleteAsync("", [LlmMessage.FromUser("hi")], default);
+        Assert.Equal(16000, (int?)capped.Requests[0].Body["max_tokens"]);
         Assert.Equal("Be brief.", (string?)sent.Body["system"]);
         Assert.Equal("Hi", (string?)sent.Body["messages"]![0]!["content"]);
         Assert.Null(sent.Body["tools"]);

@@ -88,7 +88,7 @@ it and its tests all sit under the same heading.
 | `Program.cs` | Entry point → `MainForm` |
 | `Bench/` | `MainForm` — scan, discovered instruments, console tabs — plus `InstrumentConsole` and the window a tab detaches into |
 | `Scripting/` | Both editors (`ScriptForm`, `SequenceForm`), the colouriser and completion (`ScriptEditor`), the Snippets menu, the language reference |
-| `Ai/` | `ScriptAiForm` (the conversation, the drafts, the catalog check), `DatasheetExtractForm`, `AiSettingsForm`, the connection book, and the DPAPI key store |
+| `Ai/` | `AssistantForm` (the conversation, for the bench and for the script editors through `ScriptWriters`), `DatasheetExtractForm`, `AiSettingsForm`, the connection book, and the DPAPI key store |
 | `Catalogs/` | `CommandLibraryForm` (all 36, with the guide beside them) and `CommandReferenceForm` (one family's, beside its console) |
 | `Capture/` | `WaveformForm`, `ScreenCaptureForm`, `MultimeterReadoutForm` |
 | `Results/` | `ResultsPanel` and `ResultPlotPanel` — the recorded table and its plot |

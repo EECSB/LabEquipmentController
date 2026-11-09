@@ -559,7 +559,7 @@ disk, so a stale build cannot quietly ship an old catalog.
 | `SequenceForm` | Multi-Instrument Scripts: the `.seq` editor, device binding, the results table |
 | `ResultsPanel` / `ResultPlotPanel` | Recorded readings and their plot with axis pickers |
 | `WaveformForm` / `ScreenCaptureForm` / `MultimeterReadoutForm` | Scope traces, instrument screenshots, a live meter readout |
-| `ScriptAiForm` / `DatasheetExtractForm` / `AiSettingsForm` | The three AI surfaces: drafting, extraction review, provider setup |
+| `AssistantForm` / `ScriptWriters` / `DatasheetExtractForm` / `AiSettingsForm` | The AI surfaces: the conversation (the bench's, or a script editor's), extraction review, provider setup |
 
 UI conventions — window sizing, the shared `ButtonStyle` metrics, `AppIcons` glyphs,
 `SplitLayout` — are SPEC §14's department; the forms hold no instrument logic beyond

@@ -104,6 +104,40 @@ public sealed class AiChatsTests : IDisposable
 
     // ------------------------------------------------------------------- helpers
 
+    /// <summary>A transcript of single-instrument scripts is a poor thing to carry on in DEVICE and WITH, and neither belongs in the assistant's list.</summary>
+    [Fact]
+    public async Task The_script_writers_chats_are_kept_apart_from_the_assistants_and_from_each_other()
+    {
+        AiChats chats = Chats();
+        SavedChat assistant = Chat("About the bench", new DateTime(2026, 11, 7, 9, 0, 0));
+        SavedChat script = Chat("A single-instrument script", new DateTime(2026, 11, 7, 10, 0, 0));
+        SavedChat sequence = Chat("A multi-instrument script", new DateTime(2026, 11, 7, 11, 0, 0));
+
+        await Run(c => chats.SaveAsync(assistant.Id, c.Request, CancellationToken.None), ChatStore.WriteChat(assistant));
+        await Run(c => chats.SaveAsync(script.Id, c.Request, CancellationToken.None, "script"), ChatStore.WriteChat(script));
+        await Run(c => chats.SaveAsync(sequence.Id, c.Request, CancellationToken.None, "sequence"), ChatStore.WriteChat(sequence));
+
+        Assert.Equal("About the bench", Assert.Single(ChatStore.ReadList((await Run(_ => chats.ListAsync())).Body)).Title);
+        Assert.Equal("A single-instrument script", Assert.Single(ChatStore.ReadList((await Run(_ => chats.ListAsync("script"))).Body)).Title);
+        Assert.Equal("A multi-instrument script", Assert.Single(ChatStore.ReadList((await Run(_ => chats.ListAsync("sequence"))).Body)).Title);
+
+        Assert.Equal(404, (await Run(_ => chats.LoadAsync(script.Id))).Status);
+        Assert.Equal(200, (await Run(_ => chats.LoadAsync(script.Id, "script"))).Status);
+
+        Assert.Equal(204, (await Run(_ => chats.DeleteAsync(script.Id, "script"))).Status);
+        Assert.Empty(ChatStore.ReadList((await Run(_ => chats.ListAsync("script"))).Body));
+        Assert.Single(ChatStore.ReadList((await Run(_ => chats.ListAsync())).Body));
+    }
+
+    [Fact]
+    public async Task A_kind_of_chat_there_is_no_such_thing_as_is_refused()
+    {
+        var (status, body) = await Run(_ => Chats().ListAsync("../../secrets"));
+
+        Assert.Equal(400, status);
+        Assert.Contains("kind of chat", body);
+    }
+
     private AiChats Chats() => new(new AiSettingsStore(
         new AiOptions(),
         new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?> { ["LEC_DATA"] = _data }).Build(),

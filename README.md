@@ -108,8 +108,9 @@ letting silence read as "verified".
 It is a conversation: every exchange stays on screen and goes back with the next request,
 which is what makes the follow-up below — *"now do the same at 5 Vpp and 10 kHz"* — a
 request at all. The line above the transcript says what that history costs to send, and
-**Clear** starts again without it. Nothing is run and nothing is saved: a draft reaches the
-editor when you press **Use This Script**, and runs when you press Run.
+**New chat** starts again without it and keeps the old one in a list beside it. It is the AI
+assistant's window, so you can attach a photo of the wiring, a screenshot or a datasheet. Nothing is run: a draft reaches the editor when you
+press **Use This Script**, and runs when you press Run.
 
 ![Write a Script with AI: the request, the script that came back, its catalog check, and a follow-up asking for a change](docs/images/10-ai-script.png)
 
@@ -181,7 +182,8 @@ editor when you press **Use This Script**, and runs when you press Run.
 - **AI script writing** — **Script with AI…** in either editor turns a plain-English
   description into a script, in a conversation: every exchange stays on screen and goes back
   with the next request — which is what makes *"now do the same at 5 V"* answerable — and a
-  Clear starts over when the transcript has grown longer than it is useful. The model is
+  New chat starts over when the transcript has grown longer than it is useful, with the chats
+  kept beside it and files attached as in the AI assistant. The model is
   handed the command catalogs of the instruments involved, told to use nothing else, and —
   when you ask it to fix something — the last run's output, errors included. Each answer is
   a draft with any command header the catalog does not know flagged underneath and a
@@ -202,7 +204,9 @@ editor when you press **Use This Script**, and runs when you press Run.
   about before each use. `send` takes one command at a time, refuses one the instrument's
   catalog does not document unless the model says it means it, and reports what the
   instrument's error queue said after it. Only the addresses given can be reached, and
-  `--read-only` leaves `send` out. See [Cli/README.md](Cli/README.md).
+  `--read-only` leaves `send` out. Or link it to the bench page you have open, with a code from
+  **MCP server** in the page's AI settings, and it works the instruments open there as you
+  watch. See [Cli/README.md](Cli/README.md).
 - **Capture** — screen and waveform, for the scopes whose guides document how. Traces plot
   in a viewer and export to CSV.
 - **Discover commands** — attempts `SYSTem:HELP:HEADers?` and falls back to the curated

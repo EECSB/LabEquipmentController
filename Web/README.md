@@ -96,7 +96,7 @@ scan and discovery, a console per instrument with that family's quick commands �
 into a browser tab of its own — the results table and plot, the command library with the
 vendor's guide beside it, the script-language reference, single- and multi-instrument
 script runners with live output, waveform and screen capture, the live meter readout, and
-the two AI features.
+the AI assistant, Write a Script with AI and datasheet extraction.
 
 [docs/UI-SPEC.md](../docs/UI-SPEC.md) holds the rule that keeps it that way: **the web
 build is a control-for-control port of the desktop app, not a redesign of it** — the same

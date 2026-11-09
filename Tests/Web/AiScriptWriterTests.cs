@@ -173,6 +173,76 @@ public class AiScriptWriterTests : IAsyncLifetime
         Assert.DoesNotContain(lines, l => l.StartsWith("Declare it as", StringComparison.Ordinal));
     }
 
+    [Fact]
+    public async Task A_file_attached_goes_to_the_model_with_the_request()
+    {
+        string a = await Connect("192.168.1.7", MeterA);
+
+        var reply = await _ai.WriteScriptAsync(new AiScriptRequest("read it", [a], IsSequence: false, null, null,
+            Files: [new AiScriptFile("wiring.txt", "text/plain", Convert.ToBase64String("CH1 to the divider"u8.ToArray()))]), default);
+
+        Assert.Null(reply.Error);
+        Assert.Contains("CH1 to the divider", Assert.Single(_provider.Parts!).Text);
+    }
+
+    /// <summary>The window checks a file as it is attached, and a page can say anything.</summary>
+    [Theory]
+    [InlineData("not base64 at all!", "did not arrive whole")]
+    [InlineData("TVqQAAMAAAAEAAAA", "is not a file the assistant can read")]
+    public async Task A_file_that_is_not_what_it_should_be_is_refused_and_nothing_is_sent(string base64, string said)
+    {
+        string a = await Connect("192.168.1.7", MeterA);
+
+        var reply = await _ai.WriteScriptAsync(new AiScriptRequest("read it", [a], IsSequence: false, null, null,
+            Files: [new AiScriptFile("setup.exe", "application/octet-stream", base64)]), default);
+
+        Assert.Contains(said, reply.Error, StringComparison.OrdinalIgnoreCase);
+        Assert.Null(_provider.Sent);
+    }
+
+    [Fact]
+    public async Task More_than_a_conversation_can_send_is_refused_and_nothing_is_sent()
+    {
+        string a = await Connect("192.168.1.7", MeterA);
+        string big = Convert.ToBase64String(new byte[7 * 1024 * 1024]);
+
+        var reply = await _ai.WriteScriptAsync(new AiScriptRequest("read it", [a], IsSequence: false, null, null,
+            Files: [new AiScriptFile("one.txt", "text/plain", big), new AiScriptFile("two.txt", "text/plain", big)]), default);
+
+        Assert.NotNull(reply.Error);
+        Assert.Null(_provider.Sent);
+    }
+
+    /// <summary>Chosen per request in the window, and the connection is the server's.</summary>
+    [Theory]
+    [InlineData("high", AiEffort.High)]
+    [InlineData("max", AiEffort.High)]
+    [InlineData("xhigh", AiEffort.High)]
+    [InlineData("low", AiEffort.Low)]
+    [InlineData("", AiEffort.Default)]
+    public async Task The_effort_a_window_asks_for_is_that_requests_alone(string level, AiEffort sent)
+    {
+        string a = await Connect("192.168.1.7", MeterA);
+
+        await _ai.WriteScriptAsync(new AiScriptRequest("read it", [a], IsSequence: false, null, null, Effort: level), default);
+
+        Assert.Equal(sent, _provider.Effort);
+        Assert.Equal("Default", _ai.Status().Effort);
+    }
+
+    [Fact]
+    public async Task What_a_request_is_before_the_conversation_is_measured_for_the_window()
+    {
+        string a = await Connect("192.168.1.7", MeterA);
+
+        int alone = _ai.ScriptSize(new AiScriptRequest("", [a], IsSequence: false, null, null)).Characters;
+        int revising = _ai.ScriptSize(new AiScriptRequest("", [a], IsSequence: false, "*RST\r\n*IDN?", null)).Characters;
+
+        Assert.True(alone > 1000);
+        Assert.True(revising > alone);
+        Assert.Equal(0, _ai.ScriptSize(new AiScriptRequest("", ["nobody"], IsSequence: false, null, null)).Characters);
+    }
+
     private async Task<string> Connect(string address, string identity)
     {
         var instrument = new FakeInstrumentClient();
@@ -194,10 +264,16 @@ public class AiScriptWriterTests : IAsyncLifetime
 
         public string? Sent { get; private set; }
 
+        public IReadOnlyList<AttachmentPart>? Parts { get; private set; }
+
+        public AiEffort Effort { get; private set; }
+
         public Task<string> CompleteAsync(AiConnection connection, string apiKey, string instruction,
                                           AiPayload payload, JsonNode schema, CancellationToken ct = default)
         {
             Sent = payload.Text;
+            Parts = payload.Parts;
+            Effort = connection.Effort;
             return Task.FromResult(Reply);
         }
     }

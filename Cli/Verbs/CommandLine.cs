@@ -41,7 +41,7 @@ public static class CommandLine
     /// <summary>Options that take a value; everything else is a flag.</summary>
     private static readonly HashSet<string> ValueOptions = new(StringComparer.OrdinalIgnoreCase)
     {
-        "range", "ports", "timeout", "limit", "family", "device", "input", "out", "port",
+        "range", "ports", "timeout", "limit", "family", "device", "input", "out", "port", "link-port",
         "interface", "every", "count", "channel", "max-time",
     };
 
@@ -136,7 +136,7 @@ public static class CommandLine
           capture <address>        Read a scope trace as CSV or SVG
           plot <csv-file>          Draw a recorded CSV as an SVG chart
           catalog <text>           Search the curated command catalogs
-          mcp <address>...         Serve instruments to an MCP client (Claude Code, Claude Desktop)
+          mcp [<address>...]       Serve instruments to an MCP client (Claude Code, Claude Desktop)
           version                  Print version and catalog totals
 
         ADDRESSES
@@ -168,6 +168,7 @@ public static class CommandLine
           --stream           Emit each recorded row as it happens, not at the end.
           --quiet            Only results; no progress or headings.
           --read-only        For mcp: serve the instruments with nothing that changes them.
+          --link-port <n>    For mcp: the port a bench page links on (43717; 0 turns the link off).
           --help             This text.
 
         EXAMPLES

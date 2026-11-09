@@ -1,389 +1,868 @@
 @implements IAsyncDisposable
 @inject WebAiService Ai
-@inject AssistantState State
+@inject AssistantState Main
+@inject ScriptChats Scripts
 @inject BenchClient Bench
 @inject ScriptHandoff Handoff
 @inject IJSRuntime JS
+@inject AiPreferences Preferences
 
-@* The AI assistant (SPEC §11d): the port of the desktop's AssistantForm, control for control
-   (UI-SPEC §5, The AI assistant). A conversation with a model that works the bench through the
-   tools in BenchToolRunner: reads run as it asks, a send waits on its card for Approve on the
-   middle rung, and a script is only ever put forward, with a Use This Script of its own that
-   puts it in an editor where only Run runs it.
+@* The web's AI windows (SPEC §11d): GDS Viewer's window (its Components/AskAi.razor, the same .ai*
+   classes, wwwroot/assistant.css) over this bench's conversation (UI-SPEC §5, The AI assistant).
 
-   The conversation and everything the window holds between openings is AssistantState, a
-   scoped service: a tool window is taken out of the page when it shuts, where the desktop's is
-   only hidden, so what it holds lives there, an answer still coming included. Everything it
-   stands on (the connections, the relay, the server's kept chats) is WebAiService. *@
+   The AI assistant, under the gear: a conversation with a model that works the bench through the
+   tools in BenchToolRunner. Reads run as it asks, a send waits on its card for Approve on the middle
+   rung, and a script is only ever put forward, with a Use This Script of its own that puts it in an
+   editor where only Run runs it.
 
-<ToolWindow @ref="_window" Title="AI Assistant" Fill="true" OpenWidth="1100" OpenHeight="860" OnClosed="Closed">
-    <div class="assistant-window">
-        <div class="assistant @(State.ChatsOpen && State.FilesOpen ? "both" : null)" @ref="_zone">
+   Write a Script with AI, with Writer set, opened from a script editor: the same window, its chats,
+   its files, its box and its meter, asking the server's script writer, which has the catalogs,
+   rather than a model with tools. One window so the two cannot come to differ.
 
-            @* ------------------------------------------------------------ the kept chats *@
-            @if (State.ChatsOpen)
-            {
-                <aside class="chats-panel" aria-label="Chats">
-                    <div class="panel-head">
-                        <span class="cap">Chats</span>
-                        <span class="spacer"></span>
-                        <button @onclick="NewChat" disabled="@Busy"
-                                title="@(Busy ? WhyBusy : "Start a new conversation. This one stays in the list below, and what was spent stays counted.")">New Chat</button>
-                        <button class="ghost shut" @onclick="() => State.ChatsOpen = false" title="Hide the chats" aria-label="Hide the chats"><Icon Name="close" /></button>
-                    </div>
-                    <p class="kept" title="Every chat is kept @Ai.KeptWhere from its first question on, after every answer, with its files.">Kept @Ai.KeptWhere.</p>
-                    <div class="chat-rows">
-                        @if (_chatList.Count == 0)
+   The conversation and everything the window holds between openings is AiWindowState, a scoped
+   service: a tool window is taken out of the page when it shuts, so what it holds lives there, an
+   answer still coming included. Everything it stands on (the connections, the relay, the server's
+   kept chats) is WebAiService. *@
+
+@* The writer's 1320×920 is the size the desktop's writer had on a 175% screen (754×526 logical), kept so that
+   everything in the window is in view when it opens (UI-SPEC §9, Known differences). *@
+<ToolWindow @ref="_window" Title="@(Writer is null ? "AI assistant" : "Write a Script with AI")" Subtitle="@AssistantPrompt.BenchLine(_benchNow)" Fill="true"
+            OpenWidth="@(Writer is null ? 1100 : 1320)" OpenHeight="@(Writer is null ? 860 : 920)" OnClosed="Closed">
+    <TitleIcon>
+        <svg viewBox="0 0 16 16" width="15" height="15">
+            <path fill="currentColor" d="M6.4 1.6c.3 2.6 1.6 4 4.2 4.3-2.6.3-3.9 1.7-4.2 4.3-.3-2.6-1.6-4-4.2-4.3 2.6-.3 3.9-1.7 4.2-4.3z" />
+            <path fill="currentColor" d="M11.6 8.6c.2 1.6 1 2.4 2.6 2.6-1.6.2-2.4 1-2.6 2.6-.2-1.6-1-2.4-2.6-2.6 1.6-.2 2.4-1 2.6-2.6z" />
+        </svg>
+    </TitleIcon>
+    <ChildContent>
+        @{
+            IReadOnlyList<ChatTurn> turns = State.Chat.Turns;
+            int folded = Math.Min(State.Chat.FoldedBefore, turns.Count);
+            List<SlashCommand> listed = SlashShown();
+        }
+        <div class="aiBody" @ref="_zone">
+            <div class="aiChatRow aiDrop" @ref="_row">
+
+                @* ------------------------------------------------------------ the kept chats *@
+                @if (State.ChatsOpen)
+                {
+                    <aside id="aiChats" class="aiChats" aria-label="Chats">
+                        <div class="aiPanelTop">
+                            <button id="aiChatsNew" type="button" class="aiChatsNew" @onclick="NewChat" disabled="@(Busy || turns.Count == 0)"
+                                    title="@(Busy ? WhyBusy : "A new chat. This one stays in the chats list, to open again.")">
+                                <svg viewBox="0 0 16 16" aria-hidden="true">
+                                    <path d="M8 3v10M3 8h10" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" />
+                                </svg>
+                                New chat
+                            </button>
+
+                            <button id="aiChatsClose" type="button" class="aiPanelClose" aria-label="Close the chats" title="Close the chats" @onclick="() => State.ChatsOpen = false">
+                                <svg viewBox="0 0 16 16" aria-hidden="true">
+                                    <path d="M4 4l8 8M12 4l-8 8" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" />
+                                </svg>
+                            </button>
+                        </div>
+
+                        <div class="aiChatsHead">Chats</div>
+
+                        @* The chat on screen before it is kept: the first row, as it will be once its first answer is in. *@
+                        @if (State.ChatId is null)
                         {
-                            <p class="hint">No chats kept yet.</p>
+                            <div id="aiChatNow" class="aiChatItem aiChatItemOn" aria-current="true" title="The chat on screen, kept here from its first question.">
+                                <span class="aiChatText">
+                                    <span class="aiChatTitle">@SavedChat.TitleFor(turns)</span>
+                                    <span class="aiChatWhen">Not kept yet</span>
+                                </span>
+                            </div>
                         }
+
                         @foreach (ChatSummary chat in _chatList)
                         {
                             bool current = chat.Id == State.ChatId;
-                            <div class="chat-row @(current ? "on" : null) @(Busy && !current ? "held" : null)" @key="chat.Id"
-                                 title="@(Busy ? WhyBusy : current ? "The chat on screen." : $"Open it and carry on: {chat.Title}")"
-                                 @onclick="() => OpenChatAsync(chat.Id)">
-                                <div class="title">@chat.Title</div>
-                                <div class="foot">
-                                    <span class="when">@When(chat.Updated)@(chat.Bench.Length > 0 ? " · " + chat.Bench : "")</span>
-                                    @if (_confirmingDelete == chat.Id)
+
+                            if (_confirmingDelete == chat.Id)
+                            {
+                                <div class="aiChatItem aiChatItemDeleting" data-chat="@chat.Id" @key="chat.Id">
+                                    <span class="aiChatAsk">Delete this chat?</span>
+                                    <span class="aiChatAskButtons">
+                                        <button type="button" class="aiChatDeleteYes" @onclick="() => DeleteChatAsync(chat.Id)">Delete</button>
+                                        <button type="button" class="aiChatDeleteNo" @onclick="() => _confirmingDelete = null">Keep</button>
+                                    </span>
+                                </div>
+                            }
+                            else
+                            {
+                                <div class="aiChatItem @(current ? "aiChatItemOn" : null) @(Busy && !current ? "aiChatItemOff" : null)" data-chat="@chat.Id" @key="chat.Id"
+                                     role="button" tabindex="0" aria-current="@(current ? "true" : "false")"
+                                     title="@(Busy && !current ? WhyBusy : current ? "The chat on screen." : $"Open it and carry on: {chat.Title}")"
+                                     @onclick="() => OpenChatAsync(chat.Id)" @onkeydown="e => ChatRowKey(e, chat.Id)">
+                                    <span class="aiChatText">
+                                        <span class="aiChatTitle">@chat.Title</span>
+                                        <span class="aiChatWhen">@(chat.Bench.Length > 0 ? chat.Bench + " · " : "")@When(chat.Updated)</span>
+                                    </span>
+
+                                    <button type="button" class="aiChatButton aiChatExport" aria-label="Save as text" disabled="@(current && Busy)"
+                                            title="Save this chat as text: every question, answer and call, and what each answer was billed."
+                                            @onclick="() => ExportAsync(chat.Id)" @onclick:stopPropagation="true">
+                                        <svg viewBox="0 0 16 16" aria-hidden="true">
+                                            <path fill="currentColor" d="M8 1.5a.5.5 0 0 1 .5.5v7.79l2.65-2.64a.5.5 0 0 1 .7.7l-3.5 3.5a.5.5 0 0 1-.7 0l-3.5-3.5a.5.5 0 1 1 .7-.7L7.5 9.79V2a.5.5 0 0 1 .5-.5" />
+                                            <path fill="currentColor" d="M2.5 10.5a.5.5 0 0 1 .5.5v2a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1v-2a.5.5 0 0 1 1 0v2a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2v-2a.5.5 0 0 1 .5-.5" />
+                                        </svg>
+                                    </button>
+
+                                    <button type="button" class="aiChatButton aiChatDelete" aria-label="Delete" disabled="@(current && Busy)"
+                                            title="Delete this chat. It asks first, here in the row."
+                                            @onclick="() => _confirmingDelete = chat.Id" @onclick:stopPropagation="true">
+                                        <svg viewBox="0 0 16 16" aria-hidden="true">
+                                            <path fill="currentColor" d="M5.5 5.5A.5.5 0 0 1 6 6v6a.5.5 0 0 1-1 0V6a.5.5 0 0 1 .5-.5m2.5 0a.5.5 0 0 1 .5.5v6a.5.5 0 0 1-1 0V6a.5.5 0 0 1 .5-.5m3 .5a.5.5 0 0 0-1 0v6a.5.5 0 0 0 1 0z" />
+                                            <path fill="currentColor" d="M14.5 3a1 1 0 0 1-1 1H13v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V4h-.5a1 1 0 0 1-1-1V2a1 1 0 0 1 1-1H6a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1h3.5a1 1 0 0 1 1 1zM4.118 4 4 4.059V13a1 1 0 0 0 1 1h6a1 1 0 0 0 1-1V4.059L11.882 4zM2.5 3h11V2h-11z" />
+                                        </svg>
+                                    </button>
+                                </div>
+                            }
+                        }
+
+                        <div class="aiChatsKept">Kept @Ai.KeptWhere</div>
+                    </aside>
+
+                    <div class="aiSplit" data-split="chats" title="Drag to size the chats"></div>
+                }
+                else
+                {
+                    <button id="aiChatsToggle" type="button" class="aiSplitToggle aiSplitToggleLeft" aria-expanded="false"
+                            aria-label="Open the chats" title="Open the chats, kept @Ai.KeptWhere: open one to carry it on, save it as text, or delete it." @onclick="() => State.ChatsOpen = true">
+                        <svg viewBox="0 0 16 16" aria-hidden="true">
+                            <path d="M5.75 3.5 10.25 8l-4.5 4.5" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" />
+                        </svg>
+                    </button>
+                }
+
+                @* ------------------------------------------------------------ the conversation *@
+                <div id="aiTranscript" class="aiTranscript" @ref="_transcript">
+                    @if (turns.Count == 0)
+                    {
+                        <div class="aiIntro">
+                            @if (Writer is null)
+                            {
+                                <p>
+                                    Ask about the bench, or have the assistant work it: it reads the instruments with the bench's own
+                                    tools, and can write a script for you to run. Attach a datasheet or a screenshot, or type / for the
+                                    window's commands.
+                                </p>
+
+                                <div id="aiExamples" class="aiExamples" aria-label="Examples to start from">
+                                    @foreach (string example in Examples)
                                     {
-                                        <span class="ask">Delete it?</span>
-                                        <button class="link" @onclick="() => DeleteChatAsync(chat.Id)" @onclick:stopPropagation="true" title="Delete this chat for good">Delete</button>
-                                        <button class="link" @onclick="() => _confirmingDelete = null" @onclick:stopPropagation="true" title="Keep it">Keep</button>
+                                        <button type="button" class="aiExample" title="Put this in the box, to send or change first" @onclick="() => UseExample(example)">@example</button>
                                     }
-                                    else
+                                </div>
+
+                                <p id="aiContext" class="@(_benchNow.Count == 0 ? "aiIntroWarning" : null)">@AssistantPrompt.Context(_benchNow)</p>
+
+                                <p>
+                                    What you type, and what the assistant reads from the instruments, pictures of their screens
+                                    included, is sent to the provider of the model picked below. Nothing is sent until you press Send.
+                                </p>
+                            }
+                            else
+                            {
+                                @if (_sessions.Count == 0)
+                                {
+                                    <p id="aiContext" class="aiIntroWarning">
+                                        No instrument is connected, so there is no command catalog to write against.
+                                        Connect one first, otherwise the script can only be guesswork.
+                                    </p>
+                                }
+                                else
+                                {
+                                    <p id="aiContext">
+                                        The model is given the command catalogs @(Writer.IsSequence ? "ticked under the sliders in the box" : "below") and told to use
+                                        nothing else. Check what it writes before you run it. Attach a photo of the wiring, a datasheet or a
+                                        screenshot, or type / for the window's commands.
+                                    </p>
+
+                                    @if (!Writer.IsSequence)
                                     {
-                                        <button class="link" @onclick="() => ExportAsync(chat.Id)" @onclick:stopPropagation="true" disabled="@Busy"
-                                                title="@(Busy ? WhyBusy : "Save this chat as text: every turn, each call with what it answered, and what each answer cost.")">Save</button>
-                                        <button class="link" @onclick="() => _confirmingDelete = chat.Id" @onclick:stopPropagation="true" disabled="@Busy"
-                                                title="@(Busy ? WhyBusy : "Delete this chat. It asks first, here in the row.")">Delete</button>
+                                        <ul class="bullets">
+                                            @foreach (SessionDto s in _sessions.Where(s => Chosen().Contains(s.Id)))
+                                            {
+                                                <li>@Catalogued(s)</li>
+                                            }
+                                        </ul>
                                     }
+                                }
+
+                                <div id="aiExamples" class="aiExamples" aria-label="An example to start from">
+                                    <button type="button" class="aiExample" title="Put this in the box, to send or change first" @onclick="() => UseExample(WriterExample)">@WriterExample</button>
+                                </div>
+
+                                <p>
+                                    What comes back appears here, and each new request is asked with everything above it, so a
+                                    follow-up like &ldquo;now do the same at 5&nbsp;V&rdquo; means something.
+                                </p>
+                            }
+
+                            @if (_book.Items.Count == 0)
+                            {
+                                <p id="aiNoModel" class="aiIntroWarning">
+                                    There is no model yet. Add one, with your own key, under
+                                    <button id="aiOpenSettings" type="button" class="aiLink" @onclick="() => Ai.AskForSettingsAsync()">AI settings</button>.
+                                </p>
+                            }
+                        </div>
+                    }
+
+                    @* What a compaction folded away is still here, before its briefing: shown when asked, dimmed. *@
+                    @for (int i = 0; i < turns.Count; i++)
+                    {
+                        ChatTurn turn = turns[i];
+                        int index = i;
+                        string? fold = FoldClass(index, folded);
+
+                        @if (turn.Kind == ChatTurn.User)
+                        {
+                            <div class="aiTurn aiTurnUser @fold" @key="turn">
+                                <div class="aiQuestion">
+                                    @* The files it was sent with, over its words: struck through once unticked in the files panel. *@
+                                    @if (turn.Attachments.Count > 0)
+                                    {
+                                        <div class="aiChips aiQuestionFiles">
+                                            @foreach (AiAttachment file in turn.Attachments)
+                                            {
+                                                <span class="aiChip @(file.Excluded ? "aiChipOff" : null)" title="@SentChipTitle(file)">@file.Name</span>
+                                            }
+                                        </div>
+                                    }
+                                    <div class="aiBubble aiBubbleUser">@turn.Text</div>
                                 </div>
                             </div>
                         }
-                    </div>
-                </aside>
-                @* Shown only on a window too narrow for both panels (the stylesheet's container query),
-                   where it chooses the chats over the files. *@
-                <button class="margin-arrow left fold" @onclick="ChatsOverFiles" title="Show the chats kept @Ai.KeptWhere">›</button>
-            }
-            else
-            {
-                <button class="margin-arrow left" @onclick="() => State.ChatsOpen = true" title="Show the chats kept @Ai.KeptWhere">›</button>
-            }
+                        else if (turn.Kind == ChatTurn.Assistant)
+                        {
+                            WrittenScript? written = Writer is null ? null : WrittenScript.Read(turn.Text);
 
-            @* ------------------------------------------------------------ the conversation *@
-            <section class="talk">
-                <p class="context">@AssistantPrompt.Context(_benchNow)</p>
-
-                <div class="transcript" @ref="_transcript">
-                    @{
-                        IReadOnlyList<ChatTurn> turns = State.Chat.Turns;
-                        int folded = Math.Min(State.Chat.FoldedBefore, turns.Count);
-                    }
-                    @if (folded > 0)
-                    {
-                        <button class="link folded-link" @onclick="() => State.ShowFolded = !State.ShowFolded"
-                                title="What a compaction folded away: kept to read, and in the export, but no longer sent.">
-                            @(State.ShowFolded ? "Hide what came before the briefing" : $"Show the {folded} turns before the briefing")
-                        </button>
-                    }
-                    @for (int i = State.ShowFolded ? 0 : folded; i < turns.Count; i++)
-                    {
-                        ChatTurn turn = turns[i];
-                        bool dim = i < folded;
-                        bool waiting = AssistantPrompt.Waiting(turn);
-                        <div class="turn @KindOf(turn) @(dim ? "dim" : null) @(waiting ? "waiting" : null)" @key="turn">
-                            @switch (turn.Kind)
+                            @if (written is not null)
                             {
-                                case ChatTurn.User:
-                                    <div class="who">You</div>
-                                    <div class="words">@turn.Text</div>
-                                    @if (turn.Attachments.Count > 0)
-                                    {
-                                        <div class="small">@string.Join("   ", turn.Attachments.Select(a => $"📎 {a.Name} ({AiAttachment.Size(a.Data.Length)}){(a.Excluded ? ", left out" : "")}"))</div>
-                                    }
-                                    break;
+                                <div class="aiCard aiCardRead @fold" @key="turn">
+                                    <div class="aiCardTitle">Proposed a script</div>
 
-                                case ChatTurn.Assistant:
-                                    <div class="words">@turn.Text</div>
-                                    <div class="small">@AiChat.UsageLine(turn)</div>
-                                    break;
+                                    <pre class="aiCode aiCodeScript">@written.Script</pre>
 
-                                case ChatTurn.Tool:
-                                    <div class="call"><span>@turn.ToolName</span>&nbsp;&nbsp; <span>@AssistantPrompt.CallLine(turn.ArgumentsJson)</span></div>
-                                    @if (AssistantPrompt.CallState(turn) is { Length: > 0 } state)
+                                    @* Under the script it takes, in the answer it belongs to. One at the foot of the window could
+                                       only ever mean the newest, which in a conversation is the wrong one as often as it is the right one. *@
+                                    <div class="aiCardButtons">
+                                        <button type="button" class="aiAct aiUseScript" @onclick="() => OnUse.InvokeAsync(written.Script)"
+                                                title="Put this script into the editor. It is not run: you still decide that.">Use This Script</button>
+                                    </div>
+
+                                    @* The catalog check first, the model's own account second. What must be read is what the
+                                       catalog says, not what the thing being checked says about itself. *@
+                                    @if (written.Undocumented.Count > 0)
                                     {
-                                        <div class="small @(turn.Decision == false ? "bad" : null)">@state</div>
-                                    }
-                                    @if (waiting)
-                                    {
-                                        <div class="row">
-                                            <button class="@(turn.Changes ? "primary" : null)" @onclick="() => State.Chat.Decide(turn, true)">@(turn.Changes ? "Approve and Send" : "Approve")</button>
-                                            <button @onclick="() => State.Chat.Decide(turn, false)">Decline</button>
+                                        <div class="aiCardNote aiFormError aiCheck">
+                                            &#9888; @written.Undocumented.Count line(s) use commands that are in no
+                                            catalog here. Check them against the instrument's guide before
+                                            running: @string.Join(", ", written.Undocumented.Take(8))@(written.Undocumented.Count > 8 ? ", …" : "")
                                         </div>
                                     }
-                                    @if (turn.Result is string result)
+                                    else
                                     {
-                                        <div class="words @(turn.ResultIsError ? "bad" : null)">@result</div>
+                                        <div class="aiCardNote aiCheck">
+                                            Every command header here is in the catalog. The values after them
+                                            were not checked: read the script before you run it.
+                                        </div>
                                     }
+                                </div>
+
+                                @if (written.Notes.Length > 0)
+                                {
+                                    <div class="aiTurn @fold">
+                                        <div class="aiBubble aiBubbleAssistant">@written.Notes</div>
+                                    </div>
+                                }
+                            }
+                            else
+                            {
+                                <div class="aiTurn @fold" @key="turn">
+                                    <div class="aiBubble aiBubbleAssistant">@turn.Text</div>
+                                </div>
+                            }
+
+                            @if (turn.Usage is not null)
+                            {
+                                <div class="aiUsage @fold" title="@UsageTitle(turn)">@AiChat.UsageLine(turn)</div>
+                            }
+                        }
+                        else if (turn.Kind == ChatTurn.Summary)
+                        {
+                            <div class="aiSummary @fold" @key="turn">
+                                <div class="aiSummaryHead">
+                                    <span class="aiSummaryTitle">Conversation compacted</span>
+                                    @if (index == folded && folded > 0)
+                                    {
+                                        <button id="aiShowEarlier" type="button" class="aiLink" @onclick="() => State.ShowFolded = !State.ShowFolded">@(State.ShowFolded ? "Hide what came before" : $"Show what came before ({folded})")</button>
+                                    }
+                                </div>
+                                <div class="aiSummaryNote">The assistant carries on from this briefing. What came before it is not sent again.</div>
+                                <div class="aiSummaryText">@turn.Text</div>
+                                @if (turn.Attachments.Count > 0)
+                                {
+                                    <div class="aiSummaryNote aiSummaryFiles">
+                                        Its files are kept, unticked: @string.Join(", ", turn.Attachments.Select(a => a.Name)).
+                                        <button type="button" class="aiLink" @onclick="() => State.FilesOpen = true">Tick one in the files panel</button> to send it again.
+                                    </div>
+                                }
+                            </div>
+                            @if (turn.Usage is not null)
+                            {
+                                <div class="aiUsage @fold" title="@UsageTitle(turn)">@AiChat.UsageLine(turn)</div>
+                            }
+                        }
+                        else if (turn.Kind == ChatTurn.Tool)
+                        {
+                            bool waiting = AssistantPrompt.Waiting(turn);
+                            <div class="aiCard @(turn.Changes ? "aiCardChange" : "aiCardRead") @fold" data-tool="@turn.ToolName" @key="turn">
+                                <div class="aiCardTitle">
+                                    @CardTitle(turn)
+                                    @if (turn.Auto)
+                                    {
+                                        <span class="aiBadge" title="Run without asking, because of the setting below">auto</span>
+                                    }
+                                </div>
+
+                                <pre class="aiCode">@CallShown(turn)</pre>
+
+                                @if (waiting)
+                                {
+                                    <div class="aiCardButtons">
+                                        <button type="button" class="aiAct aiApprove" @onclick="() => State.Chat.Decide(turn, true)">@(turn.Changes ? "Approve and Send" : "Approve")</button>
+                                        <button type="button" class="aiAct aiDecline" @onclick="() => State.Chat.Decide(turn, false)">Decline</button>
+                                    </div>
+                                }
+                                else if (turn.Decision == false)
+                                {
+                                    <div class="aiCardNote">Declined. The assistant was told it was not done.</div>
+                                }
+                                else if (turn.Result is null)
+                                {
+                                    @if (turn.Decision == true)
+                                    {
+                                        <div class="aiCardNote">Running…</div>
+                                    }
+                                }
+                                else
+                                {
+                                    <div class="aiCardNote">@(turn.ResultIsError ? "Refused. The assistant was told why:" : "Done. The assistant was told:")</div>
+                                    <pre class="aiCode @(turn.ResultIsError ? "aiCodeRefused" : null)">@turn.Result</pre>
+
                                     @if (turn.Png is string png)
                                     {
-                                        <img class="shot" src="data:image/png;base64,@png" alt="The instrument's screen, as the model was shown it." />
+                                        <img class="aiPicture" src="data:image/png;base64,@png" alt="The instrument's screen, as the model was shown it." />
                                     }
+
                                     @if (turn.Proposal is string script)
                                     {
-                                        <pre class="script">@script</pre>
-                                        <div class="row">
-                                            <button @onclick="() => UseScriptAsync(turn)"
+                                        <pre class="aiCode aiCodeScript">@script</pre>
+                                        <div class="aiCardButtons">
+                                            <button type="button" class="aiAct aiUseScript" @onclick="() => UseScriptAsync(turn)"
                                                     title="Put it in the script editor, to read and run there. Nothing runs until you press Run.">Use This Script</button>
                                         </div>
                                     }
-                                    break;
-
-                                case ChatTurn.Error:
-                                    <div class="words bad">@turn.Text</div>
-                                    <div class="small">@AiChat.UsageLine(turn)</div>
-                                    break;
-
-                                case ChatTurn.Paused:
-                                    <div class="words">@turn.Text</div>
-                                    <div class="row">
-                                        <button @onclick="() => SendAsync(ContinueWord, fromBox: false)"
-                                                disabled="@(Busy || !ReferenceEquals(turn, turns[^1]))"
-                                                title="Carry on for as many rounds again. Each round sends the conversation again.">Continue</button>
-                                    </div>
-                                    break;
-
-                                case ChatTurn.Summary:
-                                    <div class="who">Briefing: the conversation above, compacted. The model is sent this in its place.</div>
-                                    <div class="words">@turn.Text</div>
-                                    @if (turn.Attachments.Count > 0)
-                                    {
-                                        <div class="small">Kept from before it, unticked in the files panel: @string.Join(", ", turn.Attachments.Select(a => a.Name))</div>
-                                    }
-                                    <div class="small">@AiChat.UsageLine(turn)</div>
-                                    break;
-
-                                default:
-                                    <div class="small">@turn.Text</div>
-                                    break;
+                                }
+                            </div>
+                        }
+                        else if (turn.Kind == ChatTurn.Note || turn.Kind == ChatTurn.Reopened)
+                        {
+                            <div class="aiTurnNote @fold" @key="turn">@turn.Text</div>
+                        }
+                        else if (turn.Kind == ChatTurn.Paused)
+                        {
+                            <div class="aiTurnPaused @fold" @key="turn">
+                                <span>@turn.Text</span>
+                                @if (index == turns.Count - 1 && !Busy)
+                                {
+                                    <button id="aiContinue" type="button" class="aiAct aiContinueButton" @onclick="() => SendAsync(ContinueWord, fromBox: false)"
+                                            title="Carry on for as many rounds again. Each round sends the conversation again.">Continue</button>
+                                }
+                            </div>
+                            @if (turn.Usage is not null)
+                            {
+                                <div class="aiUsage @fold" title="@UsageTitle(turn)">@AiChat.UsageLine(turn)</div>
                             }
-                        </div>
+                        }
+                        else
+                        {
+                            <div class="aiTurnError @fold" @key="turn">@turn.Text</div>
+                            @* A run that failed or was stopped partway was still billed for what it sent. *@
+                            @if (turn.Usage is not null)
+                            {
+                                <div class="aiUsage @fold" title="@UsageTitle(turn)">@AiChat.UsageLine(turn)</div>
+                            }
+                        }
                     }
-                    @if (turns.Count == 0)
+
+                    @if (State.Chat.Compacting)
                     {
-                        <p class="small note">Nothing asked yet. Ask about the bench, attach a datasheet or a screenshot, ask for a script, or type / for the window's commands.</p>
+                        <div id="aiThinking" class="aiThinking">Compacting the conversation…</div>
+                    }
+                    else if (Busy)
+                    {
+                        <div id="aiThinking" class="aiThinking">Thinking…</div>
                     }
                 </div>
 
-                @if (WorthCompacting(out string suggestion))
+                @* The slash commands: over the conversation's foot, just above the box, narrowed as the name is typed. *@
+                @if (listed.Count > 0)
                 {
-                    <div class="compact-bar">
-                        <span>@suggestion</span>
-                        <span class="spacer"></span>
-                        <button @onclick="CompactAsync"
-                                title="Put a briefing in place of the conversation so far. What it stands in for stays on screen, and is not sent again.">Compact</button>
-                        <button @onclick="() => State.Chat.CompactSuggestionDismissed = true"
-                                title="Put the suggestion away until the conversation is next compacted, or a new one starts.">Not Now</button>
+                    <div id="aiSlashMenu" class="aiSlashMenu" role="listbox" aria-label="Commands">
+                        @for (int i = 0; i < listed.Count; i++)
+                        {
+                            SlashCommand command = listed[i];
+                            int position = i;
+                            <div class="aiSlashItem @(position == Marked(listed) ? "aiSlashItemOn" : null) @(command.WhyNot is null ? null : "aiSlashItemOff")"
+                                 role="option" aria-selected="@(position == Marked(listed) ? "true" : "false")" data-command="@command.Name"
+                                 title="@(command.WhyNot ?? command.What)"
+                                 @onmouseenter="() => _slashMarked = position" @onmousedown:preventDefault="true" @onclick="() => RunSlashAsync(command, string.Empty)">
+                                <span class="aiSlashName">@command.Name</span>
+                                <span class="aiSlashSays">@(command.WhyNot ?? command.What)</span>
+                            </div>
+                        }
                     </div>
                 }
 
-                <div class="composer">
-                    @if (State.Chat.Pending is { Count: > 0 } waitingFiles)
-                    {
-                        <div class="chips">
-                            @foreach (AiAttachment file in waitingFiles)
-                            {
-                                <span class="chip">
-                                    @file.Name&nbsp; @AiAttachment.Size(file.Data.Length)
-                                    <button class="ghost" @onclick="() => Unattach(file)" title="Take it off the next question" aria-label="Take @file.Name off the next question"><Icon Name="close" /></button>
-                                </span>
-                            }
+                @* ------------------------------------------------------------ the conversation's files *@
+                @if (State.FilesOpen)
+                {
+                    List<(ChatTurn Question, AiAttachment File)> sent = State.Chat.SentFiles();
+                    List<(ChatTurn Question, AiAttachment File)> asked = [.. sent.Where(s => s.Question.Kind != ChatTurn.Summary)];
+                    List<(ChatTurn Question, AiAttachment File)> briefed = [.. sent.Where(s => s.Question.Kind == ChatTurn.Summary)];
+
+                    <div class="aiSplit" data-split="files" title="Drag to size the files"></div>
+
+                    <aside id="aiFiles" class="aiFiles" aria-label="Files in this conversation">
+                        <div class="aiPanelTop">
+                            <div class="aiFilesHead">In this conversation</div>
+                            <button id="aiFilesClose" type="button" class="aiPanelClose" aria-label="Close the files" title="Close the files" @onclick="() => State.FilesOpen = false">
+                                <svg viewBox="0 0 16 16" aria-hidden="true">
+                                    <path d="M4 4l8 8M12 4l-8 8" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" />
+                                </svg>
+                            </button>
                         </div>
-                    }
-                    @if (ProblemLine() is { Length: > 0 } problem)
-                    {
-                        <p class="problem">@problem</p>
-                    }
-                    @{ List<SlashCommand> listed = SlashShown(); }
-                    @if (listed.Count > 0)
-                    {
-                        <ul class="slash" role="listbox" aria-label="The window's commands">
-                            @for (int i = 0; i < listed.Count; i++)
-                            {
-                                SlashCommand command = listed[i];
-                                <li role="option" aria-selected="@(i == Marked(listed) ? "true" : "false")"
-                                    class="@(i == Marked(listed) ? "on" : null) @(command.WhyNot is null ? null : "held")"
-                                    @onmousedown:preventDefault="true" @onmousedown="() => RunSlashAsync(command, string.Empty)">
-                                    <span class="name">@command.Name</span>
-                                    <span class="what">@command.What@(command.WhyNot is null ? "" : "  " + command.WhyNot)</span>
-                                </li>
-                            }
-                        </ul>
-                    }
-                    <textarea class="prompt" @ref="_box" rows="1" @bind="State.Draft" @bind:event="oninput" @bind:after="Typed"
-                              data-slash-menu="@(listed.Count > 0 ? "open" : "closed")"
-                              placeholder="Ask about the bench, or type / for the window's commands"
-                              title="Enter sends, Shift+Enter starts a new line. A slash at the start lists the window's commands."
-                              aria-label="Ask the assistant"></textarea>
 
-                    <div class="assistant-row">
-                        <span class="pair">
-                            <span class="muted">Using:</span>
-                            <select @onchange="PickAsync" disabled="@Busy" title="Which saved AI connection answers. They are set up under AI settings… in the gear.">
-                                @{ IReadOnlyList<string> labels = _book.Labels(); }
-                                @if (_book.Items.Count == 0)
-                                {
-                                    <option value="" selected>No connection</option>
-                                }
-                                @for (int i = 0; i < _book.Items.Count; i++)
-                                {
-                                    AiConnection one = _book.Items[i];
-                                    <option value="@one.Id" selected="@(one.Id == _connection?.Id)">@labels[i]</option>
-                                }
-                            </select>
-                        </span>
-                        <span class="pair">
-                            <span class="muted">Effort:</span>
-                            <select @bind="State.Effort" disabled="@(AiModels.EffortLevels(_connection).Count == 0)"
-                                    title="How hard the model is asked to think, for this question only. Thinking is billed as output.">
-                                <option value="">@DefaultEffortLabel()</option>
-                                @foreach (string level in AiModels.EffortLevels(_connection))
-                                {
-                                    <option value="@level">@Cap(level)</option>
-                                }
-                            </select>
-                        </span>
-                        <span class="pair">
-                            <span class="muted">Changes:</span>
-                            <select @onchange="PickRung"
-                                    title="Ask before every step: every call waits for you, reads included. Ask before changes: reads run at once; each send waits for you. Change without asking: sends run at once too. There is no undo on an instrument.">
-                                @foreach (ToolApprovalMode mode in AssistantPrompt.Rungs)
-                                {
-                                    <option value="@mode" selected="@(mode == State.Chat.Mode)">@AssistantPrompt.RungLabel(mode)</option>
-                                }
-                            </select>
-                        </span>
-                        <button @onclick="PickFilesAsync"
-                                title="Attach pictures, PDFs or text files to the next question. A picture can be pasted into the box, and files dropped on the window.">Attach Files…</button>
-                        <button @onclick="ScreenshotAsync"
-                                title="Attach a picture of a screen, a window or a tab, which the browser asks you to choose."><Icon Name="camera" /> Screenshot</button>
-                        <span class="tools-anchor">
-                            <button @onclick="() => _toolsOpen = !_toolsOpen" disabled="@Busy" aria-expanded="@(_toolsOpen ? "true" : "false")"
-                                    title="Switch tools off for this conversation. A tool switched off is not offered, and the model is told so.">@ToolsLabel()</button>
-                            @if (_toolsOpen)
-                            {
-                                <div class="scrim" @onmousedown="() => _toolsOpen = false"></div>
-                                <div class="menu tool-picker" tabindex="-1" @ref="_toolCard"
-                                     @onkeydown="ToolKey" @onkeydown:stopPropagation="true">
-                                    @foreach (var (heading, tools) in ToolGroups())
-                                    {
-                                        <div class="group-head">@heading</div>
-                                        @foreach (LlmTool tool in tools)
-                                        {
-                                            <label class="item check" title="@tool.Description.Split('\n')[0]">
-                                                <input type="checkbox" checked="@(!State.Chat.ToolsOff.Contains(tool.Name))"
-                                                       @onchange="e => SwitchTool(tool.Name, e.Value is true)" />
-                                                @tool.Name
-                                            </label>
-                                        }
-                                    }
-                                    <div class="rule"></div>
-                                    <button class="item" @onclick="AllToolsOn" disabled="@(State.Chat.ToolsOff.Count == 0)">Every tool on</button>
-                                    <button class="item" @onclick="CompactFromMenuAsync" disabled="@(State.Chat.WhyNotCompact() is not null)"
-                                            title="@(State.Chat.WhyNotCompact() ?? "Put a briefing in place of the conversation so far.")">Compact the conversation</button>
-                                </div>
-                            }
-                        </span>
-                        <span class="spacer"></span>
-                        @* Send and Stop are one button, in one place: a double-click on Send must not stop
-                           what it sent, so a press counted as the second of a pair is let go. *@
-                        <button class="primary send" @onclick="SendOrStopAsync" disabled="@(!Busy && !CanSend)"
-                                title="Send the question (Enter). While an answer is coming, Stop."><Icon Name="ai" /> @(Busy ? "Stop" : "Send")</button>
-                    </div>
-                    <p class="estimate">@Estimate()</p>
-                </div>
-            </section>
+                        @if (asked.Count == 0)
+                        {
+                            <div class="aiFilesNone">@(briefed.Count > 0 ? "None sent since it was compacted." : "None sent yet.")</div>
+                        }
 
-            @* ------------------------------------------------------------ the conversation's files *@
-            @if (State.FilesOpen)
+                        @foreach (var (question, file) in asked)
+                        {
+                            <label class="aiFileRow @(file.Excluded ? "aiFileOff" : null)" title="Sent with: @Cut(question.Text, 160)" @key="(file, file.Excluded, _filesDrawn)">
+                                <input type="checkbox" class="aiFileTick" checked="@(!file.Excluded)" disabled="@Busy" @onchange="e => Include(file, e.Value is true)"
+                                       aria-label="Send @file.Name with every question" />
+                                <span class="aiFileName">@file.Name</span>
+                                <span class="aiFileSize">@AiAttachment.Size(file.Data.Length)</span>
+                            </label>
+                        }
+
+                        @if (briefed.Count > 0)
+                        {
+                            <div class="aiFilesHead">From before the summary</div>
+                            @foreach (var (_, file) in briefed)
+                            {
+                                <label class="aiFileRow @(file.Excluded ? "aiFileOff" : null)" title="Read into the summary when the conversation was compacted. Tick it to send it again with every question." @key="(file, file.Excluded, _filesDrawn)">
+                                    <input type="checkbox" class="aiFileTick" checked="@(!file.Excluded)" disabled="@Busy" @onchange="e => Include(file, e.Value is true)"
+                                           aria-label="Send @file.Name with every question" />
+                                    <span class="aiFileName">@file.Name</span>
+                                    <span class="aiFileSize">@AiAttachment.Size(file.Data.Length)</span>
+                                </label>
+                            }
+                        }
+
+                        <div class="aiFilesHead">With the next question</div>
+
+                        @if (State.Chat.Pending.Count == 0)
+                        {
+                            <div class="aiFilesNone">None. Attach one with the paperclip, paste a picture into the box, or drop files here.</div>
+                        }
+
+                        @foreach (AiAttachment file in State.Chat.Pending)
+                        {
+                            <div class="aiFileRow">
+                                <span class="aiFileName" title="@file.Name">@file.Name</span>
+                                <span class="aiFileSize">@AiAttachment.Size(file.Data.Length)</span>
+                                <button type="button" class="aiChipRemove" aria-label="Take @file.Name off" title="Take it off" @onclick="() => Unattach(file)">&times;</button>
+                            </div>
+                        }
+
+                        @if (_filesProblem.Length > 0)
+                        {
+                            <div class="aiFormError">@_filesProblem</div>
+                        }
+
+                        <div id="aiFilesWeight" class="aiFilesWeight">@FilesWeight(sent)</div>
+                    </aside>
+                }
+                else
+                {
+                    int count = State.Chat.SentFiles().Count + State.Chat.Pending.Count;
+                    <button id="aiFilesToggle" type="button" class="aiSplitToggle aiSplitToggleRight" aria-expanded="false"
+                            aria-label="Open the files" title="Open the files in this conversation, and which of them go with every question." @onclick="() => State.FilesOpen = true">
+                        <svg viewBox="0 0 16 16" aria-hidden="true">
+                            <path d="M10.25 3.5 5.75 8l4.5 4.5" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" />
+                        </svg>
+                        @if (count > 0)
+                        {
+                            <span id="aiFilesCount" class="aiFilesCount">@count</span>
+                        }
+                    </button>
+                }
+            </div>
+
+            @* The suggestion to compact, priced: what the history costs every question now, and what compacting it costs once. *@
+            @if (WorthCompacting())
             {
-                List<(ChatTurn Question, AiAttachment File)> sent = State.Chat.SentFiles();
-                <aside class="files-panel" aria-label="Files">
-                    <div class="panel-head">
-                        <span class="cap">Files</span>
-                        <span class="spacer"></span>
-                        <button class="ghost shut" @onclick="() => State.FilesOpen = false" title="Hide the files" aria-label="Hide the files"><Icon Name="close" /></button>
-                    </div>
-                    <div class="group-head">In this conversation</div>
-                    @if (sent.Count == 0)
-                    {
-                        <p class="hint">None yet. A file sent with a question is listed here, to be left out of the questions after it.</p>
-                    }
-                    @foreach (var (question, file) in sent)
-                    {
-                        <label class="file-row @(file.Excluded ? "off" : null)" @key="(file, file.Excluded, _filesDrawn)"
-                               title="@((file.Excluded ? "Left out: not sent with the questions after it. " : "") + (question.Kind == ChatTurn.Summary ? "Kept from before the briefing. Ticked, it goes with every question again." : $"Sent with: {Cut(question.Text, 160)}"))">
-                            <input type="checkbox" checked="@(!file.Excluded)" disabled="@Busy" @onchange="e => Include(file, e.Value is true)" />
-                            <span class="name">@file.Name</span>
-                            <span class="muted">@AiAttachment.Size(file.Data.Length)</span>
-                        </label>
-                    }
-                    <div class="group-head">With the next question</div>
-                    @if (State.Chat.Pending.Count == 0)
-                    {
-                        <p class="hint">Nothing waiting. Attach Files…, a paste or a drop puts one here.</p>
-                    }
+                <div id="aiCompactSuggestion" class="aiSuggest">
+                    <span class="aiSuggestText">@CompactSuggestion()</span>
+                    <button id="aiCompactNow" type="button" class="aiAct" @onclick="CompactAsync"
+                            title="Put a briefing in place of the conversation so far. What it stands in for stays on screen, and is not sent again.">Compact</button>
+                    <button id="aiCompactLater" type="button" class="aiLink" @onclick="() => State.Chat.CompactSuggestionDismissed = true">Not now</button>
+                </div>
+            }
+
+            @* The files waiting to go with the next question, each with its cross. *@
+            @if (State.Chat.Pending.Count > 0)
+            {
+                <div id="aiPending" class="aiChips">
                     @foreach (AiAttachment file in State.Chat.Pending)
                     {
-                        <div class="file-row">
-                            <span class="name">@file.Name</span>
-                            <span class="muted">@AiAttachment.Size(file.Data.Length)</span>
-                            <span class="spacer"></span>
-                            <button class="ghost" @onclick="() => Unattach(file)" title="Take it off the next question" aria-label="Take @file.Name off the next question"><Icon Name="close" /></button>
-                        </div>
+                        <span class="aiChip @(NotSentTo(file) is null ? null : "aiChipBlocked")" title="@PendingChipTitle(file)">
+                            <span class="aiChipName">@file.Name</span>
+                            <span class="aiChipSize">@AiAttachment.Size(file.Data.Length)</span>
+                            <button type="button" class="aiChipRemove" aria-label="Take @file.Name off" title="Take it off" @onclick="() => Unattach(file)">&times;</button>
+                        </span>
                     }
-                    @if (_filesProblem.Length > 0)
-                    {
-                        <p class="problem">@_filesProblem</p>
-                    }
-                    <p class="hint foot">@FilesFoot(sent)</p>
-                </aside>
+                </div>
             }
-            else
+
+            @if (_attachProblem.Length > 0)
             {
-                int count = State.Chat.SentFiles().Count;
-                <button class="margin-arrow right" @onclick="() => State.FilesOpen = true"
-                        title="@(count == 0 ? "Show the files panel. No file has gone with a question yet." : $"Show the files: {count} in this conversation.")">‹@if (count > 0) {<span class="count">@count</span>}</button>
+                <div id="aiAttachProblem" class="aiFormError">@_attachProblem</div>
+            }
+
+            @if (State.Notice.Length > 0)
+            {
+                <div id="aiNotice" class="aiFormWarning">@State.Notice</div>
+            }
+
+            @if (_speechProblem.Length > 0)
+            {
+                <div id="aiSpeechProblem" class="aiFormError">@_speechProblem</div>
+            }
+
+            @* The camera, live, over the box: the shutter attaches the frame on screen to the next question, and the card goes. *@
+            @if (_cameraOpen)
+            {
+                <div id="aiCamera" class="aiCamera" role="dialog" aria-label="Camera" data-popup @ref="_cameraCard">
+                    <video id="aiCameraVideo" class="aiCameraVideo" @ref="_cameraVideo" autoplay playsinline muted></video>
+
+                    <button id="aiCameraClose" type="button" class="aiBarButton aiCameraClose" aria-label="Close the camera" title="Close the camera" @onclick="CloseCameraAsync">
+                        <svg viewBox="0 0 16 16" aria-hidden="true">
+                            <path d="M4.5 4.5l7 7M11.5 4.5l-7 7" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" />
+                        </svg>
+                    </button>
+
+                    <div class="aiCameraRow">
+                        @if (_cameraProblem.Length > 0)
+                        {
+                            <span id="aiCameraProblem" class="aiFormError">@_cameraProblem</span>
+                        }
+                        else
+                        {
+                            <button id="aiCameraCapture" type="button" class="aiCameraShutter" aria-label="Capture"
+                                    title="Take the picture on screen, and attach it to the next question" @onclick="CaptureAsync">
+                                <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round" aria-hidden="true">
+                                    <path d="M2 5.2a1.2 1.2 0 0 1 1.2-1.2h1.9l1.1-1.6h3.6l1.1 1.6h1.9A1.2 1.2 0 0 1 14 5.2v6.6a1.2 1.2 0 0 1-1.2 1.2H3.2A1.2 1.2 0 0 1 2 11.8z" />
+                                    <circle cx="8" cy="8.4" r="2.5" />
+                                </svg>
+                            </button>
+                        }
+                    </div>
+                </div>
+            }
+
+            @if (!Busy && WhyNotSend() is string cannot)
+            {
+                <div id="aiCannotSend" class="aiFormWarning">@cannot</div>
+            }
+
+            @* The box and what goes with the next question, in one rounded frame: the words on top, and
+               along the frame's foot a slim row of borderless controls. A press anywhere in the frame's
+               spare room puts the caret in the box. *@
+            <div class="aiBox @(_listening ? "aiBoxListening" : null)" @onclick="FocusBoxAsync">
+                <textarea id="aiPrompt" class="aiField aiPrompt" rows="1" @ref="_box" @bind="State.Draft" @bind:event="oninput" @bind:after="Typed"
+                          data-slash-menu="@(listed.Count > 0 ? "open" : "closed")"
+                          placeholder="@(Writer is null ? "Ask about the bench, or type / for commands" : "Say what the script should do, or type / for commands")"
+                          title="@(Writer is null
+                                    ? "Enter sends, Shift+Enter starts a new line. A picture pasted here goes with the question."
+                                    : "Plain English. Say what you want measured or set, and at what values: the more specific, the less the model has to guess. Enter sends it, Shift+Enter starts a new line. A picture pasted here goes with the request.")"
+                          aria-label="@(Writer is null ? "Ask the assistant" : "What the script should do")"></textarea>
+
+                @* What the microphone hears, in the box's top right corner so nothing in the row moves. *@
+                @if (_listening)
+                {
+                    <span id="aiMicLevel" class="aiMicLevel" @ref="_micLevel" aria-hidden="true" title="What the microphone hears">
+                        @for (int bar = 0; bar < MicLevelBars; bar++)
+                        {
+                            <span class="aiMicLevelBar"></span>
+                        }
+                    </span>
+                }
+
+                <div class="aiBoxBar">
+                    <InputFile @ref="_input" OnChange="AttachAsync" multiple class="aiFileInput" accept="@AiAttachment.Accept" tabindex="-1" aria-hidden="true" />
+
+                    <button id="aiAttach" type="button" class="aiBarButton aiAttach" aria-label="Attach files"
+                            title="Attach files to the next question: pictures, PDFs, Excel and Word files and text files, up to @AiAttachment.MostPerQuestion. A picture pasted into the box, or files dropped on the window, go the same way."
+                            @onclick="PickFilesAsync" @onclick:stopPropagation="true">
+                        <svg viewBox="0 0 16 16" aria-hidden="true">
+                            <path fill="currentColor" d="M4.5 3a2.5 2.5 0 0 1 5 0v9a1.5 1.5 0 0 1-3 0V5a.5.5 0 0 1 1 0v7a.5.5 0 0 0 1 0V3a1.5 1.5 0 1 0-3 0v9a2.5 2.5 0 0 0 5 0V5a.5.5 0 0 1 1 0v7a3.5 3.5 0 1 1-7 0z" />
+                        </svg>
+                    </button>
+
+                    <button id="aiCameraToggle" type="button" class="aiBarButton aiCameraToggle @(_cameraOpen ? "aiBarButtonOn" : null)"
+                            aria-pressed="@(_cameraOpen ? "true" : "false")" aria-label="Take a picture with the camera"
+                            title="Take a picture with your camera, and attach it to the next question as a pasted picture is, for a model that sees pictures."
+                            @onclick="ToggleCameraAsync" @onclick:stopPropagation="true">
+                        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round" aria-hidden="true">
+                            <path d="M2 5.2a1.2 1.2 0 0 1 1.2-1.2h1.9l1.1-1.6h3.6l1.1 1.6h1.9A1.2 1.2 0 0 1 14 5.2v6.6a1.2 1.2 0 0 1-1.2 1.2H3.2A1.2 1.2 0 0 1 2 11.8z" />
+                            <circle cx="8" cy="8.4" r="2.5" />
+                        </svg>
+                    </button>
+
+                    <button id="aiScreenshot" type="button" class="aiBarButton aiScreenshot" aria-label="Attach a screenshot"
+                            title="Take a screenshot of a screen, a window or a browser tab, picked in your browser's own window, and attach it to the next question, for a model that sees pictures."
+                            @onclick="ScreenshotAsync" @onclick:stopPropagation="true">
+                        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                            <path d="M2 5V3.2A1.2 1.2 0 0 1 3.2 2H5M11 2h1.8A1.2 1.2 0 0 1 14 3.2V5M14 11v1.8a1.2 1.2 0 0 1-1.2 1.2H11M5 14H3.2A1.2 1.2 0 0 1 2 12.8V11" />
+                            <rect x="5" y="5.5" width="6" height="5" rx="0.8" />
+                        </svg>
+                    </button>
+
+                    @if (Writer is null)
+                    {
+                        @* How far the model may go on its own. On the middle rung at every start and never remembered. *@
+                        <select id="aiMode" class="aiField aiSelect" @onchange="PickRung" @onclick:stopPropagation="true" title="@ModeHint()">
+                            @foreach (ToolApprovalMode mode in AssistantPrompt.Rungs)
+                            {
+                                <option value="@mode" selected="@(mode == State.Chat.Mode)">@AssistantPrompt.RungLabel(mode)</option>
+                            }
+                        </select>
+                    }
+                    else
+                    {
+                        @* What goes with the request, where the assistant has how far it may go on its own. *@
+                        <label class="aiBarCheck" title="Send the script currently in the editor and ask for it to be changed, rather than starting again." @onclick:stopPropagation="true">
+                            <input type="checkbox" class="aiRevise" checked="@_revise" disabled="@(Busy || Writer.CurrentScript is not { Length: > 0 })"
+                                   @onchange="e => ReviseAsync(e.Value is true)" /> Revise the current script
+                        </label>
+                        <label class="aiBarCheck" title="Send what the last run printed, so a failure can be read and worked around." @onclick:stopPropagation="true">
+                            <input type="checkbox" class="aiIncludeOutput" checked="@_includeOutput" disabled="@(Busy || Writer.RecentOutput is not { Length: > 0 })"
+                                   @onchange="e => IncludeOutputAsync(e.Value is true)" /> Include the last run's output
+                        </label>
+                    }
+
+                    @* Who answers, rather than what is being said to them: at the far end, beside Send. *@
+                    <div class="aiComposerEnd" @onclick:stopPropagation="true">
+                        <span class="aiToolHolder" @ref="_toolRoot">
+                            @if (_toolsOpen)
+                            {
+                                <div id="aiToolPicker" class="aiToolPicker" role="dialog" aria-label="@PickerName()" tabindex="-1" data-popup @ref="_toolCard">
+                                    @if (Writer is null)
+                                    {
+                                        <div class="aiToolPickerHead">Tools the assistant may use</div>
+
+                                        @foreach (var (heading, tools) in ToolGroups())
+                                        {
+                                            <div class="aiToolPickerGroup">
+                                                <span class="aiToolPickerGroupName">@heading</span>
+                                                <button type="button" class="aiLink" @onclick="() => SetTools(tools, true)">all</button>
+                                                <button type="button" class="aiLink" @onclick="() => SetTools(tools, false)">none</button>
+                                            </div>
+
+                                            <div class="aiToolPickerTools">
+                                                @foreach (LlmTool tool in tools)
+                                                {
+                                                    <label class="aiToolPickerTool" title="@tool.Description.Split('\n')[0]">
+                                                        <input type="checkbox" data-tool="@tool.Name" checked="@(!State.Chat.ToolsOff.Contains(tool.Name))"
+                                                               @onchange="e => SwitchTool(tool.Name, e.Value is true)" />
+                                                        <span>@tool.Name.Replace('_', ' ')</span>
+                                                    </label>
+                                                }
+                                            </div>
+                                        }
+
+                                        <div class="aiToolPickerNote">
+                                            A tool switched off is not offered to the model, which is told so. It stays off in the next conversation too,
+                                            until the page is reloaded.
+                                        </div>
+                                    }
+                                    else if (Writer.IsSequence)
+                                    {
+                                        @* Which catalogs is not a question in a console's script window: the script runs on the
+                                           instrument whose console it was opened from. Several at once is the point of this one. *@
+                                        <div class="aiToolPickerHead">Catalogs the script may use</div>
+
+                                        <div class="aiToolPickerTools">
+                                            @foreach (SessionDto s in _sessions)
+                                            {
+                                                <label class="aiToolPickerTool" title="Include this instrument's catalog in what the model is allowed to use.">
+                                                    <input type="checkbox" class="aiCatalogTick" checked="@(!_left.Contains(s.Id))" @onchange="e => TickCatalogAsync(s.Id, e.Value is true)" />
+                                                    <span>@s.ProfileName</span>
+                                                </label>
+                                            }
+                                        </div>
+
+                                        @if (_sessions.Count == 0)
+                                        {
+                                            <div class="aiToolPickerNote">No instrument is connected.</div>
+                                        }
+                                    }
+
+                                    <div class="aiToolPickerHead">This conversation</div>
+
+                                    <div class="aiToolPickerAction">
+                                        <button id="aiCompact" type="button" class="aiAct" disabled="@(WhyNotCompactNow() is not null)"
+                                                title="Replace the conversation so far with a briefing the assistant carries on from." @onclick="CompactFromMenuAsync">Compact</button>
+                                        <span id="aiCompactPrice" class="aiToolPickerPrice">@CompactLine()</span>
+                                    </div>
+                                </div>
+                            }
+
+                            <button id="aiToolPickerToggle" type="button" class="aiBarButton aiToolPickerToggle @(_toolsOpen ? "aiBarButtonOn" : null)" disabled="@Busy"
+                                    aria-pressed="@(_toolsOpen ? "true" : "false")" aria-label="@PickerName()" title="@PickerTitle()" @onclick="ToggleTools">
+                                <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" aria-hidden="true">
+                                    <line x1="2" y1="4" x2="14" y2="4" stroke-linecap="round" />
+                                    <line x1="2" y1="8" x2="14" y2="8" stroke-linecap="round" />
+                                    <line x1="2" y1="12" x2="14" y2="12" stroke-linecap="round" />
+                                    <circle cx="5.5" cy="4" r="1.7" fill="currentColor" />
+                                    <circle cx="10.5" cy="8" r="1.7" fill="currentColor" />
+                                    <circle cx="7" cy="12" r="1.7" fill="currentColor" />
+                                </svg>
+                                @if (PickerOff() > 0)
+                                {
+                                    <span id="aiToolPickerCount" class="aiFilesCount">@PickerOff()</span>
+                                }
+                            </button>
+                        </span>
+
+                        <AiModelMenu Models="MenuModels()" SelectedId="@_connection?.Id" Chosen="@ModelSaid()" EffortSaid="@EffortSaid()"
+                                     Levels="MenuLevels()" Effort="@State.Effort" SupportsFast="@(Writer is null && AiModels.SupportsFast(_connection))" Fast="State.Fast"
+                                     Disabled="Busy" Title="@ModelTitle()" OnModel="PickAsync" OnEffort="e => State.Effort = e"
+                                     FastChanged="on => State.Fast = on" OnManage="() => Ai.AskForSettingsAsync()" />
+
+                        @* What the next request costs before it is sent, and what has been spent: the (i)
+                           shows it in a card while pointed at, and a press keeps it on a line under the box. *@
+                        @if (_connection is not null)
+                        {
+                            <div class="aiMeterHolder">
+                                <button id="aiMeterToggle" type="button" class="aiBarButton @(State.MeterOn ? "aiBarButtonOn" : null)"
+                                        aria-pressed="@(State.MeterOn ? "true" : "false")" aria-label="@MeterLabel()" @onclick="() => State.MeterOn = !State.MeterOn">
+                                    <svg viewBox="0 0 16 16" aria-hidden="true">
+                                        <circle cx="8" cy="8" r="6.5" fill="none" stroke="currentColor" stroke-width="1.2" />
+                                        <circle cx="8" cy="4.9" r="0.9" fill="currentColor" />
+                                        <path d="M8 7.2v4.6" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" />
+                                    </svg>
+                                </button>
+
+                                @* Only while the line is off: with it on, the card would say what is already under the box. *@
+                                @if (!State.MeterOn)
+                                {
+                                    <div id="aiMeterCard" class="aiMeterCard" role="tooltip">
+                                        <span class="aiMeterNote">Press the (i) to keep this under the box</span>
+                                        @MeterLines()
+                                    </div>
+                                }
+                            </div>
+                        }
+
+                        @* Send and Stop are one button, in one place: a double-click on Send must not stop
+                           what it sent, so a press counted as the second of a pair is let go. *@
+                        <button id="aiSend" type="button" class="aiSendStop @(Busy ? "aiSendStopping" : null)" aria-label="@(Busy ? "Stop" : Writer is null ? "Send" : "Write Script")"
+                                @onclick="SendOrStopAsync" disabled="@(!Busy && !CanSend)" title="@SendTitle()">
+                            @if (Busy)
+                            {
+                                <svg viewBox="0 0 16 16" aria-hidden="true"><rect x="4.5" y="4.5" width="7" height="7" rx="1" fill="currentColor" /></svg>
+                            }
+                            else
+                            {
+                                <svg viewBox="0 0 16 16" aria-hidden="true">
+                                    <path d="M8 13V3.5M3.8 7.6 8 3.4l4.2 4.2" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" />
+                                </svg>
+                            }
+                        </button>
+
+                        @* The microphone: speech into the box, by the browser's own recognition as the words are said, or
+                           recorded and written out by the AI provider, chosen under AI settings. Red while it listens. *@
+                        <button id="aiMic" type="button" class="aiBarButton aiMic @(_listening ? "aiMicOn" : null) @(_transcribing ? "aiMicBusy" : null) @(MicUsable ? null : "aiMicOff")"
+                                aria-pressed="@(_listening ? "true" : "false")" aria-label="@MicLabel()" title="@MicTitle()" disabled="@_transcribing" @onclick="MicAsync">
+                            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" aria-hidden="true">
+                                <rect x="5.75" y="1.75" width="4.5" height="8" rx="2.25" />
+                                <path d="M3.6 7.6a4.4 4.4 0 0 0 8.8 0M8 12v2.2M5.9 14.2h4.2" />
+                            </svg>
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            @if (_connection is not null && State.MeterOn)
+            {
+                <div id="aiMeter" class="aiMeter">
+                    @MeterLines()
+                </div>
             }
         </div>
-
-        <div class="assistant-status">@State.Status</div>
-        <InputFile @ref="_input" OnChange="AttachAsync" multiple class="hidden-input" tabindex="-1" aria-hidden="true" />
-    </div>
+    </ChildContent>
 </ToolWindow>
 
 @code {
-    /// <summary>The window has shut, by its ✕ or Esc. What it holds stays in AssistantState.</summary>
+    /// <summary>The window has shut, by its ✕ or Esc. What it holds stays in its state.</summary>
     [Parameter] public EventCallback OnClosed { get; set; }
 
-    /// <summary>Asked for AI settings: <c>/settings</c>.</summary>
-    [Parameter] public EventCallback OnSettings { get; set; }
+    /// <summary>What the script editor that opened this says about itself; null when this is the bench's AI assistant.</summary>
+    [Parameter] public ScriptWriterContext? Writer { get; set; }
+
+    /// <summary>Where a writer's Use This Script puts the script.</summary>
+    [Parameter] public EventCallback<string> OnUse { get; set; }
+
+    /// <summary>What this window holds between openings: the assistant's, or the writer's for its language.</summary>
+    private AiWindowState State => Writer is null ? Main : Scripts.For(Writer.IsSequence);
 
     private const string NoConnection = "No AI connection is set up. AI settings… in the gear adds one.";
     private const string WhyBusy = "Not while an answer is coming. Stop it first.";
     private const string ContinueWord = "Continue";
+    private const int MicLevelBars = 12;
+
+    /// <summary>What an empty conversation offers to start from, each put in the box by a press rather than sent.</summary>
+    private static readonly string[] Examples =
+    [
+        AssistantPrompt.StatusQuestion,
+        AssistantPrompt.ErrorsQuestion,
+        "Write a script that reads every instrument once and prints the results",
+    ];
 
     /// <summary>One of the window's slash commands: its name, what it does, why it cannot run now (or null), and what it does with any words after its name.</summary>
     private sealed record SlashCommand(string Name, string What, string? WhyNot, Func<string, Task> Run);
 
     private ToolWindow? _window;
     private ElementReference _zone;
+    private ElementReference _row;
     private ElementReference _box;
     private ElementReference _transcript;
+    private ElementReference _toolRoot;
     private ElementReference _toolCard;
+    private ElementReference _cameraCard;
+    private ElementReference _cameraVideo;
+    private ElementReference _micLevel;
     private InputFile? _input;
     private DotNetObjectReference<Assistant>? _self;
     private bool _disposed;
@@ -395,16 +874,36 @@
     private string? _confirmingDelete;
     private string _attachProblem = "";
     private string _filesProblem = "";
+    private string _speechProblem = "";
+    private string _cameraProblem = "";
     private int _filesDrawn;
     private bool _toolsOpen;
     private bool _toolsFocused;
     private bool _focusBox = true;
     private bool _caretToEnd;
+    private bool _cameraOpen;
+    private bool _cameraStarted;
+    private bool _listening;
+    private bool _micLevelStarted;
+    private bool _browserSpeech;
+    private bool _transcribing;
+    private SpeechMode _speechMode = SpeechMode.Browser;
+    private SpeechMode _listeningMode = SpeechMode.Browser;
+    private CancellationTokenSource? _transcribeStop;
     private int _drawnTurns = -1;
 
     /// <summary>The marked command in the list, and the words the list was put away at by Esc, until they change.</summary>
     private int _slashMarked;
     private string? _slashPutAwayFor;
+
+    // The writer's own: what the bench offers it, which catalogs were unticked, what goes with a
+    // request, and how long one is before the conversation, the files and the box.
+    private IReadOnlyList<SessionDto> _sessions = [];
+    private readonly HashSet<string> _left = [];
+    private bool _revise;
+    private bool _includeOutput;
+    private int _promptCharacters;
+    private string _measuredFor = "";
 
     private bool Busy => State.Chat.Generating;
 
@@ -415,17 +914,16 @@
     {
         State.Chat.Changed += OnChatChanged;
         State.Changed += OnStateChanged;
-        Ai.Chats.Changed += OnChatsChanged;
+        State.Store.Changed += OnChatsChanged;
         Ai.ConnectionsChanged += OnConnectionsChanged;
         Bench.SessionsChanged += OnSessionsChanged;
+        Preferences.Changed += OnPreferenceChanged;
+        _speechMode = await Preferences.SpeechAsync();
 
-        // The box opens on a question that works as it stands, selected, so Enter sends it and the
-        // first key typed replaces it.
-        if (!State.OpenedBefore)
-        {
-            State.OpenedBefore = true;
-            if (State.Chat.Turns.Count == 0 && State.Draft.Length == 0) State.Draft = AssistantPrompt.StatusQuestion;
-        }
+        // Ticked when there is something for them to send, as the desktop ticks them: a switch
+        // that is on and has nothing to offer is a switch that lies.
+        _revise = Writer?.CurrentScript is { Length: > 0 };
+        _includeOutput = Writer?.RecentOutput is { Length: > 0 };
 
         await PickConnectionAsync();
         await ReadBenchAsync();
@@ -440,11 +938,16 @@
             _self = DotNetObjectReference.Create(this);
             await JS.InvokeVoidAsync("lec.assistant.box", _box, _input?.Element, _self);
             await JS.InvokeVoidAsync("lec.assistant.drop", _zone, _input?.Element);
+            await JS.InvokeVoidAsync("lec.assistant.splits", _row);
+            await JS.InvokeVoidAsync("lec.assistant.outside", _toolRoot, _self, nameof(ToolsDismissed));
+            await JS.InvokeVoidAsync("lec.assistant.escape", _toolRoot, _self, nameof(ToolsDismissed));
+            _browserSpeech = await JS.InvokeAsync<bool>("lec.speech.browserSupported");
+            StateHasChanged();
         }
         if (_focusBox)
         {
             _focusBox = false;
-            await JS.InvokeVoidAsync("lec.assistant.focusSelect", _box, State.Draft == AssistantPrompt.StatusQuestion);
+            await _box.FocusAsync();
         }
         if (_caretToEnd)
         {
@@ -457,6 +960,32 @@
             await JS.InvokeVoidAsync("lec.focus", _toolCard);
         }
         if (!_toolsOpen) _toolsFocused = false;
+
+        if (_listening && !_micLevelStarted)
+        {
+            _micLevelStarted = true;
+            await JS.InvokeVoidAsync("lec.speech.showLevel", _micLevel);
+        }
+        else if (!_listening)
+        {
+            _micLevelStarted = false;
+        }
+
+        if (_cameraOpen && !_cameraStarted)
+        {
+            _cameraStarted = true;
+            await JS.InvokeVoidAsync("lec.assistant.escape", _cameraCard, _self, nameof(CameraEscape));
+            string why = await JS.InvokeAsync<string>("lec.assistant.camera.open", _cameraVideo);
+            if (why.Length > 0)
+            {
+                _cameraProblem = why;
+                StateHasChanged();
+            }
+        }
+        else if (!_cameraOpen)
+        {
+            _cameraStarted = false;
+        }
 
         int count = State.Chat.Turns.Count;
         if (count != _drawnTurns)
@@ -482,6 +1011,7 @@
         }
         _connection = _book.Selected?.Clone();
         if (State.Effort.Length > 0 && !AiModels.EffortLevels(_connection).Contains(State.Effort)) State.Effort = "";
+        if (!AiModels.SupportsFast(_connection)) State.Fast = false;
     }
 
     private async Task ReadBenchAsync()
@@ -489,18 +1019,89 @@
         try
         {
             _benchNow = await State.BenchAsync();
+            if (Writer is not null) _sessions = await Bench.SessionsAsync();
         }
         catch (Exception e) when (e is HttpRequestException or InvalidOperationException)
         {
             _benchNow = [];
+            _sessions = [];
         }
+        await MeasureRequestAsync();
     }
+
+    // ------------------------------------------------------------------- the script writer's
+
+    /// <summary>The instruments a script may use: the console's it was opened from, or those on the bench still ticked.</summary>
+    private List<string> Chosen()
+        => Writer?.Session is { Length: > 0 } one ? [one] : [.. _sessions.Select(s => s.Id).Where(id => !_left.Contains(id))];
+
+    /// <summary>The request as the switches stand. A multi-instrument editor's script goes up for its names whether or not it is to be revised.</summary>
+    private ScriptWriterAsk WriterAsk() => new(
+        Chosen(), Writer!.IsSequence,
+        _revise ? Writer.CurrentScript : null,
+        _includeOutput ? Writer.RecentOutput : null,
+        Writer.IsSequence ? Writer.CurrentScript : null,
+        Writer.IsSequence ? Writer.Picks : null);
+
+    /// <summary>One instrument's line in the paragraph, in the desktop's words.</summary>
+    private static string Catalogued(SessionDto s)
+        => s.CatalogCommandCount > 0
+            ? $"{s.ProfileName}: {s.CatalogCommandCount:N0} documented commands"
+            : $"{s.ProfileName}: no catalog — only *IDN?, *RST, *CLS and *OPC? can be checked";
+
+    /// <summary>A real request, for the kind of editor this window was opened from.</summary>
+    private string WriterExample => Writer!.IsSequence
+        ? "Sweep the generator from 100 Hz to 100 kHz in 20 log steps and record the scope's peak-to-peak voltage at each one."
+        : "Set a 1 kHz sine at 2 Vpp on channel 1, turn the output on, wait a second, then read it back.";
+
+    /// <summary>
+    /// Asks the server how long a request is before the conversation, the files and the box: the
+    /// catalogs are on the server, and they are most of it. Asked again only when what goes with a
+    /// request has changed.
+    /// </summary>
+    private async Task MeasureRequestAsync()
+    {
+        if (Writer is null) return;
+
+        ScriptWriterAsk ask = WriterAsk();
+        string asking = $"{string.Join(',', ask.SessionIds)}|{ask.CurrentScript}|{ask.RecentOutput}|{ask.EditorScript}";
+        if (asking == _measuredFor) return;
+        _measuredFor = asking;
+
+        _promptCharacters = ask.SessionIds.Count == 0
+            ? 0
+            : await Bench.AiScriptSizeAsync(new AiScriptRequest(
+                "", ask.SessionIds, ask.IsSequence, ask.CurrentScript, ask.RecentOutput,
+                EditorScript: ask.EditorScript, Picks: ask.Picks));
+        Redraw();
+    }
+
+    private async Task ReviseAsync(bool on)
+    {
+        _revise = on;
+        await MeasureRequestAsync();
+    }
+
+    private async Task IncludeOutputAsync(bool on)
+    {
+        _includeOutput = on;
+        await MeasureRequestAsync();
+    }
+
+    private async Task TickCatalogAsync(string id, bool on)
+    {
+        if (on) _left.Remove(id);
+        else _left.Add(id);
+        await MeasureRequestAsync();
+    }
+
+    // ------------------------------------------------------------------- the kept chats, read
 
     private async Task ReadChatsAsync()
     {
         try
         {
-            _chatList = await Ai.Chats.ListAsync();
+            _chatList = await State.Store.ListAsync();
         }
         catch (Exception e) when (e is HttpRequestException or InvalidOperationException)
         {
@@ -509,9 +1110,9 @@
         }
     }
 
-    private async Task PickAsync(ChangeEventArgs e)
+    private async Task PickAsync(string id)
     {
-        if (Busy || e.Value is not string id || id.Length == 0) return;
+        if (Busy || id.Length == 0) return;
         await Ai.SelectAsync(id);
         await PickConnectionAsync();
     }
@@ -522,13 +1123,59 @@
         if (Enum.TryParse(e.Value as string, out ToolApprovalMode mode)) State.Chat.Mode = mode;
     }
 
+    private IReadOnlyList<AiMenuModel> MenuModels()
+    {
+        IReadOnlyList<string> labels = _book.Labels();
+        return [.. _book.Items.Select((one, i) => new AiMenuModel(one.Id, labels[i], one.Info.Label))];
+    }
+
+    /// <summary>The button's words: the model's name, or what to do without one.</summary>
+    private string ModelSaid()
+    {
+        if (_connection is null) return _book.Items.Count == 0 ? "No model yet" : "Pick a model";
+        int at = _book.Items.FindIndex(one => one.Id == _connection.Id);
+        return at >= 0 ? _book.Labels()[at] : _connection.EffectiveName;
+    }
+
+    /// <summary>The effort beside the name: the one chosen, or what the model does when told nothing. Null on a model that takes none.</summary>
+    private string? EffortSaid()
+    {
+        if (!AiModels.SupportsEffort(_connection)) return null;
+        return EffortName(State.Effort.Length > 0 ? State.Effort : AiModels.DefaultEffort(_connection));
+    }
+
+    private IReadOnlyList<AiMenuLevel> MenuLevels()
+    {
+        var levels = new List<AiMenuLevel> { new("", DefaultEffortLabel()) };
+        levels.AddRange(AiModels.EffortLevels(_connection).Select(level => new AiMenuLevel(level, EffortName(level))));
+        return levels;
+    }
+
     private string DefaultEffortLabel()
     {
         string said = AiModels.DefaultEffort(_connection);
         return said.Length == 0 ? "Default" : $"Default ({said})";
     }
 
-    private static string Cap(string s) => s.Length == 0 ? s : char.ToUpperInvariant(s[0]) + s[1..];
+    /// <summary>A level as it is read: Low, Extra high, Max, and a default the provider names in words, as it names it.</summary>
+    private static string EffortName(string level)
+    {
+        if (level == "xhigh") return "Extra high";
+        return level.Length == 0 ? level : char.ToUpperInvariant(level[0]) + level[1..];
+    }
+
+    private string ModelTitle()
+    {
+        string said = "Which model answers, and how hard it thinks. Models are added and changed under AI settings.";
+        return State.Fast ? said + " Fast mode is on: answers come up to two and a half times as fast, at twice the price." : said;
+    }
+
+    private string ModeHint() => State.Chat.Mode switch
+    {
+        ToolApprovalMode.Ask => "Every step the assistant takes waits for you, reading included.",
+        ToolApprovalMode.AutoRead => "The assistant reads the instruments as it needs to. Every command that changes one waits for you to approve it.",
+        _ => "The assistant sends commands without asking. You see each one, and there is no undo on an instrument.",
+    };
 
     /// <summary>Why a question cannot be asked now, or null: no connection, no key, or a file the connection cannot be sent.</summary>
     private string? WhyNotAskNow()
@@ -540,13 +1187,14 @@
     /// <summary>Why Send waits, or null: a file in the box that the picked model cannot be sent.</summary>
     private string? WhyNotSend()
     {
-        if (_connection is null) return null;
         foreach (AiAttachment file in State.Chat.Pending)
         {
-            if (AiAttachment.NotSentTo(_connection, file) is string reason) return reason;
+            if (NotSentTo(file) is string reason) return reason;
         }
         return null;
     }
+
+    private string? NotSentTo(AiAttachment file) => _connection is null ? null : AiAttachment.NotSentTo(_connection, file);
 
     private bool CanSend
     {
@@ -554,14 +1202,20 @@
         {
             string text = State.Draft.Trim();
             if (text.Length == 0) return false;
-            return text.StartsWith('/') || (_connection is not null && WhyNotSend() is null);
+            if (text.StartsWith('/')) return true;
+            if (Writer is not null && Chosen().Count == 0) return false;
+            return _connection is not null && WhyNotSend() is null;
         }
     }
 
-    private string ProblemLine()
+    private string SendTitle()
     {
-        if (!Busy && WhyNotSend() is string cannot) return cannot;
-        return _attachProblem;
+        if (Busy) return Writer is null ? "Stop the answer. Anything already sent to an instrument stays done." : "Stop writing.";
+        if (_connection is null) return "Add a model under AI settings first.";
+        if (WhyNotSend() is not null) return "A file in the box cannot go to this model. The line over the box says which.";
+        return Writer is null
+            ? "Send. Enter does the same."
+            : "Send the request, the conversation so far, its files, the command catalogs and the script language to the model. Enter does the same.";
     }
 
     // ------------------------------------------------------------------- sending
@@ -600,14 +1254,30 @@
 
         if (fromBox) State.Draft = "";
         _attachProblem = "";
-        ChatOutcome outcome = await State.SendAsync(text, _connection!);
+        ChatOutcome outcome = Writer is null
+            ? await Main.SendAsync(text, _connection!)
+            : await Scripts.For(Writer.IsSequence).SendAsync(text, _connection!, WriterAsk());
 
         // A question that failed gave its files back to the box; its words go back with them when
-        // the box is still empty, so asking again is one press.
-        if (outcome == ChatOutcome.Failed && State.Chat.GaveFilesBack && State.Draft.Length == 0)
+        // the box is still empty, so asking again is one press. A request to the writer that failed
+        // always does: it is a sentence somebody wrote to be sent, and nothing was done with it.
+        if (outcome == ChatOutcome.Failed && (Writer is not null || State.Chat.GaveFilesBack) && State.Draft.Length == 0)
             State.Draft = text;
+
+        // The editor may have been changed while this was out.
+        await MeasureRequestAsync();
         Redraw();
     }
+
+    /// <summary>An example under the empty conversation's words, put in the box with the keyboard there: to send, or change first.</summary>
+    private void UseExample(string example)
+    {
+        State.Draft = example;
+        _caretToEnd = true;
+    }
+
+    /// <summary>A press in the box's frame but on none of its controls, which puts the caret in the box.</summary>
+    private async Task FocusBoxAsync() => await _box.FocusAsync();
 
     private async Task CompactAsync()
     {
@@ -617,6 +1287,7 @@
             return;
         }
         await State.CompactAsync(_connection);
+        State.ShowFolded = false;
         Redraw();
     }
 
@@ -626,34 +1297,169 @@
         await CompactAsync();
     }
 
-    /// <summary>The suggestion to compact, when it is worth it, priced both ways.</summary>
-    private bool WorthCompacting(out string suggestion)
+    private string? WhyNotCompactNow()
     {
-        suggestion = "";
-        if (_connection is null || !State.Chat.WorthCompacting(_connection)) return false;
+        if (_connection is null) return "Add a model under AI settings first.";
+        return Ai.WhyNotAsk(_connection) ?? State.Chat.WhyNotCompact();
+    }
 
+    private bool WorthCompacting() => _connection is not null && State.Chat.WorthCompacting(_connection);
+
+    private LlmPrice? Price() => _connection is null ? null : AiPricing.For(_connection, DateOnly.FromDateTime(DateTime.Now), State.Fast);
+
+    /// <summary>What the history costs every question now, and what compacting it would cost once, on the model picked.</summary>
+    private string CompactSuggestion()
+    {
+        if (_connection is null) return "";
         long history = State.Chat.HistoryTokens(_connection);
-        LlmPrice? price = AiPricing.For(_connection, DateOnly.FromDateTime(DateTime.Now));
-        string each = price is null ? "" : $" ({AiPricing.AboutMoney(price.CostOfInput(history))} each time)";
-        string once = AiChat.CompactCost(price, history) is decimal dollars ? $", for {AiPricing.AboutMoney(dollars)} once" : "";
-        suggestion = $"Every question now sends about {AiPricing.About(history)} tokens of history again{each}. "
-                   + $"Compacting puts a briefing in its place{once}.";
-        return true;
+        LlmPrice? price = Price();
+        string each = price is null ? "" : $", {AiPricing.Money(price.CostOfInput(history))} each time";
+        string once = AiChat.CompactCost(price, history) is decimal dollars ? $", for about {AiPricing.Money(dollars)} once" : "";
+        return $"This conversation sends about {AiPricing.About(history)} tokens of history with every question{each}. "
+             + $"Compacting puts a briefing of about {AiPricing.About(AiChat.BriefingTokens)} tokens in its place{once}.";
     }
 
-    /// <summary>
-    /// What the next question will carry, before it is sent (the instructions, the tools, the
-    /// conversation and its files, the box), in tokens and, where the model has a rate, dollars.
-    /// </summary>
-    private string Estimate()
+    /// <summary>Beside Compact in the picker: what it would read and cost on the model picked, or why it cannot be done.</summary>
+    private string CompactLine()
     {
-        if (_connection is null) return NoConnection;
-        string system = AssistantPrompt.Build(_benchNow, State.Chat.Mode, State.Chat.ToolsOff, AssistantState.Where, DateTime.Now);
-        long tokens = State.Chat.EstimateTokens(system, State.Tools.Tools, _connection, State.Draft);
-        LlmPrice? price = AiPricing.For(_connection, DateOnly.FromDateTime(DateTime.Now));
-        string cost = price is null ? "" : $" ({AiPricing.AboutMoney(price.CostOfInput(tokens))} to read)";
-        return $"The next question sends about {AiPricing.About(tokens)} tokens{cost}, and again with every round of tool calls.";
+        if (WhyNotCompactNow() is string why) return why;
+        long history = State.Chat.HistoryTokens(_connection!);
+        string cost = AiChat.CompactCost(Price(), history) is decimal dollars ? $", about {AiPricing.Money(dollars)}" : "";
+        return $"Reads about {AiPricing.About(history)} tokens of history once{cost}.";
     }
+
+    // ------------------------------------------------------------------- what it costs
+
+    private long NextRequestTokens()
+    {
+        if (Writer is not null)
+            return AiEstimate.TokensIn(_promptCharacters) + State.Chat.EstimateTokens("", [], _connection!, State.Draft);
+
+        string system = AssistantPrompt.Build(_benchNow, State.Chat.Mode, State.Chat.ToolsOff, AssistantState.Where, DateTime.Now);
+        return State.Chat.EstimateTokens(system, Main.Tools.Tools, _connection!, State.Draft);
+    }
+
+    /// <summary>What the next question will carry, before it is sent: the instructions, the tools, the conversation and its files, the box.</summary>
+    private string EstimateLine()
+    {
+        if (_connection is null) return "";
+        long tokens = NextRequestTokens();
+        string cost = Price() is LlmPrice price ? $", {AiPricing.Money(price.CostOfInput(tokens))} to send" : "";
+        return $"Next request: about {AiPricing.About(tokens)} tokens{cost}";
+    }
+
+    private string EstimateTitle()
+    {
+        string said = Writer is null
+            ? "What sending now puts in front of the model: its instructions, the bench's tools, this conversation with its ticked files, and the box. "
+              + "Every round of tool calls sends it again, and an answer is billed on top at the output rate. "
+              + "Counted from characters, at about 3.5 a token, a picture at 1,600 and a PDF page at 2,000; what was really billed shows under each answer."
+            : "What sending now puts in front of the model: the rules, the script language, the instruments' command catalogs, this conversation with its ticked files, and the box. "
+              + "The answer is billed on top at the output rate. "
+              + "Counted from characters, at about 3.5 a token, a picture at 1,600 and a PDF page at 2,000; what was really billed shows under each answer.";
+        return Price() is null ? said + " This model has no rate, so no cost is shown: give it one under AI settings." : said;
+    }
+
+    private string SpentLine()
+    {
+        if (State.Chat.Cost is decimal dollars) return "Spent: " + AiPricing.Money(dollars);
+        LlmUsage used = State.Chat.Used;
+        return $"Spent: {AiPricing.Count(used.InputTokens)} tokens in, {AiPricing.Count(used.OutputTokens)} out";
+    }
+
+    private string SpentTitle()
+    {
+        var said = new System.Text.StringBuilder("What the providers reported billing since this page opened. New chat does not take it back:");
+        foreach (var (model, spent) in State.Chat.Spend)
+        {
+            said.AppendLine();
+            said.Append($"{model}: {AiPricing.Count(spent.Usage.InputTokens)} tokens in");
+            if (spent.Usage.CachedInputTokens > 0) said.Append($" ({AiPricing.Count(spent.Usage.CachedInputTokens)} read from the cache)");
+            said.Append($", {AiPricing.Count(spent.Usage.OutputTokens)} out, in {spent.Usage.Requests} requests");
+            said.Append(spent.Cost is decimal dollars ? $": {AiPricing.Money(dollars)}" : ": no rate for this model");
+        }
+        return said.ToString();
+    }
+
+    private string RatesTitle()
+    {
+        const string where = "Where the provider publishes its rates";
+        return Price() is LlmPrice price
+            ? $"{where}. The figures here use {price.Source}. A model's own rates can be set under AI settings."
+            : $"{where}. This model has no rate here: give it one under AI settings.";
+    }
+
+    private string MeterLabel() => EstimateLine() + (State.MeterOn
+        ? ". Press to take the costs off the line under the box"
+        : ". Press to keep the costs on a line under the box");
+
+    /// <summary>What the next request costs, what has been spent and the rates: the same three in the card and on the line.</summary>
+    private RenderFragment MeterLines()
+    {
+        return @<span class="aiMeterLines">
+            <span id="aiEstimate" title="@EstimateTitle()">@EstimateLine()</span>
+
+            @if (State.Chat.Used.Reported)
+            {
+                <span id="aiSpent" class="aiSpent" title="@SpentTitle()">@SpentLine()</span>
+            }
+
+            @if (AiPricing.PricingPage(_connection!) is string published)
+            {
+                <a id="aiRates" class="aiRates" href="@published" target="_blank" rel="noopener noreferrer" title="@RatesTitle()">rates</a>
+            }
+        </span>;
+    }
+
+    /// <summary>What a run was billed for, in full, over the line under the answer it ended.</summary>
+    private static string UsageTitle(ChatTurn turn)
+    {
+        if (turn.Usage is not LlmUsage used) return "";
+
+        var said = new System.Text.StringBuilder($"What {turn.Model} was billed for here, every request of it: {AiPricing.Count(used.InputTokens)} tokens read");
+        if (used.CachedInputTokens > 0 || used.CacheWriteTokens > 0)
+            said.Append($", {AiPricing.Count(used.CachedInputTokens)} of them from the provider's cache and {AiPricing.Count(used.CacheWriteTokens)} written into it");
+        said.Append($"; {AiPricing.Count(used.OutputTokens)} written");
+        if (used.ReasoningTokens > 0) said.Append($", {AiPricing.Count(used.ReasoningTokens)} of them thinking");
+        if (turn.Cost is null) said.Append(". There is no rate for this model, so no cost: give it one under AI settings");
+        return said.Append('.').ToString();
+    }
+
+    // ------------------------------------------------------------------- the cards
+
+    /// <summary>What a card says happened, which depends on the kind of call and on how it ended.</summary>
+    private static string CardTitle(ChatTurn turn)
+    {
+        string what = turn.ToolName.Replace('_', ' ');
+        if (turn.Proposes && turn.Decision is not false) return turn.Decision is null ? $"Wants to {what}" : "Proposed a script";
+        if (turn.Decision is null) return turn.Changes ? $"Wants to change an instrument: {what}" : $"Wants to look: {what}";
+        if (turn.Decision == false) return $"Asked to {what}";
+        return turn.Changes ? $"Changed an instrument: {what}" : $"Looked: {what}";
+    }
+
+    /// <summary>The call as the card shows it: the tool, and what it was asked, on a line.</summary>
+    private static string CallShown(ChatTurn turn)
+    {
+        string line = AssistantPrompt.CallLine(turn.ArgumentsJson).Trim();
+        return line.Length == 0 || line == "{}" ? turn.ToolName + "()" : $"{turn.ToolName}  {line}";
+    }
+
+    private string? FoldClass(int index, int folded)
+    {
+        if (index >= folded) return null;
+        return State.ShowFolded ? "aiEarlier" : "aiEarlier aiFolded";
+    }
+
+    private static string SentChipTitle(AiAttachment file)
+    {
+        string said = $"{file.Name}, {AiAttachment.Size(file.Data.Length)}";
+        return file.Excluded
+            ? said + ". Left out of the conversation since: tick it in the files panel to send it again."
+            : said + ". Sent again with every question: untick it in the files panel to stop.";
+    }
+
+    private string PendingChipTitle(AiAttachment file)
+        => NotSentTo(file) ?? $"{file.Name}, {AiAttachment.Size(file.Data.Length)}, goes with the next question.";
 
     // ------------------------------------------------------------------- slash commands
 
@@ -666,23 +1472,36 @@
     {
         string? answering = Busy ? "Not while an answer is coming." : null;
         string? asking = answering ?? WhyNotAskNow();
-        return
-        [
+
+        var commands = new List<SlashCommand>
+        {
             new("/new", "Start a new chat. This one stays in the chats list.", answering, none => { NewChat(); return Task.CompletedTask; }),
             new("/compact", "Put a briefing in place of the conversation so far, to send less with every question.",
                 State.Chat.WhyNotCompact() ?? (_connection is null ? NoConnection : Ai.WhyNotAsk(_connection)), none => CompactAsync()),
             new("/export", "Save this conversation as text.",
                 answering ?? (State.Chat.Turns.Count == 0 ? "Nothing has been said yet." : null), none => ExportAsync(null)),
-            new("/tools", "Choose the tools this conversation may use.", answering, none => { _toolsOpen = true; return Task.CompletedTask; }),
-            new("/screenshot", "Attach a picture of a screen, a window or a tab.", null, none => ScreenshotAsync()),
-            new("/settings", "Open AI settings, where the connections and their keys are kept.", null, none => OnSettings.InvokeAsync()),
-            new("/status", "Ask what is open and what each instrument reads now.", asking,
-                words => SendAsync(With(AssistantPrompt.StatusQuestion, words), fromBox: false)),
-            new("/errors", "Ask for every instrument's error queue, read and explained.", asking,
-                words => SendAsync(With(AssistantPrompt.ErrorsQuestion, words), fromBox: false)),
-            new("/script", "Start a request for a script, to finish in the box.", null,
-                none => { StartRequest(AssistantPrompt.ScriptStart); return Task.CompletedTask; }),
-        ];
+        };
+
+        if (Writer is null)
+            commands.Add(new("/tools", "Choose the tools this conversation may use.", answering, none => { _toolsOpen = true; return Task.CompletedTask; }));
+        else if (Writer.IsSequence)
+            commands.Add(new("/tools", "Choose which instruments' catalogs the script may use.", answering, none => { _toolsOpen = true; return Task.CompletedTask; }));
+
+        commands.Add(new("/camera", "Take a picture with your camera, and attach it.", null, none => ToggleCameraAsync()));
+        commands.Add(new("/screenshot", "Attach a picture of a screen, a window or a tab.", null, none => ScreenshotAsync()));
+        commands.Add(new("/settings", "Open AI settings, where the connections and their keys are kept.", null, none => Ai.AskForSettingsAsync()));
+
+        if (Writer is null)
+        {
+            commands.Add(new("/status", "Ask what is open and what each instrument reads now.", asking,
+                words => SendAsync(With(AssistantPrompt.StatusQuestion, words), fromBox: false)));
+            commands.Add(new("/errors", "Ask for every instrument's error queue, read and explained.", asking,
+                words => SendAsync(With(AssistantPrompt.ErrorsQuestion, words), fromBox: false)));
+            commands.Add(new("/script", "Start a request for a script, to finish in the box.", null,
+                none => { StartRequest(AssistantPrompt.ScriptStart); return Task.CompletedTask; }));
+        }
+
+        return commands;
     }
 
     private static string With(string question, string words)
@@ -701,6 +1520,7 @@
     private void Typed()
     {
         if (_slashPutAwayFor is not null && _slashPutAwayFor != State.Draft) _slashPutAwayFor = null;
+        if (State.Notice.Length > 0) State.Say("");
     }
 
     [JSInvokable]
@@ -768,12 +1588,23 @@
 
     // ------------------------------------------------------------------- the tool picker
 
-    private static IEnumerable<(string Heading, IEnumerable<LlmTool> Tools)> ToolGroups() =>
+    private static IEnumerable<(string Heading, List<LlmTool> Tools)> ToolGroups() =>
     [
-        ("Reading", BenchToolRunner.All.Where(t => !t.Changes && !t.Proposes)),
-        ("Changing an instrument", BenchToolRunner.All.Where(t => t.Changes)),
-        ("Proposing", BenchToolRunner.All.Where(t => t.Proposes)),
+        ("Reading", [.. BenchToolRunner.All.Where(t => !t.Changes && !t.Proposes)]),
+        ("Changing an instrument", [.. BenchToolRunner.All.Where(t => t.Changes)]),
+        ("Proposing", [.. BenchToolRunner.All.Where(t => t.Proposes)]),
     ];
+
+    private void ToggleTools() => _toolsOpen = !_toolsOpen;
+
+    /// <summary>A press anywhere but the picker or its switch, or Esc while it is up, reported by lec.assistant.</summary>
+    [JSInvokable]
+    public void ToolsDismissed()
+    {
+        if (!_toolsOpen) return;
+        _toolsOpen = false;
+        StateHasChanged();
+    }
 
     private void SwitchTool(string name, bool on)
     {
@@ -782,18 +1613,34 @@
         else State.Chat.ToolsOff.Add(name);
     }
 
-    private void AllToolsOn()
+    private void SetTools(List<LlmTool> tools, bool on)
     {
-        State.Chat.ToolsOff.Clear();
-        _toolsOpen = false;
+        foreach (LlmTool tool in tools) SwitchTool(tool.Name, on);
     }
 
-    private void ToolKey(KeyboardEventArgs e)
-    {
-        if (e.Key == "Escape") _toolsOpen = false;
-    }
+    /// <summary>What the sliders are, by what is behind them in this window.</summary>
+    private string PickerName() => Writer is null
+        ? "Tools and compacting"
+        : Writer.IsSequence ? "Catalogs and compacting" : "Compacting";
 
-    private string ToolsLabel() => State.Chat.ToolsOff.Count == 0 ? "Tools…" : $"Tools… ({State.Chat.ToolsOff.Count} off)";
+    /// <summary>The figure on the sliders: how many tools, or catalogs, are switched off.</summary>
+    private int PickerOff() => Writer is null ? State.Chat.ToolsOff.Count : _sessions.Count(s => _left.Contains(s.Id));
+
+    private string PickerTitle()
+    {
+        if (Writer is not null)
+        {
+            if (!Writer.IsSequence) return "Compact this conversation";
+            int left = PickerOff();
+            return left == 0
+                ? "Which instruments' catalogs the script may use, and compacting this conversation"
+                : $"Which instruments' catalogs the script may use, and compacting this conversation. {left} left out";
+        }
+
+        const string said = "The tools the assistant may use in this conversation, and compacting it";
+        int off = State.Chat.ToolsOff.Count;
+        return off == 0 ? said : off == 1 ? said + ". 1 tool is switched off" : $"{said}. {off} tools are switched off";
+    }
 
     // ------------------------------------------------------------------- kept chats
 
@@ -831,6 +1678,11 @@
         Redraw();
     }
 
+    private async Task ChatRowKey(KeyboardEventArgs e, string id)
+    {
+        if (e.Key is "Enter" or " ") await OpenChatAsync(id);
+    }
+
     private async Task DeleteChatAsync(string id)
     {
         _confirmingDelete = null;
@@ -849,7 +1701,6 @@
     /// <summary>A chat as text, downloaded: the one on screen for <c>/export</c> and its row, another as it was kept.</summary>
     private async Task ExportAsync(string? id)
     {
-        if (Busy) return;
         if (id is null && State.Chat.Turns.Count == 0) return;
         (string Title, string Text)? written;
         try
@@ -889,13 +1740,6 @@
         return local.ToString("d MMM yyyy", System.Globalization.CultureInfo.CurrentCulture);
     }
 
-    /// <summary>The arrow shown on a window too narrow for both panels: the chats chosen over the files, which shut to make the room.</summary>
-    private void ChatsOverFiles()
-    {
-        State.FilesOpen = false;
-        State.ChatsOpen = true;
-    }
-
     // ------------------------------------------------------------------- files
 
     private async Task PickFilesAsync() => await JS.InvokeVoidAsync("lec.assistant.pick", _input?.Element);
@@ -914,10 +1758,199 @@
         }
     }
 
+    private async Task ToggleCameraAsync()
+    {
+        if (_cameraOpen)
+        {
+            await CloseCameraAsync();
+            return;
+        }
+        _cameraProblem = "";
+        _cameraOpen = true;
+    }
+
+    private async Task CloseCameraAsync()
+    {
+        _cameraOpen = false;
+        await JS.InvokeVoidAsync("lec.assistant.camera.close");
+    }
+
+    /// <summary>Esc while the camera's card is up: the card goes, and the window stays.</summary>
+    [JSInvokable]
+    public async Task CameraEscape()
+    {
+        await CloseCameraAsync();
+        StateHasChanged();
+    }
+
+    /// <summary>The frame on screen, attached to the next question through the file input, and the card goes.</summary>
+    private async Task CaptureAsync()
+    {
+        string why = await JS.InvokeAsync<string>("lec.assistant.camera.capture", _cameraVideo, _input?.Element);
+        if (why.Length > 0)
+        {
+            _cameraProblem = why;
+            return;
+        }
+        await CloseCameraAsync();
+        _focusBox = true;
+    }
+
+    private bool MicUsable => _speechMode == SpeechMode.Provider || _browserSpeech;
+
+    private string MicLabel() => _transcribing ? "Writing out what you said" : _listening ? "Stop listening" : "Speak your question";
+
+    /// <summary>What a press does in the way it is set to, and the other way and what it is better at.</summary>
+    private string MicTitle()
+    {
+        if (_transcribing) return "Writing out what you said…";
+        if (_listening && _listeningMode == SpeechMode.Provider) return "Recording: press to stop, and the AI provider writes it out.";
+        if (_listening) return "Listening: press to stop.";
+        if (_speechMode == SpeechMode.Provider)
+            return "Speak your question: press, talk, and press again. An OpenAI or Gemini model writes it out, told the instruments' names, and the provider bills it. For live words as you talk, switch Speech to text to Browser under AI settings.";
+        if (!_browserSpeech)
+            return "This browser has no speech recognition of its own. Switch Speech to text to AI provider under AI settings, and the microphone records instead.";
+        return "Speak your question: your browser writes it into the box as you talk (Chrome and Edge send the audio to Google or Microsoft). For better accuracy with SCPI and numbers, switch Speech to text to AI provider under AI settings.";
+    }
+
+    private async Task MicAsync()
+    {
+        if (_transcribing) return;
+        _speechProblem = "";
+
+        if (_listening)
+        {
+            await StopSpeechAsync();
+            return;
+        }
+
+        _listeningMode = _speechMode;
+
+        if (_speechMode == SpeechMode.Browser)
+        {
+            if (!_browserSpeech)
+            {
+                _speechProblem = "This browser has no speech recognition of its own: Chrome and Edge have. Or switch Speech to text to AI provider under AI settings, and the microphone records instead.";
+                return;
+            }
+            _listening = await JS.InvokeAsync<bool>("lec.speech.startListening", _box, _self);
+            if (!_listening) _speechProblem = "The browser's speech recognition could not start. Press the microphone again.";
+            return;
+        }
+
+        string why = await JS.InvokeAsync<string>("lec.speech.startRecording", _self);
+        if (why.Length > 0)
+        {
+            _speechProblem = why;
+            return;
+        }
+        _listening = true;
+    }
+
+    private async Task StopSpeechAsync()
+    {
+        if (_listeningMode == SpeechMode.Browser)
+        {
+            await JS.InvokeVoidAsync("lec.speech.stopListening");
+            return;
+        }
+
+        _listening = false;
+        _transcribing = true;
+        StateHasChanged();
+
+        string recorded = "";
+        try
+        {
+            recorded = await JS.InvokeAsync<string>("lec.speech.stopRecording");
+        }
+        catch (JSException e)
+        {
+            _speechProblem = "The recording could not be read: " + e.Message;
+        }
+
+        await TranscribeAsync(recorded);
+        _transcribing = false;
+        Redraw();
+    }
+
+    /// <summary>The recording, written out by the model picked when it can, or the first saved one that can, told the words to expect.</summary>
+    private async Task TranscribeAsync(string recorded)
+    {
+        if (recorded.Length == 0)
+        {
+            if (_speechProblem.Length == 0) _speechProblem = "Nothing was recorded.";
+            return;
+        }
+
+        bool usable(AiConnection one) => Ai.WhyNotAsk(one) is null;
+        if (SpeechTranscriber.Pick(_connection is not null && usable(_connection) ? _connection : null, _book.Items.Where(usable)) is not AiConnection model)
+        {
+            _speechProblem = "Speech written out by the AI provider takes an OpenAI or Gemini model: add one under AI settings, or switch Speech to text to Browser there. Claude models take no audio.";
+            return;
+        }
+
+        var stop = new CancellationTokenSource();
+        _transcribeStop = stop;
+        try
+        {
+            var names = _benchNow.SelectMany(i => new[] { InstrumentProfile.ParseIdentity(i.Identity).Item2, i.Host });
+            var (text, problem) = await Ai.TranscribeAsync(model, Convert.FromBase64String(recorded), SpeechTranscriber.Vocabulary(names), stop.Token);
+
+            if (problem is not null)
+            {
+                _speechProblem = problem;
+                return;
+            }
+            if (string.IsNullOrWhiteSpace(text))
+            {
+                _speechProblem = "Nothing was heard in the recording.";
+                return;
+            }
+
+            State.Draft = string.IsNullOrWhiteSpace(State.Draft) ? text.Trim() : State.Draft.TrimEnd() + " " + text.Trim();
+        }
+        catch (OperationCanceledException)
+        {
+            // The window went while it was being written out.
+        }
+        catch (HttpRequestException e)
+        {
+            _speechProblem = "The recording could not reach the server: " + e.Message;
+        }
+        finally
+        {
+            if (_transcribeStop == stop) _transcribeStop = null;
+            stop.Dispose();
+        }
+    }
+
+    /// <summary>The recognizer stopped, by the press that asked it to, a silence or a problem to say; or a recording reached its limit.</summary>
+    [JSInvokable]
+    public async Task OnSpeechEnded(string problem)
+    {
+        if (problem == "limit")
+        {
+            if (_listening && _listeningMode == SpeechMode.Provider) await StopSpeechAsync();
+            StateHasChanged();
+            return;
+        }
+
+        _listening = false;
+        if (problem.Length > 0) _speechProblem = problem;
+        StateHasChanged();
+    }
+
+    private async Task OnPreferenceChanged()
+    {
+        _speechMode = await Preferences.SpeechAsync();
+        Redraw();
+    }
+
     /// <summary>
-    /// Every file that comes in, from Attach Files…, a paste, a drop or a screenshot: checked for
-    /// what it is and how big before it is read, then put in the box by the conversation, which
-    /// holds it to what a question and a conversation can carry.
+    /// Every file that comes in, from the paperclip, a paste, a drop, the camera or a screenshot:
+    /// checked for what it is and how big before it is read, then put in the box by the
+    /// conversation, which holds it to what a question and a conversation can carry.
     /// </summary>
     private async Task AttachAsync(InputFileChangeEventArgs e)
     {
@@ -985,12 +2018,16 @@
         _filesDrawn++;
     }
 
-    private string FilesFoot(List<(ChatTurn Question, AiAttachment File)> sent)
+    /// <summary>What the ticked files and the waiting ones add to every question, under the files panel's lists.</summary>
+    private string FilesWeight(List<(ChatTurn Question, AiAttachment File)> sent)
     {
-        long tokens = _connection is null ? 0 : sent.Where(s => !s.File.Excluded).Sum(s => AiEstimate.Attachment(s.File, _connection));
-        return tokens > 0
-            ? $"The ticked files add about {AiPricing.About(tokens)} tokens to every question."
-            : sent.Count > 0 ? "No ticked file goes with the questions now." : "";
+        if (_connection is null) return "";
+        List<AiAttachment> going = [.. sent.Where(s => !s.File.Excluded).Select(s => s.File), .. State.Chat.Pending];
+        if (going.Count == 0) return "No file goes with the next question.";
+
+        long tokens = going.Sum(file => AiEstimate.Attachment(file, _connection));
+        string cost = Price() is LlmPrice price ? $", {AiPricing.Money(price.CostOfInput(tokens))} at this model's rates" : "";
+        return $"These add about {AiPricing.About(tokens)} tokens to every question{cost}.";
     }
 
     private static string Cut(string text, int most)
@@ -1013,7 +2050,7 @@
         string? sessionId = null;
         if (!sequence)
         {
-            BenchInstrument? instrument = await State.Tools.FindInstrumentAsync(named, CancellationToken.None);
+            BenchInstrument? instrument = await Main.Tools.FindInstrumentAsync(named, CancellationToken.None);
             if (instrument is null)
             {
                 State.Say("That script's instrument is not open any more. Copy it from the card instead.");
@@ -1026,17 +2063,6 @@
             ? "The script is in the multi-instrument editor. Nothing runs until you press Run there."
             : "The script is in that console's script editor. Nothing runs until you press Run there."));
     }
-
-    private static string KindOf(ChatTurn turn) => turn.Kind switch
-    {
-        ChatTurn.User => "you",
-        ChatTurn.Assistant => "answer",
-        ChatTurn.Tool => "tool",
-        ChatTurn.Error => "problem",
-        ChatTurn.Paused => "paused",
-        ChatTurn.Summary => "briefing",
-        _ => "note",
-    };
 
     // ------------------------------------------------------------------- staying current
 
@@ -1085,15 +2111,26 @@
 
     private async Task Closed() => await OnClosed.InvokeAsync();
 
-    public ValueTask DisposeAsync()
+    public async ValueTask DisposeAsync()
     {
         _disposed = true;
         State.Chat.Changed -= OnChatChanged;
         State.Changed -= OnStateChanged;
-        Ai.Chats.Changed -= OnChatsChanged;
+        State.Store.Changed -= OnChatsChanged;
         Ai.ConnectionsChanged -= OnConnectionsChanged;
         Bench.SessionsChanged -= OnSessionsChanged;
+        Preferences.Changed -= OnPreferenceChanged;
+        _transcribeStop?.Cancel();
+        try
+        {
+            await JS.InvokeVoidAsync("lec.speech.cancel");
+            await JS.InvokeVoidAsync("lec.assistant.camera.close");
+            await JS.InvokeVoidAsync("lec.assistant.outsideOff", _toolRoot);
+        }
+        catch (Exception e) when (e is JSDisconnectedException or JSException or InvalidOperationException)
+        {
+            // The page is going: there is nothing left to stop.
+        }
         _self?.Dispose();
-        return ValueTask.CompletedTask;
     }
 }

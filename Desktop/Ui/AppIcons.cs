@@ -58,7 +58,8 @@ internal static class AppIcons
     /// rather than being downscaled like the embedded bitmaps.
     ///
     /// Known names: "detach", "attach", "search", "camera", "wave", "bars", "copy", "insert",
-    /// "ai", "save", "folder", "globe", "plus", "minus", "fit".
+    /// "ai", "save", "folder", "globe", "plus", "minus", "fit", and the AI windows' own:
+    /// "paperclip", "screenshot", "sliders", "info", "arrowUp", "stopSquare", "download", "trash".
     /// </summary>
     public static Image? Drawn(string name, int px)
     {
@@ -92,6 +93,14 @@ internal static class AppIcons
                     case "plus": DrawPlus(g); break;
                     case "minus": DrawMinus(g); break;
                     case "fit": DrawFit(g); break;
+                    case "paperclip": DrawPaperclip(g); break;
+                    case "screenshot": DrawScreenshot(g); break;
+                    case "sliders": DrawSliders(g); break;
+                    case "info": DrawInfo(g); break;
+                    case "arrowUp": DrawArrowUp(g); break;
+                    case "stopSquare": DrawStopSquare(g); break;
+                    case "download": DrawDownload(g); break;
+                    case "trash": DrawTrash(g); break;
                     default: return null;
                 }
             }
@@ -111,6 +120,93 @@ internal static class AppIcons
         EndCap = LineCap.Round,
         LineJoin = LineJoin.Round,
     };
+
+    /// <summary>A paper clip, leaning as the page's does: three nested runs of one wire.</summary>
+    private static void DrawPaperclip(Graphics g)
+    {
+        GraphicsState before = g.Save();
+        g.TranslateTransform(32, 32);
+        g.RotateTransform(45);
+        using (Pen p = Stroke(5f))
+        using (var wire = new GraphicsPath())
+        {
+            wire.AddLine(10, -8, 10, 14);
+            wire.AddArc(-14, 2, 24, 24, 0, 180);
+            wire.AddLine(-14, 14, -14, -16);
+            wire.AddArc(-14, -26, 20, 20, 180, 180);
+            wire.AddLine(6, -16, 6, 12);
+            wire.AddArc(-6, 6, 12, 12, 0, 180);
+            wire.AddLine(-6, 12, -6, -12);
+            g.DrawPath(p, wire);
+        }
+        g.Restore(before);
+    }
+
+    /// <summary>The four corners of a frame round a lens: a picture of what is on the screen.</summary>
+    private static void DrawScreenshot(Graphics g)
+    {
+        using Pen p = Stroke(5f);
+        g.DrawLines(p, [new PointF(8, 20), new PointF(8, 8), new PointF(20, 8)]);
+        g.DrawLines(p, [new PointF(44, 8), new PointF(56, 8), new PointF(56, 20)]);
+        g.DrawLines(p, [new PointF(56, 44), new PointF(56, 56), new PointF(44, 56)]);
+        g.DrawLines(p, [new PointF(20, 56), new PointF(8, 56), new PointF(8, 44)]);
+        g.DrawEllipse(p, 22, 22, 20, 20);
+    }
+
+    /// <summary>Three faders: what this conversation may use.</summary>
+    private static void DrawSliders(Graphics g)
+    {
+        using Pen p = Stroke(5f);
+        using var fill = new SolidBrush(GlyphInk);
+        foreach ((float y, float knob) in new[] { (15f, 42f), (32f, 20f), (49f, 36f) })
+        {
+            g.DrawLine(p, 7, y, 57, y);
+            g.FillEllipse(fill, knob - 7, y - 7, 14, 14);
+        }
+    }
+
+    /// <summary>An i in a ring.</summary>
+    private static void DrawInfo(Graphics g)
+    {
+        using Pen p = Stroke(5f);
+        using var fill = new SolidBrush(GlyphInk);
+        g.DrawEllipse(p, 7, 7, 50, 50);
+        g.FillEllipse(fill, 28.5f, 17, 7, 7);
+        g.DrawLine(p, 32, 30, 32, 46);
+    }
+
+    /// <summary>Send.</summary>
+    private static void DrawArrowUp(Graphics g)
+    {
+        using var p = new Pen(GlyphInk, 7.5f) { StartCap = LineCap.Round, EndCap = LineCap.Round, LineJoin = LineJoin.Round };
+        g.DrawLine(p, 32, 54, 32, 11);
+        g.DrawLines(p, [new PointF(13, 30), new PointF(32, 11), new PointF(51, 30)]);
+    }
+
+    /// <summary>Stop, in the same place as Send.</summary>
+    private static void DrawStopSquare(Graphics g)
+    {
+        using var fill = new SolidBrush(GlyphInk);
+        g.FillRectangle(fill, 15, 15, 34, 34);
+    }
+
+    private static void DrawDownload(Graphics g)
+    {
+        using Pen p = Stroke(5f);
+        g.DrawLine(p, 32, 8, 32, 40);
+        g.DrawLines(p, [new PointF(18, 27), new PointF(32, 41), new PointF(46, 27)]);
+        g.DrawLines(p, [new PointF(10, 45), new PointF(10, 55), new PointF(54, 55), new PointF(54, 45)]);
+    }
+
+    private static void DrawTrash(Graphics g)
+    {
+        using Pen p = Stroke(5f);
+        g.DrawLine(p, 9, 16, 55, 16);
+        g.DrawLines(p, [new PointF(24, 16), new PointF(24, 8), new PointF(40, 8), new PointF(40, 16)]);
+        g.DrawLines(p, [new PointF(15, 16), new PointF(19, 56), new PointF(45, 56), new PointF(49, 16)]);
+        g.DrawLine(p, 27, 27, 27, 45);
+        g.DrawLine(p, 37, 27, 37, 45);
+    }
 
     /// <summary>A magnifier — asking the instrument what commands it knows.</summary>
     private static void DrawSearch(Graphics g)

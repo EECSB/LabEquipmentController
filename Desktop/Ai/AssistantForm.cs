@@ -34,6 +34,10 @@ namespace LabEquipmentController;
 /// conversation's files on the right, each closed by its cross and opened again by the arrow in
 /// the margin; the suggestion to compact, priced, over the box; and a slash at the start of the box
 /// for the window's commands.
+///
+/// **Laid out as the page's window is** (<c>Tools/Assistant.razor</c>), and **Write a Script with
+/// AI is this window** with a <see cref="ScriptWriterJob"/> given to it, as it is on the page, so
+/// the two cannot come to differ: what differs is who is asked and where the chats are kept.
 /// </summary>
 public sealed class AssistantForm : Form
 {
@@ -64,29 +68,55 @@ public sealed class AssistantForm : Form
 
     // Open or shut is the person's to choose, and holds across conversations.
     private bool _chatsOpen = true;
-    private bool _filesOpen;
+    private bool _filesOpen = true;
     private bool _showFolded;
     private bool _stale;
 
-    private readonly ComboBox _using = new();
-    private readonly ComboBox _effort = new();
-    private readonly ComboBox _rung = new();
+    private readonly Button _model = new();
+    private readonly ContextMenuStrip _modelMenu = new();
+    private readonly Button _rung = new();
+    private readonly ContextMenuStrip _rungMenu = new();
+    private readonly CheckBox _revise = new();
+    private readonly CheckBox _includeOutput = new();
     private readonly TextBox _prompt = new();
+
+    /// <summary>What the empty box is for. Not the box's own placeholder, which Windows takes away while the box has the caret, and it nearly always has.</summary>
+    private readonly Label _promptHint = new();
+
     private readonly Button _send = new();
     private readonly Button _attach = new();
     private readonly Button _screenshot = new();
     private readonly Button _toolsButton = new();
+    private readonly Button _meterToggle = new();
     private readonly Button _newChat = new();
     private readonly ContextMenuStrip _toolMenu = new();
     private readonly FlowLayoutPanel _chips = new();
     private readonly Label _attachProblem = new();
+    private readonly TableLayoutPanel _meter = new();
     private readonly Label _estimate = new();
-    private readonly Label _context = new();
+    private readonly Label _spent = new();
+    private readonly LinkLabel _rates = new();
     private readonly Panel _scroll = new();
     private readonly TableLayoutPanel _cards = new();
-    private readonly Label _status = new();
-    private readonly ProgressBar _progress = new();
+    private readonly Label _notice = new();
     private readonly ToolTip _tips = new();
+
+    /// <summary>The effort picked for the next question, "" for the model's default; never saved.</summary>
+    private string _effortChoice = "";
+
+    private bool _meterOn = true;
+
+    /// <summary>Set when this window is Write a Script with AI: which editor it is writing for.</summary>
+    private ScriptWriterJob? _writer;
+
+    /// <summary>What goes with every request whatever is asked, the catalogs mostly, as measured when the switches last moved.</summary>
+    private int _promptCharacters;
+
+    /// <summary>What the empty conversation's opening words were last drawn from, so they are drawn again only when it changes.</summary>
+    private string? _introDrawn;
+
+    /// <summary>Script boxes on screen, as wide as the conversation.</summary>
+    private readonly List<TextBox> _scripts = [];
 
     private readonly Panel _compactBar = new();
     private readonly Label _compactText = new();
@@ -97,12 +127,12 @@ public sealed class AssistantForm : Form
     private List<SlashCommand> _slashShown = [];
     private string? _slashPutAwayFor;
 
-    private readonly Panel _chatsPanel = new();
+    private readonly RoundedPanel _chatsPanel = new();
     private readonly Panel _chatScroll = new();
     private readonly Label _keptWhere = new();
     private readonly Button _chatsStrip = new();
 
-    private readonly Panel _filesPanel = new();
+    private readonly RoundedPanel _filesPanel = new();
     private readonly Panel _fileScroll = new();
     private readonly Label _filesFoot = new();
     private readonly Button _filesStrip = new();
@@ -121,11 +151,17 @@ public sealed class AssistantForm : Form
     private readonly Font _code = new("Consolas", 9.75f);
     private readonly Font _small = new("Segoe UI", 8.25f);
 
+    private readonly Font _smallBold = new("Segoe UI", 8.25f, FontStyle.Bold);
+
     private static readonly Color Warning = Color.FromArgb(150, 40, 0);
-    private static readonly Color Rule = Color.FromArgb(224, 226, 230);
-    private static readonly Color Sunken = Color.FromArgb(248, 248, 250);
-    private static readonly Color Waiting = Color.FromArgb(255, 248, 225);
-    private static readonly Color Chosen = Color.FromArgb(232, 238, 248);
+
+    /// <summary>What an empty conversation offers to start from, each put in the box by a press rather than sent.</summary>
+    private static readonly string[] Examples =
+    [
+        AssistantPrompt.StatusQuestion,
+        AssistantPrompt.ErrorsQuestion,
+        "Write a script that reads every instrument once and prints the results",
+    ];
 
     /// <summary>One of the window's slash commands: its name, what it does, why it cannot run now (or null), and what it does with any words after its name.</summary>
     private sealed record SlashCommand(string Name, string What, string? WhyNot, Action<string> Run);
@@ -137,8 +173,14 @@ public sealed class AssistantForm : Form
     public event Action? SettingsRequested;
 
     public AssistantForm(IAiService ai, SessionRegistry sessions, Action<InstrumentSession, string, string?> logToConsole)
+        : this(ai, sessions, logToConsole, null)
+    {
+    }
+
+    internal AssistantForm(IAiService ai, SessionRegistry sessions, Action<InstrumentSession, string, string?> logToConsole, ScriptWriterJob? writer)
     {
         _ai = ai;
+        _writer = writer;
         _sessions = sessions;
         _bench = new SessionBench(() => [.. _sessions.Sessions]);
         _bench.Exchanged += (session, command, reply) => OnUi(() => logToConsole(session, command, reply));
@@ -152,7 +194,7 @@ public sealed class AssistantForm : Form
         AutoScaleDimensions = new SizeF(7F, 15F);
         AutoScaleMode = AutoScaleMode.Font;
         Font = new Font("Segoe UI", 9f);
-        Text = "AI Assistant";
+        Text = Named;
         ClientSize = new Size(1100, 860);
         MinimumSize = new Size(860, 620);
         StartPosition = FormStartPosition.CenterParent;
@@ -163,81 +205,63 @@ public sealed class AssistantForm : Form
         PerformLayout();
     }
 
+    private string Named => _writer is null ? "AI Assistant" : "Write a Script with AI";
+
+    /// <summary>A script editor opened this window: it writes for that one now.</summary>
+    internal void Aim(ScriptWriterJob job)
+    {
+        _writer = job;
+        _revise.Checked = EditorScript().Trim().Length > 0;
+        _includeOutput.Checked = EditorOutput().Trim().Length > 0;
+        ShowContext();
+    }
+
     private static DateOnly Today => DateOnly.FromDateTime(DateTime.Now);
 
     // ------------------------------------------------------------------- building
 
     private void BuildUi()
     {
-        // --- what the model will be told about, so the person can see it before asking ---
-        _context.Dock = DockStyle.Top;
-        _context.AutoSize = true;
-        _context.Padding = new Padding(12, 12, 12, 6);
-        _wrapping.Add(_context);
+        BackColor = ChatLook.Paper;
 
-        // --- the conversation, which takes the window ---
+        // --- the conversation, which takes what the panels leave ---
         _scroll.Dock = DockStyle.Fill;
         _scroll.AutoScroll = true;
-        _scroll.BorderStyle = BorderStyle.FixedSingle;
-        _scroll.BackColor = Sunken;
-        _scroll.Padding = new Padding(10, 8, 10, 8);
+        _scroll.BackColor = ChatLook.Paper;
+        _scroll.Padding = new Padding(8);
         _scroll.AllowDrop = true;
 
         _cards.Dock = DockStyle.Top;
         _cards.ColumnCount = 1;
         _cards.AutoSize = true;
         _cards.AutoSizeMode = AutoSizeMode.GrowAndShrink;
-        _cards.BackColor = Color.Transparent;
+        _cards.BackColor = ChatLook.Paper;
         _cards.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100f));
         _scroll.Controls.Add(_cards);
 
-        var host = new Panel { Dock = DockStyle.Fill, Padding = new Padding(12, 0, 12, 0) };
-        host.Controls.Add(_scroll);
+        var talk = new RoundedPanel { Dock = DockStyle.Fill, Padding = new Padding(3) };
+        talk.Controls.Add(_scroll);
 
-        var center = new Panel { Dock = DockStyle.Fill };
-        center.Controls.Add(host);
-        center.Controls.Add(_context);
-        center.Controls.Add(BuildCompactBar());
-        center.Controls.Add(BuildComposer());
-
-        _progress.Dock = DockStyle.Bottom;
-        _progress.Height = 4;
-        _progress.Style = ProgressBarStyle.Marquee;
-        _progress.Visible = false;
-
-        _status.Dock = DockStyle.Bottom;
-        _status.TextAlign = ContentAlignment.MiddleLeft;
-        _status.Padding = new Padding(12, 0, 0, 0);
-        _status.Text = "Ready.";
-
-        // Docked in reverse: the status and the bar first, across the whole foot; then the panels
-        // and their arrows, the window's height above the foot; then the conversation between them.
-        Controls.Add(center);
-        Controls.Add(BuildChatsPanel());
+        // Three boxes in a row, and the question box under all three, as the page has them.
+        // Docked in reverse: the conversation first, then each panel and its arrow from the
+        // inside out.
+        var body = new Panel { Dock = DockStyle.Fill, Padding = new Padding(10, 10, 10, 0) };
+        body.Controls.Add(talk);
+        body.Controls.Add(BuildChatsPanel());
         // On a window too narrow for both, the chats' arrow is a choice of the chats over the
         // files, which shut to make the room; otherwise it would open nothing.
-        Controls.Add(Strip(_chatsStrip, DockStyle.Left, "›", "Show the chats kept " + _ai.KeptWhere, () =>
+        body.Controls.Add(Strip(_chatsStrip, DockStyle.Left, "›", "Show the chats kept " + _ai.KeptWhere, () =>
         {
             _chatsOpen = true;
             if (_filesOpen && !RoomForBoth) _filesOpen = false;
             ShowPanels();
         }));
-        Controls.Add(BuildFilesPanel());
-        Controls.Add(Strip(_filesStrip, DockStyle.Right, "‹", "Show the files in this conversation", () => { _filesOpen = true; ShowPanels(); }));
-        Controls.Add(_progress);
-        Controls.Add(_status);
+        body.Controls.Add(BuildFilesPanel());
+        body.Controls.Add(Strip(_filesStrip, DockStyle.Right, "‹", "Show the files in this conversation", () => { _filesOpen = true; ShowPanels(); }));
 
-        _tips.SetToolTip(_using, "Which saved AI connection answers. They are set up under Tools ▸ AI Connection…");
-        _tips.SetToolTip(_effort, "How hard the model is asked to think, for this question only. Thinking is billed as output.");
-        _tips.SetToolTip(_rung,
-            "Ask before every step: every call waits for you, reads included.\n"
-          + "Ask before changes: reads run at once; each send waits for you.\n"
-          + "Change without asking: sends run at once too. There is no undo on an instrument.");
-        _tips.SetToolTip(_attach, "Attach pictures, PDFs or text files to the next question. A picture can be pasted into the box, and files dropped on the window.");
-        _tips.SetToolTip(_screenshot, "Attach a picture of the screen this window is on. The window steps aside while it is taken.");
-        _tips.SetToolTip(_toolsButton, "Switch tools off for this conversation. A tool switched off is not offered, and the model is told so.");
-        _tips.SetToolTip(_send, "Send the question (Enter). While an answer is coming, Stop.");
-        _tips.SetToolTip(_prompt, "Enter sends, Shift+Enter starts a new line. A slash at the start lists the window's commands.");
+        Controls.Add(body);
+        Controls.Add(BuildCompactBar());
+        Controls.Add(BuildComposer());
 
         DragEnter += (_, e) => e.Effect = e.Data?.GetDataPresent(DataFormats.FileDrop) == true ? DragDropEffects.Copy : DragDropEffects.None;
         DragDrop += (_, e) => { if (e.Data?.GetData(DataFormats.FileDrop) is string[] paths) AttachPaths(paths); };
@@ -276,10 +300,8 @@ public sealed class AssistantForm : Form
             Size wa = Screen.GetWorkingArea(this).Size;
             Size = new Size(Math.Min(Math.Max(Width, MinimumSize.Width), wa.Width),
                             Math.Min(Math.Max(Height, MinimumSize.Height), wa.Height));
-            _status.Height = _status.PreferredHeight + LogicalToDeviceUnits(6);
-            ButtonStyle.Normalize(this, _send, _attach, _screenshot, _toolsButton, _newChat, _compact, _notNow);
-            ButtonStyle.SetDrawnIcon(this, _send, "ai");
-            ButtonStyle.SetDrawnIcon(this, _screenshot, "camera");
+            ButtonStyle.Normalize(this, _compact, _notNow);
+            FitBar();
             _slash.ItemHeight = Math.Max(_bold.Height, _body.Height) + LogicalToDeviceUnits(8);
             ShowPanels();
             await PickConnectionAsync();
@@ -287,14 +309,10 @@ public sealed class AssistantForm : Form
 
         Shown += (_, _) =>
         {
-            // The box opens on a question that works as it stands, selected, so Enter sends it and
-            // the first key typed replaces it.
-            _prompt.Text = _chat.Turns.Count == 0 ? AssistantPrompt.StatusQuestion : "";
             ShowContext();
             DrawAll();
             FitPrompt();
             _prompt.Focus();
-            _prompt.SelectAll();
         };
         VisibleChanged += (_, _) =>
         {
@@ -302,9 +320,20 @@ public sealed class AssistantForm : Form
             ShowContext();
             if (_stale) DrawAll();
         };
-        Activated += (_, _) => ShowContext();
+        Activated += async (_, _) =>
+        {
+            ShowContext();
+            // Another AI window may have picked another model while this one was behind it.
+            AiConnections now = await _ai.LoadConnectionsAsync();
+            if (!_chat.Generating && now.Selected?.Id != _connection?.Id) await PickConnectionAsync();
+        };
     }
 
+    /// <summary>
+    /// The box and everything about the next question in one rounded frame, the words on top and a
+    /// slim row of borderless controls along its foot; over it, what is waiting to go and anything
+    /// the window has to say; under it, what the next question costs.
+    /// </summary>
     private Control BuildComposer()
     {
         var composer = new TableLayoutPanel
@@ -313,7 +342,7 @@ public sealed class AssistantForm : Form
             ColumnCount = 1,
             AutoSize = true,
             AutoSizeMode = AutoSizeMode.GrowAndShrink,
-            Padding = new Padding(12, 8, 12, 0),
+            Padding = new Padding(10, 8, 10, 0),
         };
         composer.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100f));
 
@@ -329,6 +358,14 @@ public sealed class AssistantForm : Form
         _attachProblem.Margin = new Padding(0, 0, 0, 4);
         _attachProblem.Visible = false;
         _wrapping.Add(_attachProblem);
+
+        // One line about what just happened and the conversation does not show, gone with the next key.
+        _notice.AutoSize = true;
+        _notice.ForeColor = Warning;
+        _notice.Margin = new Padding(0, 0, 0, 4);
+        _notice.Visible = false;
+        _notice.UseMnemonic = false;
+        _wrapping.Add(_notice);
 
         // The window's commands, listed while a slash starts the box (see SlashCommands).
         _slash.Dock = DockStyle.Fill;
@@ -347,11 +384,28 @@ public sealed class AssistantForm : Form
 
         _prompt.Multiline = true;
         _prompt.WordWrap = true;
+        _prompt.BorderStyle = BorderStyle.None;
+        _prompt.BackColor = ChatLook.Paper;
         _prompt.Anchor = AnchorStyles.Left | AnchorStyles.Right;
         _prompt.Font = new Font("Segoe UI", 10f);
-        _prompt.PlaceholderText = "Ask about the bench, or type / for the window's commands";
-        _prompt.Margin = new Padding(0);
-        _prompt.TextChanged += (_, _) => { UpdateSlash(); UpdateEnabled(); FitPrompt(); ShowEstimate(); };
+        // Disabled so a press on it goes through to the box under it.
+        _promptHint.Text = _writer is null
+            ? "Ask about the bench, or type / for commands"
+            : "Say what the script should do, or type / for commands";
+        _promptHint.AutoSize = true;
+        _promptHint.Enabled = false;
+        _promptHint.BackColor = ChatLook.Paper;
+        _prompt.Controls.Add(_promptHint);
+        _prompt.Margin = new Padding(4, 4, 4, 6);
+        _prompt.TextChanged += (_, _) =>
+        {
+            if (_prompt.TextLength > 0) Say("");
+            _promptHint.Visible = _prompt.TextLength == 0;
+            UpdateSlash();
+            UpdateEnabled();
+            FitPrompt();
+            ShowEstimate();
+        };
         _prompt.KeyDown += (_, e) =>
         {
             if (_slash.Visible && _slashShown.Count > 0)
@@ -388,76 +442,80 @@ public sealed class AssistantForm : Form
             }
         };
 
-        // Send keeps its own width at the right and the pickers take what is left, so with both
-        // panels open it is the pickers that wrap, never the button that goes. The row's height is
-        // worked out here from the width it has: a wrapping row measured by a table is measured
-        // at some other width, and leaves a gap under it or cuts its last line off.
-        var options = new Panel
+        var frame = new RoundedTable
         {
-            Dock = DockStyle.Fill,
-            Margin = new Padding(0, 6, 0, 0),
-        };
-
-        // The pickers and the file buttons in one row that wraps, each label kept with its list,
-        // so a narrow window takes another line rather than cutting the end of the row off.
-        var pickers = new FlowLayoutPanel
-        {
-            WrapContents = true,
-            Dock = DockStyle.Fill,
+            ColumnCount = 1,
+            AutoSize = true,
+            AutoSizeMode = AutoSizeMode.GrowAndShrink,
+            Anchor = AnchorStyles.Left | AnchorStyles.Right,
+            BackColor = ChatLook.Paper,
+            Edge = Color.FromArgb(173, 181, 189),
+            Radius = 8,
+            Padding = new Padding(6, 5, 6, 5),
             Margin = new Padding(0),
         };
+        frame.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100f));
 
-        Picker(_using, 200);
-        _using.SelectedIndexChanged += async (_, _) =>
+        var line = new Panel
         {
-            if (_picking || _using.SelectedIndex < 0 || _using.SelectedIndex >= _book.Items.Count) return;
-            await _ai.SelectAsync(_book.Items[_using.SelectedIndex].Id);
-            await PickConnectionAsync();
+            Height = 1,
+            BackColor = ChatLook.Rule,
+            Anchor = AnchorStyles.Left | AnchorStyles.Right,
+            Margin = new Padding(0, 0, 0, 4),
         };
-        pickers.Controls.Add(Labelled("Using:", _using));
 
-        Picker(_effort, 160);
-        _effort.SelectedIndexChanged += (_, _) => ShowEstimate();
-        pickers.Controls.Add(Labelled("Effort:", _effort));
+        // The end of the row keeps its width and the start takes what is left, wrapping in a
+        // narrow window rather than cutting anything off. The row's height is worked out here from
+        // the width it has: a wrapping row measured by a table is measured at some other width.
+        var bar = new Panel { Dock = DockStyle.Fill, Margin = new Padding(0) };
 
-        // How far the model may go on its own. Never remembered: every start of the app is on the
-        // middle rung, so a restart never finds Change without asking already on.
-        Picker(_rung, 180);
-        foreach (ToolApprovalMode mode in AssistantPrompt.Rungs) _rung.Items.Add(AssistantPrompt.RungLabel(mode));
-        _rung.SelectedIndex = AssistantPrompt.Rungs.ToList().IndexOf(_chat.Mode);
-        // In force at once, an answer in the middle of coming included: a card waiting that the
-        // new rung would not have stopped for is let go there and then (AiChat.Mode).
-        _rung.SelectedIndexChanged += (_, _) =>
+        var start = new FlowLayoutPanel { WrapContents = true, Dock = DockStyle.Fill, Margin = new Padding(0) };
+        BarButton(_attach, "Attach pictures, PDFs or text files to the next question. A picture can be pasted into the box, and files dropped on the window.", (_, _) => ChooseFiles());
+        BarButton(_screenshot, "Attach a picture of the screen this window is on. The window steps aside while it is taken.", async (_, _) => await TakeScreenshotAsync());
+        start.Controls.Add(_attach);
+        start.Controls.Add(_screenshot);
+
+        if (_writer is null)
         {
-            if (_rung.SelectedIndex >= 0) _chat.Mode = AssistantPrompt.Rungs[_rung.SelectedIndex];
-            ShowEstimate();
-        };
-        pickers.Controls.Add(Labelled("Changes:", _rung));
-
-        ButtonStyle.Apply(_attach, "Attach Files…", (_, _) => ChooseFiles());
-        ButtonStyle.Apply(_screenshot, "Screenshot", async (_, _) => await TakeScreenshotAsync());
-        // The tools this conversation may use: switched off, one is not offered, is refused if
-        // called anyway, and is named in the prompt; kept through New Chat, as somebody who
-        // switched send off wants it off in the next conversation too.
-        ButtonStyle.Apply(_toolsButton, "Tools…", (_, _) => ShowToolMenu());
-        foreach (Button b in new[] { _attach, _screenshot, _toolsButton })
+            // How far the model may go on its own. Never remembered: every start of the app is on
+            // the middle rung, so a restart never finds Change without asking already on.
+            MenuButton(_rung,
+                "Ask before every step: every call waits for you, reads included.\n"
+              + "Ask before changes: reads run at once; each send waits for you.\n"
+              + "Change without asking: sends run at once too. There is no undo on an instrument.",
+                (_, _) => ShowRungMenu());
+            ShowRung();
+            start.Controls.Add(_rung);
+        }
+        else
         {
-            b.Margin = new Padding(0, 2, 6, 4);
-            pickers.Controls.Add(b);
+            BarSwitch(_revise, "Revise the current script", "Send the script that is in the editor, so the model changes it rather than starting again.");
+            BarSwitch(_includeOutput, "Include the last run's output", "Send the output pane as well, errors included. This is what makes \"it failed, fix it\" answerable.");
+            _revise.Checked = EditorScript().Trim().Length > 0;
+            _includeOutput.Checked = EditorOutput().Trim().Length > 0;
+            start.Controls.Add(_revise);
+            start.Controls.Add(_includeOutput);
         }
 
-        var buttons = new FlowLayoutPanel
+        var end = new FlowLayoutPanel
         {
             AutoSize = true,
             AutoSizeMode = AutoSizeMode.GrowAndShrink,
             WrapContents = false,
             FlowDirection = FlowDirection.RightToLeft,
-            Anchor = AnchorStyles.Top | AnchorStyles.Right,
+            Dock = DockStyle.Right,
             Margin = new Padding(12, 0, 0, 0),
         };
+
         // Send and Stop are one button, in one place: a double-click on Send must not stop what
         // it sent, so a click arriving as the second of a pair is let go.
-        ButtonStyle.Apply(_send, "Send");
+        _send.FlatStyle = FlatStyle.Flat;
+        _send.UseVisualStyleBackColor = false;
+        _send.FlatAppearance.BorderSize = 0;
+        _send.BackColor = ChatLook.ButtonGrey;
+        _send.FlatAppearance.MouseOverBackColor = ChatLook.ButtonGreyDown;
+        _send.FlatAppearance.MouseDownBackColor = ChatLook.ButtonGreyDown;
+        _send.Margin = new Padding(3, 0, 0, 0);
         _send.MouseDown += (_, e) =>
         {
             if (e.Button != MouseButtons.Left) return;
@@ -468,47 +526,202 @@ public sealed class AssistantForm : Form
             }
             if (_send.Enabled) SendFromBox();
         };
-        buttons.Controls.Add(_send);
 
-        buttons.Dock = DockStyle.Right;
-        options.Controls.Add(pickers);
-        options.Controls.Add(buttons);
-        options.Layout += (_, _) =>
+        BarButton(_meterToggle, "", (_, _) =>
         {
-            int room = Math.Max(1, options.ClientSize.Width - buttons.Width);
-            int height = Math.Max(pickers.GetPreferredSize(new Size(room, 0)).Height, buttons.PreferredSize.Height);
-            if (options.Height != height) options.Height = height;
+            _meterOn = !_meterOn;
+            _meter.Visible = _meterOn;
+            _meterToggle.BackColor = _meterOn ? ChatLook.ButtonGrey : ChatLook.Paper;
+            ShowEstimate();
+        });
+        _meterToggle.BackColor = ChatLook.ButtonGrey;
+
+        MenuButton(_model, "Which saved model answers, and how hard it is asked to think, for this question only. Thinking is billed as output.", (_, _) => ShowModelMenu());
+
+        // The tools this conversation may use: switched off, one is not offered, is refused if
+        // called anyway, and is named in the prompt; kept through New Chat, as somebody who
+        // switched send off wants it off in the next conversation too.
+        BarButton(_toolsButton, _writer is null
+            ? "Switch tools off for this conversation. A tool switched off is not offered, and the model is told so."
+            : "Compact the conversation", (_, _) => ShowToolMenu());
+
+        end.Controls.Add(_send);
+        end.Controls.Add(_meterToggle);
+        end.Controls.Add(_model);
+        end.Controls.Add(_toolsButton);
+
+        bar.Controls.Add(start);
+        bar.Controls.Add(end);
+        bar.Layout += (_, _) =>
+        {
+            int room = Math.Max(1, bar.ClientSize.Width - end.Width);
+            int height = Math.Max(start.GetPreferredSize(new Size(room, 0)).Height, end.PreferredSize.Height);
+            if (bar.Height != height) bar.Height = height;
         };
+
+        frame.Controls.Add(_prompt, 0, 0);
+        frame.Controls.Add(line, 0, 1);
+        frame.Controls.Add(bar, 0, 2);
+
+        // A press in the frame's spare room puts the caret in the box.
+        foreach (Control room in new Control[] { frame, bar, start, end })
+            room.Click += (_, _) => _prompt.Focus();
+
+        _meter.ColumnCount = 3;
+        _meter.RowCount = 1;
+        _meter.AutoSize = true;
+        _meter.AutoSizeMode = AutoSizeMode.GrowAndShrink;
+        _meter.Dock = DockStyle.Fill;
+        _meter.Margin = new Padding(6, 4, 6, 6);
+        _meter.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100f));
+        _meter.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
+        _meter.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
 
         _estimate.AutoSize = true;
         _estimate.ForeColor = SystemColors.GrayText;
-        _estimate.Margin = new Padding(0, 4, 0, 6);
+        _estimate.Margin = new Padding(0);
         _wrapping.Add(_estimate);
 
-        composer.Controls.Add(_chips, 0, 0);
-        composer.Controls.Add(_attachProblem, 0, 1);
-        composer.Controls.Add(_slash, 0, 2);
-        composer.Controls.Add(_prompt, 0, 3);
-        composer.Controls.Add(options, 0, 4);
-        composer.Controls.Add(_estimate, 0, 5);
+        _spent.AutoSize = true;
+        _spent.ForeColor = SystemColors.GrayText;
+        _spent.Margin = new Padding(12, 0, 12, 0);
+        _spent.Visible = false;
+
+        _rates.Text = "rates";
+        _rates.AutoSize = true;
+        _rates.Margin = new Padding(0);
+        _rates.Visible = false;
+        _rates.LinkClicked += (_, _) =>
+        {
+            if (_connection is not null && AiPricing.PricingPage(_connection) is string page)
+                System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(page) { UseShellExecute = true });
+        };
+        _tips.SetToolTip(_rates, "Where the provider publishes its rates.");
+
+        _meter.Controls.Add(_estimate, 0, 0);
+        _meter.Controls.Add(_spent, 1, 0);
+        _meter.Controls.Add(_rates, 2, 0);
+
+        _tips.SetToolTip(_prompt, _writer is null
+            ? "Enter sends, Shift+Enter starts a new line. A slash at the start lists the window's commands."
+            : "Plain English. Say what you want measured or set, and at what values: the more specific, the less the model has to guess. Enter sends it, Shift+Enter starts a new line.");
+
+        composer.Controls.Add(_slash, 0, 0);
+        composer.Controls.Add(_notice, 0, 1);
+        composer.Controls.Add(_attachProblem, 0, 2);
+        composer.Controls.Add(_chips, 0, 3);
+        composer.Controls.Add(frame, 0, 4);
+        composer.Controls.Add(_meter, 0, 5);
         return composer;
+    }
+
+    /// <summary>One of the row's picture buttons: no border until it is pointed at.</summary>
+    private void BarButton(Button button, string tip, EventHandler click)
+    {
+        Flatten(button);
+        button.Margin = new Padding(1, 0, 1, 0);
+        button.Click += click;
+        if (tip.Length > 0) _tips.SetToolTip(button, tip);
+    }
+
+    /// <summary>One of the row's worded buttons, which opens a menu: the model, the rung.</summary>
+    private void MenuButton(Button button, string tip, EventHandler click)
+    {
+        Flatten(button);
+        button.AutoSize = true;
+        button.AutoSizeMode = AutoSizeMode.GrowAndShrink;
+        button.Margin = new Padding(2, 0, 2, 0);
+        button.Click += click;
+        _tips.SetToolTip(button, tip);
+    }
+
+    private static void Flatten(Button button)
+    {
+        button.FlatStyle = FlatStyle.Flat;
+        button.UseVisualStyleBackColor = false;
+        button.BackColor = ChatLook.Paper;
+        button.FlatAppearance.BorderSize = 0;
+        button.FlatAppearance.MouseOverBackColor = ChatLook.Hover;
+        button.FlatAppearance.MouseDownBackColor = ChatLook.Pressed;
+    }
+
+    private void BarSwitch(CheckBox box, string text, string tip)
+    {
+        box.Text = text;
+        box.AutoSize = true;
+        box.Margin = new Padding(8, 0, 6, 0);
+        box.CheckedChanged += (_, _) =>
+        {
+            MeasureWriter();
+            ShowEstimate();
+        };
+        _tips.SetToolTip(box, tip);
+    }
+
+    /// <summary>
+    /// The row's sizes and pictures, once the window has scaled: everything here is 30 tall at
+    /// 100%, the pictures drawn straight to the screen's size so they stay sharp.
+    /// </summary>
+    private void FitBar()
+    {
+        int side = LogicalToDeviceUnits(30);
+        int glyph = LogicalToDeviceUnits(18);
+
+        foreach ((Button button, string icon) in new[] { (_attach, "paperclip"), (_screenshot, "screenshot"), (_toolsButton, "sliders"), (_meterToggle, "info") })
+        {
+            button.Padding = new Padding(0);
+            button.Size = new Size(side, side);
+            button.Image = AppIcons.Drawn(icon, glyph);
+            button.TextImageRelation = TextImageRelation.ImageBeforeText;
+        }
+
+        _send.Size = new Size(side, side);
+        ShowSendFace();
+        _promptHint.Location = new Point(LogicalToDeviceUnits(1), 0);
+
+        foreach (Button button in new[] { _model, _rung })
+        {
+            button.Padding = this.Scaled(6, 0, 6, 0);
+            button.MinimumSize = new Size(0, side);
+            button.MaximumSize = new Size(0, side);
+        }
+
+        foreach (CheckBox box in new[] { _revise, _includeOutput })
+        {
+            box.Margin = this.Scaled(8, 0, 6, 0);
+            ButtonStyle.CentreInRow(box, side);
+        }
+
+        _newChat.Padding = this.Scaled(6, 2, 8, 2);
+        _newChat.Image = AppIcons.Drawn("plus", LogicalToDeviceUnits(16));
+        _newChat.TextImageRelation = TextImageRelation.ImageBeforeText;
+    }
+
+    private void ShowSendFace()
+    {
+        bool busy = _chat.Generating;
+        _send.Image = AppIcons.Drawn(busy ? "stopSquare" : "arrowUp", LogicalToDeviceUnits(16));
+        _tips.SetToolTip(_send, busy ? "Stop" : _writer is null ? "Send the question (Enter)" : "Write the script (Enter)");
+        _send.AccessibleName = busy ? "Stop" : _writer is null ? "Send" : "Write Script";
     }
 
     /// <summary>The suggestion to compact, priced both ways: what the history costs every question now, and the compaction once.</summary>
     private Control BuildCompactBar()
     {
         _compactBar.Dock = DockStyle.Bottom;
-        _compactBar.Padding = new Padding(12, 8, 12, 0);
+        _compactBar.Padding = new Padding(10, 8, 10, 0);
         _compactBar.Visible = false;
 
-        var inner = new TableLayoutPanel
+        var inner = new RoundedTable
         {
             Dock = DockStyle.Top,
             ColumnCount = 3,
             RowCount = 1,
             AutoSize = true,
             AutoSizeMode = AutoSizeMode.GrowAndShrink,
-            BackColor = Waiting,
+            BackColor = ChatLook.SuggestFill,
+            Edge = ChatLook.SuggestEdge,
+            Radius = 4,
             Padding = new Padding(8, 6, 8, 2),
         };
         inner.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100f));
@@ -539,24 +752,29 @@ public sealed class AssistantForm : Form
     {
         _chatsPanel.Dock = DockStyle.Left;
         _chatsPanel.Width = 240;
-        _chatsPanel.Padding = new Padding(10, 10, 8, 6);
-        _chatsPanel.Paint += (_, e) =>
-        {
-            using var pen = new Pen(Rule);
-            e.Graphics.DrawLine(pen, _chatsPanel.Width - 1, 0, _chatsPanel.Width - 1, _chatsPanel.Height);
-        };
+        _chatsPanel.Gutter = new Padding(0, 0, 8, 0);
+        _chatsPanel.Padding = new Padding(8, 8, 16, 6);
 
-        var head = PanelHead("Chats", "Hide the chats", () => { _chatsOpen = false; ShowPanels(); }, _newChat);
-        ButtonStyle.Apply(_newChat, "New Chat", (_, _) => NewChat());
-        _newChat.Margin = new Padding(0, 0, 6, 0);
+        Flatten(_newChat);
+        _newChat.Text = "New chat";
+        _newChat.AutoSize = true;
+        _newChat.AutoSizeMode = AutoSizeMode.GrowAndShrink;
+        _newChat.Margin = new Padding(0);
+        _newChat.Anchor = AnchorStyles.Left;
+        _newChat.Click += (_, _) => NewChat();
         _tips.SetToolTip(_newChat, "Start a new conversation. This one stays in the list below, and what was spent stays counted.");
 
-        _keptWhere.Dock = DockStyle.Top;
+        var head = PanelHead(null, "Hide the chats", () => { _chatsOpen = false; ShowPanels(); }, _newChat);
+
+        var heading = Heading("Chats");
+        heading.Padding = new Padding(2, 8, 0, 4);
+
+        _keptWhere.Dock = DockStyle.Bottom;
         _keptWhere.AutoSize = true;
         _keptWhere.Font = _small;
         _keptWhere.ForeColor = SystemColors.GrayText;
-        _keptWhere.Padding = new Padding(0, 6, 0, 6);
-        _keptWhere.Text = $"Kept {_ai.KeptWhere}.";
+        _keptWhere.Padding = new Padding(2, 6, 0, 0);
+        _keptWhere.Text = $"Kept {_ai.KeptWhere}";
         _tips.SetToolTip(_keptWhere, $"Every chat is kept {_ai.KeptWhere} from its first question on, after every answer, with its files.");
 
         _chatScroll.Dock = DockStyle.Fill;
@@ -564,6 +782,7 @@ public sealed class AssistantForm : Form
 
         _chatsPanel.Controls.Add(_chatScroll);
         _chatsPanel.Controls.Add(_keptWhere);
+        _chatsPanel.Controls.Add(heading);
         _chatsPanel.Controls.Add(head);
         return _chatsPanel;
     }
@@ -572,14 +791,10 @@ public sealed class AssistantForm : Form
     {
         _filesPanel.Dock = DockStyle.Right;
         _filesPanel.Width = 260;
-        _filesPanel.Padding = new Padding(10, 10, 10, 6);
-        _filesPanel.Paint += (_, e) =>
-        {
-            using var pen = new Pen(Rule);
-            e.Graphics.DrawLine(pen, 0, 0, 0, _filesPanel.Height);
-        };
+        _filesPanel.Gutter = new Padding(8, 0, 0, 0);
+        _filesPanel.Padding = new Padding(18, 8, 10, 6);
 
-        var head = PanelHead("Files", "Hide the files", () => { _filesOpen = false; ShowPanels(); }, null);
+        var head = PanelHead("In this conversation", "Hide the files", () => { _filesOpen = false; ShowPanels(); }, null);
 
         _fileScroll.Dock = DockStyle.Fill;
         _fileScroll.AutoScroll = true;
@@ -589,7 +804,7 @@ public sealed class AssistantForm : Form
         _filesFoot.Font = _small;
         _filesFoot.ForeColor = SystemColors.GrayText;
         _filesFoot.Padding = new Padding(0, 6, 0, 0);
-        _filesFoot.MaximumSize = new Size(240, 0);
+        _filesFoot.MaximumSize = new Size(230, 0);
 
         _filesPanel.Controls.Add(_fileScroll);
         _filesPanel.Controls.Add(_filesFoot);
@@ -597,13 +812,13 @@ public sealed class AssistantForm : Form
         return _filesPanel;
     }
 
-    /// <summary>A panel's heading: its name, a button where it has one, and the cross that closes it.</summary>
-    private TableLayoutPanel PanelHead(string title, string closeTip, Action close, Button? button)
+    /// <summary>A panel's heading: its name or its button, and the cross that closes it.</summary>
+    private TableLayoutPanel PanelHead(string? title, string closeTip, Action close, Button? button)
     {
         var head = new TableLayoutPanel
         {
             Dock = DockStyle.Top,
-            ColumnCount = 3,
+            ColumnCount = 2,
             RowCount = 1,
             AutoSize = true,
             AutoSizeMode = AutoSizeMode.GrowAndShrink,
@@ -611,10 +826,11 @@ public sealed class AssistantForm : Form
         };
         head.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100f));
         head.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
-        head.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
-        head.Controls.Add(new Label { Text = title, Font = _bold, AutoSize = true, Margin = new Padding(0, 6, 0, 0) }, 0, 0);
-        if (button is not null) head.Controls.Add(button, 1, 0);
-        head.Controls.Add(Link("✕", closeTip, close, new Padding(4, 6, 0, 0)), 2, 0);
+        if (button is not null) head.Controls.Add(button, 0, 0);
+        else head.Controls.Add(new Label { Text = title, Font = _smallBold, AutoSize = true, Margin = new Padding(0, 4, 0, 0) }, 0, 0);
+        LinkLabel cross = Link("✕", closeTip, close, new Padding(4, 4, 0, 0));
+        cross.LinkColor = SystemColors.GrayText;
+        head.Controls.Add(cross, 1, 0);
         return head;
     }
 
@@ -637,6 +853,8 @@ public sealed class AssistantForm : Form
         strip.FlatAppearance.MouseOverBackColor = SystemColors.ControlLight;
         strip.FlatAppearance.MouseDownBackColor = SystemColors.ControlDark;
         strip.ForeColor = SystemColors.ControlText;
+        strip.BackColor = ChatLook.Paper;
+        strip.UseVisualStyleBackColor = false;
         strip.Padding = new Padding(0);
         strip.TabStop = false;
         strip.Click += (_, _) => open();
@@ -657,30 +875,6 @@ public sealed class AssistantForm : Form
         link.LinkClicked += (_, _) => click();
         _tips.SetToolTip(link, tip);
         return link;
-    }
-
-    /// <summary>A label and its list, kept on one line of the wrapping row.</summary>
-    private static FlowLayoutPanel Labelled(string label, Control control)
-    {
-        var pair = new FlowLayoutPanel
-        {
-            AutoSize = true,
-            AutoSizeMode = AutoSizeMode.GrowAndShrink,
-            WrapContents = false,
-            Margin = new Padding(0, 0, 18, 4),
-        };
-        pair.Controls.Add(new Label { Text = label, AutoSize = true, Margin = new Padding(0, 6, 6, 0) });
-        pair.Controls.Add(control);
-        return pair;
-    }
-
-    private void Picker(ComboBox combo, int width)
-    {
-        combo.DropDownStyle = ComboBoxStyle.DropDownList;
-        combo.DrawMode = DrawMode.OwnerDrawFixed;
-        combo.DrawItem += (_, e) => ButtonStyle.DrawComboItem(combo, e);
-        combo.Width = width;
-        combo.Margin = new Padding(0, 2, 0, 2);
     }
 
     /// <summary>
@@ -730,7 +924,7 @@ public sealed class AssistantForm : Form
     private bool _chatsShown;
 
     /// <summary>Whether the window is wide enough for both panels and the conversation between them.</summary>
-    private bool RoomForBoth => ClientSize.Width >= LogicalToDeviceUnits(240 + 260 + 620);
+    private bool RoomForBoth => ClientSize.Width >= LogicalToDeviceUnits(240 + 260 + 460);
 
     /// <summary>Shows and hides the panels and their arrows to fit the window's width; called as it is resized.</summary>
     private void FitPanels(bool force = false)
@@ -756,22 +950,84 @@ public sealed class AssistantForm : Form
     {
         _book = await _ai.LoadConnectionsAsync();
 
-        _picking = true;
-        _using.Items.Clear();
-        foreach (string label in _book.Labels()) _using.Items.Add(label);
+        string? had = _connection?.Id;
         _connection = _book.Selected?.Clone();
-        _using.SelectedIndex = _connection is null ? -1 : _book.Items.FindIndex(c => c.Id == _connection.Id);
-
-        // The levels the model takes, chosen per question and never saved; the default says what it is.
-        _effort.Items.Clear();
-        _effort.Items.Add(DefaultEffortLabel());
-        foreach (string level in AiModels.EffortLevels(_connection)) _effort.Items.Add(Cap(level));
-        _effort.SelectedIndex = 0;
-        _effort.Enabled = _effort.Items.Count > 1;
-        _picking = false;
+        if (_connection?.Id != had || !AiModels.EffortLevels(_connection).Contains(_effortChoice)) _effortChoice = "";
+        ShowModel();
 
         UpdateEnabled();
         DrawAll();
+    }
+
+    private void ShowModel()
+        => _model.Text = (_connection?.EffectiveModel ?? "No model") + "  ▾";
+
+    /// <summary>
+    /// The saved models with a check on the one picked and their provider beside each, the effort
+    /// for the next question, and the way to AI Connection.
+    /// </summary>
+    private void ShowModelMenu()
+    {
+        if (_chat.Generating) return;
+
+        _modelMenu.Items.Clear();
+        List<string> labels = [.. _book.Labels()];
+        for (int i = 0; i < _book.Items.Count; i++)
+        {
+            AiConnection saved = _book.Items[i];
+            var item = new ToolStripMenuItem(labels[i]) { Checked = saved.Id == _connection?.Id };
+            item.Click += async (_, _) =>
+            {
+                await _ai.SelectAsync(saved.Id);
+                await PickConnectionAsync();
+            };
+            _modelMenu.Items.Add(item);
+        }
+        if (_modelMenu.Items.Count > 0) _modelMenu.Items.Add(new ToolStripSeparator());
+
+        IReadOnlyList<string> levels = AiModels.EffortLevels(_connection);
+        if (levels.Count > 0)
+        {
+            var effort = new ToolStripMenuItem("Effort: " + (_effortChoice.Length == 0 ? DefaultEffortLabel() : Cap(_effortChoice)));
+            foreach (string level in new[] { "" }.Concat(levels))
+            {
+                string chosen = level;
+                var item = new ToolStripMenuItem(level.Length == 0 ? DefaultEffortLabel() : Cap(level)) { Checked = level == _effortChoice };
+                item.Click += (_, _) =>
+                {
+                    _effortChoice = chosen;
+                    ShowEstimate();
+                };
+                effort.DropDownItems.Add(item);
+            }
+            _modelMenu.Items.Add(effort);
+        }
+
+        var manage = new ToolStripMenuItem("Manage models…");
+        manage.Click += (_, _) => SettingsRequested?.Invoke();
+        _modelMenu.Items.Add(manage);
+        _modelMenu.Show(_model, Point.Empty, ToolStripDropDownDirection.AboveRight);
+    }
+
+    private void ShowRung() => _rung.Text = AssistantPrompt.RungLabel(_chat.Mode) + "  ▾";
+
+    /// <summary>In force at once, an answer in the middle of coming included: a card waiting that the new rung would not have stopped for is let go there and then (AiChat.Mode).</summary>
+    private void ShowRungMenu()
+    {
+        _rungMenu.Items.Clear();
+        foreach (ToolApprovalMode mode in AssistantPrompt.Rungs)
+        {
+            ToolApprovalMode chosen = mode;
+            var item = new ToolStripMenuItem(AssistantPrompt.RungLabel(mode)) { Checked = mode == _chat.Mode };
+            item.Click += (_, _) =>
+            {
+                _chat.Mode = chosen;
+                ShowRung();
+                ShowEstimate();
+            };
+            _rungMenu.Items.Add(item);
+        }
+        _rungMenu.Show(_rung, Point.Empty, ToolStripDropDownDirection.AboveRight);
     }
 
     private string DefaultEffortLabel()
@@ -780,8 +1036,7 @@ public sealed class AssistantForm : Form
         return said.Length == 0 ? "Default" : $"Default ({said})";
     }
 
-    private string ChosenEffort()
-        => _effort.SelectedIndex <= 0 ? "" : AiModels.EffortLevels(_connection)[_effort.SelectedIndex - 1];
+    private string ChosenEffort() => _effortChoice;
 
     private static string Cap(string s) => s.Length == 0 ? s : char.ToUpperInvariant(s[0]) + s[1..];
 
@@ -806,31 +1061,36 @@ public sealed class AssistantForm : Form
         if (_chat.Generating || string.IsNullOrWhiteSpace(text)) return;
         if (WhyNotAskNow() is string why)
         {
-            _status.Text = why;
+            Say(why);
             return;
         }
 
         AiConnection connection = _connection!;
-        ILlmProvider provider = _ai.CreateProvider(connection, ChosenEffort());
-        _benchNow = BenchNow();
-        string system = AssistantPrompt.Build(_benchNow, _chat.Mode, _chat.ToolsOff, Where, DateTime.Now);
         int shown = _shown;
-
         if (fromBox) _prompt.Text = "";
-        _status.Text = "Asking " + connection.EffectiveName + "…";
-        ChatOutcome outcome = await _chat.SendAsync(text, provider, system, _tools);
+        Say("");
 
-        // A question that failed gave its files back to the box; its words go back with them
-        // when the box is still empty, so asking again is one press.
-        if (outcome == ChatOutcome.Failed && _chat.GaveFilesBack && _prompt.TextLength == 0)
-            _prompt.Text = text;
-        _status.Text = outcome switch
+        ChatOutcome outcome;
+        if (_writer is ScriptWriterJob job)
         {
-            ChatOutcome.Stopped => "Stopped.",
-            ChatOutcome.Failed => "The question failed; the reason is in the conversation.",
-            ChatOutcome.Paused => "Paused at the limit on rounds. Continue carries on.",
-            _ => SpentLine(),
-        };
+            ILlmProvider writer = job.Asking(connection, ChosenEffort(),
+                _revise.Checked ? EditorScript() : null, _includeOutput.Checked ? EditorOutput() : null);
+            outcome = await _chat.SendAsync(text, writer, "", null);
+            if (outcome == ChatOutcome.Failed && _prompt.TextLength == 0) _prompt.Text = text;
+        }
+        else
+        {
+            ILlmProvider provider = _ai.CreateProvider(connection, ChosenEffort());
+            _benchNow = BenchNow();
+            string system = AssistantPrompt.Build(_benchNow, _chat.Mode, _chat.ToolsOff, Where, DateTime.Now);
+            outcome = await _chat.SendAsync(text, provider, system, _tools);
+
+            // A question that failed gave its files back to the box; its words go back with them
+            // when the box is still empty, so asking again is one press.
+            if (outcome == ChatOutcome.Failed && _chat.GaveFilesBack && _prompt.TextLength == 0)
+                _prompt.Text = text;
+        }
+
         if (outcome != ChatOutcome.NotSent) await KeepAsync(shown);
     }
 
@@ -843,12 +1103,12 @@ public sealed class AssistantForm : Form
     {
         if (_chat.WhyNotCompact() is string cannot)
         {
-            _status.Text = cannot;
+            Say(cannot);
             return;
         }
         if (_connection is null || _ai.WhyNotAsk(_connection) is not null)
         {
-            _status.Text = WhyNotAskNow() ?? NoConnection;
+            Say(WhyNotAskNow() ?? NoConnection);
             return;
         }
 
@@ -856,15 +1116,13 @@ public sealed class AssistantForm : Form
         ILlmProvider provider = _ai.CreateProvider(_connection, levels.Count > 0 ? levels[0] : "");
         int shown = _shown;
 
-        _status.Text = "Compacting the conversation…";
         ChatOutcome outcome = await _chat.CompactAsync(provider);
-        _status.Text = outcome switch
+        Say(outcome switch
         {
-            ChatOutcome.Answered => "Compacted: the briefing stands in for what came before it. " + SpentLine(),
             ChatOutcome.Stopped => "Compacting was stopped. The conversation is as it was.",
             ChatOutcome.Failed => "Compacting failed. The conversation is as it was.",
-            _ => _status.Text,
-        };
+            _ => "",
+        });
         if (outcome != ChatOutcome.NotSent) await KeepAsync(shown);
     }
 
@@ -882,14 +1140,11 @@ public sealed class AssistantForm : Form
     /// <summary>The instruments open now, as the tools list them. The desktop's bench answers at once: it is the sessions this process holds.</summary>
     private IReadOnlyList<BenchInstrument> BenchNow() => _bench.ListAsync(CancellationToken.None).GetAwaiter().GetResult();
 
-    private string SpentLine()
+    /// <summary>One line over the box about what the conversation does not show, or nothing.</summary>
+    private void Say(string words)
     {
-        LlmUsage used = _chat.Used;
-        if (!used.Reported) return "Ready.";
-        string tokens = $"{AiPricing.Count(used.InputTokens)} tokens in, {AiPricing.Count(used.OutputTokens)} out";
-        return _chat.Cost is decimal dollars
-            ? $"Spent since the app started: {tokens}, {AiPricing.AboutMoney(dollars)}."
-            : $"Spent since the app started: {tokens}.";
+        _notice.Text = words;
+        _notice.Visible = words.Length > 0;
     }
 
     // ------------------------------------------------------------------- slash commands
@@ -903,22 +1158,26 @@ public sealed class AssistantForm : Form
     {
         string? answering = _chat.Generating ? "Not while an answer is coming." : null;
         string? asking = answering ?? WhyNotAskNow();
-        return
-        [
+        var commands = new List<SlashCommand>
+        {
             new("/new", "Start a new chat. This one stays in the chats list.", answering, _ => NewChat()),
             new("/compact", "Put a briefing in place of the conversation so far, to send less with every question.",
                 _chat.WhyNotCompact() ?? (_connection is null ? NoConnection : _ai.WhyNotAsk(_connection)), none => _ = CompactAsync()),
             new("/export", "Save this conversation as text.",
                 answering ?? (_chat.Turns.Count == 0 ? "Nothing has been said yet." : null), _ => SaveConversation()),
-            new("/tools", "Choose the tools this conversation may use.", answering, _ => ShowToolMenu()),
-            new("/screenshot", "Attach a picture of the screen this window is on.", null, none => _ = TakeScreenshotAsync()),
-            new("/settings", "Open AI Connection, where the connections and their keys are kept.", null, _ => SettingsRequested?.Invoke()),
-            new("/status", "Ask what is open and what each instrument reads now.", asking,
-                words => _ = SendAsync(With(AssistantPrompt.StatusQuestion, words), fromBox: false)),
-            new("/errors", "Ask for every instrument's error queue, read and explained.", asking,
-                words => _ = SendAsync(With(AssistantPrompt.ErrorsQuestion, words), fromBox: false)),
-            new("/script", "Start a request for a script, to finish in the box.", null, _ => StartRequest(AssistantPrompt.ScriptStart)),
-        ];
+        };
+        if (_writer is null) commands.Add(new("/tools", "Choose the tools this conversation may use.", answering, _ => ShowToolMenu()));
+        commands.Add(new("/screenshot", "Attach a picture of the screen this window is on.", null, none => _ = TakeScreenshotAsync()));
+        commands.Add(new("/settings", "Open AI Connection, where the connections and their keys are kept.", null, _ => SettingsRequested?.Invoke()));
+        if (_writer is null)
+        {
+            commands.Add(new("/status", "Ask what is open and what each instrument reads now.", asking,
+                words => _ = SendAsync(With(AssistantPrompt.StatusQuestion, words), fromBox: false)));
+            commands.Add(new("/errors", "Ask for every instrument's error queue, read and explained.", asking,
+                words => _ = SendAsync(With(AssistantPrompt.ErrorsQuestion, words), fromBox: false)));
+            commands.Add(new("/script", "Start a request for a script, to finish in the box.", null, _ => StartRequest(AssistantPrompt.ScriptStart)));
+        }
+        return commands;
     }
 
     private static string With(string question, string words)
@@ -944,7 +1203,7 @@ public sealed class AssistantForm : Form
         HideSlash();
         if (command.WhyNot is string why)
         {
-            _status.Text = $"{command.Name}: {why}";
+            Say($"{command.Name}: {why}");
             return;
         }
         _prompt.Text = "";
@@ -1019,7 +1278,7 @@ public sealed class AssistantForm : Form
         if (_chat.Generating) return;
 
         _toolMenu.Items.Clear();
-        foreach (var (heading, tools) in new[]
+        foreach (var (heading, tools) in _writer is not null ? [] : new[]
         {
             ("Reading", BenchToolRunner.All.Where(t => !t.Changes && !t.Proposes)),
             ("Changing an instrument", BenchToolRunner.All.Where(t => t.Changes)),
@@ -1047,7 +1306,7 @@ public sealed class AssistantForm : Form
             }
         }
 
-        _toolMenu.Items.Add(new ToolStripSeparator());
+        if (_toolMenu.Items.Count > 0) _toolMenu.Items.Add(new ToolStripSeparator());
         var allOn = new ToolStripMenuItem("Every tool on") { Enabled = _chat.ToolsOff.Count > 0 };
         allOn.Click += (_, _) =>
         {
@@ -1056,7 +1315,7 @@ public sealed class AssistantForm : Form
             ShowToolCount();
             ShowEstimate();
         };
-        _toolMenu.Items.Add(allOn);
+        if (_writer is null) _toolMenu.Items.Add(allOn);
         var compact = new ToolStripMenuItem("Compact the conversation") { Enabled = _chat.WhyNotCompact() is null, ToolTipText = _chat.WhyNotCompact() ?? "" };
         compact.Click += async (_, _) =>
         {
@@ -1065,7 +1324,7 @@ public sealed class AssistantForm : Form
         };
         _toolMenu.Items.Add(compact);
 
-        _toolMenu.Show(_toolsButton, new Point(0, _toolsButton.Height));
+        _toolMenu.Show(_toolsButton, Point.Empty, ToolStripDropDownDirection.AboveRight);
     }
 
     private static void KeepOpenWhileTicking(object? sender, ToolStripDropDownClosingEventArgs e)
@@ -1075,8 +1334,14 @@ public sealed class AssistantForm : Form
             e.Cancel = true;
     }
 
+    /// <summary>The picture alone until a tool is off, and then how many beside it.</summary>
     private void ShowToolCount()
-        => _toolsButton.Text = _chat.ToolsOff.Count == 0 ? "Tools…" : $"Tools… ({_chat.ToolsOff.Count} off)";
+    {
+        int side = LogicalToDeviceUnits(30);
+        int off = _chat.ToolsOff.Count;
+        _toolsButton.Text = off == 0 ? "" : off.ToString(CultureInfo.InvariantCulture);
+        _toolsButton.Width = off == 0 ? side : side + LogicalToDeviceUnits(16);
+    }
 
     // ------------------------------------------------------------------- kept chats
 
@@ -1098,7 +1363,7 @@ public sealed class AssistantForm : Form
         {
             Id = _chatId,
             Title = SavedChat.TitleFor(turns),
-            Bench = AssistantPrompt.BenchLine(BenchNow()),
+            Bench = BenchLineNow(),
             Created = _created,
             Updated = DateTime.Now,
             Turns = SavedChat.Keep(turns),
@@ -1109,9 +1374,14 @@ public sealed class AssistantForm : Form
         }
         catch (Exception ex)
         {
-            _status.Text = "The chat could not be kept: " + ex.Message;
+            Say("The chat could not be kept: " + ex.Message);
         }
     }
+
+    /// <summary>What this chat is about, as its row in the list says it.</summary>
+    private string BenchLineNow() => _writer is ScriptWriterJob job
+        ? string.Join(", ", job.Instruments.Select(i => i.Alias.Length > 0 ? $"{i.Alias} {i.Model}" : i.Model))
+        : AssistantPrompt.BenchLine(BenchNow());
 
     private void NewChat()
     {
@@ -1123,7 +1393,7 @@ public sealed class AssistantForm : Form
         _confirmingDelete = null;
         _showFolded = false;
         ClearPictures();
-        _status.Text = "New conversation. " + SpentLine();
+        Say("");
         DrawAll();
         _ = DrawChatsAsync();
         _prompt.Focus();
@@ -1145,12 +1415,12 @@ public sealed class AssistantForm : Form
         }
         catch (Exception ex)
         {
-            _status.Text = "That chat could not be read: " + ex.Message;
+            Say("That chat could not be read: " + ex.Message);
             return;
         }
         if (kept is null)
         {
-            _status.Text = "That chat is gone: it was deleted, or its file will not read.";
+            Say("That chat is gone: it was deleted, or its file will not read.");
             await DrawChatsAsync();
             return;
         }
@@ -1158,13 +1428,13 @@ public sealed class AssistantForm : Form
 
         _shown++;
         _benchNow = BenchNow();
-        _chat.Restore(kept.Unkept(), AssistantPrompt.ReopenedLine(kept.Bench, AssistantPrompt.BenchLine(_benchNow), DateTime.Now));
+        _chat.Restore(kept.Unkept(), AssistantPrompt.ReopenedLine(kept.Bench, BenchLineNow(), DateTime.Now));
         _chatId = kept.Id;
         _created = kept.Created == default ? DateTime.Now : kept.Created;
         _confirmingDelete = null;
         _showFolded = false;
         ClearPictures();
-        _status.Text = "Opened: " + kept.Title;
+        Say("");
         DrawAll();
         DrawChatRows();
     }
@@ -1178,7 +1448,7 @@ public sealed class AssistantForm : Form
         }
         catch (Exception ex)
         {
-            _status.Text = "That chat could not be deleted: " + ex.Message;
+            Say("That chat could not be deleted: " + ex.Message);
             DrawChatRows();
             return;
         }
@@ -1199,7 +1469,7 @@ public sealed class AssistantForm : Form
         SavedChat? kept = await _ai.Chats.LoadAsync(id);
         if (kept is null)
         {
-            _status.Text = "That chat is gone: it was deleted, or its file will not read.";
+            Say("That chat is gone: it was deleted, or its file will not read.");
             await DrawChatsAsync();
             return;
         }
@@ -1230,11 +1500,11 @@ public sealed class AssistantForm : Form
         try
         {
             File.WriteAllText(dlg.FileName, transcript);
-            _status.Text = "Saved to " + dlg.FileName + ".";
+            Say("Saved to " + dlg.FileName + ".");
         }
         catch (Exception ex)
         {
-            _status.Text = "Could not save it: " + ex.Message;
+            Say("Could not save it: " + ex.Message);
         }
     }
 
@@ -1256,7 +1526,7 @@ public sealed class AssistantForm : Form
         catch (Exception ex)
         {
             _chatList = [];
-            _status.Text = "The chats could not be read: " + ex.Message;
+            Say("The chats could not be read: " + ex.Message);
         }
         DrawChatRows();
     }
@@ -1293,24 +1563,24 @@ public sealed class AssistantForm : Form
     }
 
     /// <summary>
-    /// A kept chat's row: its title and when it was last kept, with what was on the bench; Save and
-    /// Delete of its own. Delete asks in the row, not in a dialog. Nothing is switched while an
-    /// answer is coming: a press then only says why.
+    /// A kept chat's row: its title and when it was last kept, with what was on the bench, and its
+    /// two picture buttons, shown under the pointer and on the chat on screen. Delete asks in the
+    /// row, not in a dialog. Nothing is switched while an answer is coming: a press then only says why.
     /// </summary>
     private Control ChatRow(ChatSummary chat, bool busy)
     {
         bool current = chat.Id == _chatId;
         bool confirming = chat.Id == _confirmingDelete;
 
-        var row = new TableLayoutPanel
+        var row = new RoundedTable
         {
             Dock = DockStyle.Top,
             ColumnCount = 2,
             RowCount = 2,
-            BackColor = current ? Chosen : Color.Transparent,
-            Padding = new Padding(6, 4, 4, 4),
+            BackColor = current ? ChatLook.Chosen : ChatLook.Paper,
+            Padding = this.Scaled(6, 4, 4, 4),
             Margin = new Padding(0),
-            Height = _body.Height + _small.Height + LogicalToDeviceUnits(22),
+            Height = _body.Height + _small.Height + LogicalToDeviceUnits(16),
         };
         row.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100f));
         row.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
@@ -1330,7 +1600,7 @@ public sealed class AssistantForm : Form
         };
         var when = new Label
         {
-            Text = When(chat.Updated) + (chat.Bench.Length > 0 ? " · " + chat.Bench : ""),
+            Text = (chat.Bench.Length > 0 ? chat.Bench + " · " : "") + When(chat.Updated),
             Font = _small,
             ForeColor = SystemColors.GrayText,
             AutoSize = false,
@@ -1347,25 +1617,43 @@ public sealed class AssistantForm : Form
             WrapContents = false,
             Margin = new Padding(0),
             Anchor = AnchorStyles.Right,
+            Visible = current || confirming,
         };
+        var pointed = new List<Control> { row, title, when, actions };
         if (confirming)
         {
-            actions.Controls.Add(new Label { Text = "Delete it?", Font = _small, AutoSize = true, Margin = new Padding(0, 1, 4, 0) });
+            actions.Controls.Add(new Label { Text = "Delete it?", Font = _small, AutoSize = true, Margin = this.Scaled(0, 1, 4, 0) });
             actions.Controls.Add(SmallLink("Delete", "Delete this chat for good", () => _ = DeleteChatAsync(chat.Id)));
             actions.Controls.Add(SmallLink("Keep", "Keep it", () => { _confirmingDelete = null; DrawChatRows(); }));
         }
         else
         {
-            actions.Controls.Add(SmallLink("Save", busy ? WhyBusy : "Save this chat as text: every turn, each call with what it answered, and what each answer cost.",
-                () => { if (!_chat.Generating) _ = ExportChatAsync(chat.Id); }));
-            actions.Controls.Add(SmallLink("Delete", busy ? WhyBusy : "Delete this chat. It asks first, here in the row.",
-                () => { if (!_chat.Generating) { _confirmingDelete = chat.Id; DrawChatRows(); } }));
+            Button save = RowButton("download", busy ? WhyBusy : "Save this chat as text: every turn, each call with what it answered, and what each answer cost.",
+                () => { if (!_chat.Generating) _ = ExportChatAsync(chat.Id); });
+            Button delete = RowButton("trash", busy ? WhyBusy : "Delete this chat. It asks first, here in the row.",
+                () => { if (!_chat.Generating) { _confirmingDelete = chat.Id; DrawChatRows(); } });
+            actions.Controls.Add(save);
+            actions.Controls.Add(delete);
+            pointed.Add(save);
+            pointed.Add(delete);
         }
 
         row.Controls.Add(title, 0, 0);
-        row.SetColumnSpan(title, 2);
         row.Controls.Add(when, 0, 1);
-        row.Controls.Add(actions, 1, 1);
+        row.Controls.Add(actions, 1, 0);
+        row.SetRowSpan(actions, 2);
+
+        // Each child takes the pointer from the row, so the row's own leaving says nothing: what
+        // counts is whether the pointer is still inside it.
+        foreach (Control c in pointed)
+        {
+            c.MouseEnter += (_, _) => actions.Visible = true;
+            c.MouseLeave += (_, _) =>
+            {
+                if (!current && !confirming && !row.ClientRectangle.Contains(row.PointToClient(Cursor.Position)))
+                    actions.Visible = false;
+            };
+        }
 
         string tip = busy ? WhyBusy : current ? "The chat on screen." : $"Open it and carry on: {chat.Title}";
         foreach (Control c in new Control[] { row, title, when })
@@ -1373,12 +1661,27 @@ public sealed class AssistantForm : Form
             c.Cursor = current ? Cursors.Default : Cursors.Hand;
             c.Click += async (_, _) =>
             {
-                if (_chat.Generating) { _status.Text = WhyBusy; return; }
+                if (_chat.Generating) { Say(WhyBusy); return; }
                 await OpenChatAsync(chat.Id);
             };
             _tips.SetToolTip(c, tip);
         }
         return row;
+    }
+
+    private Button RowButton(string icon, string tip, Action click)
+    {
+        var button = new Button
+        {
+            Size = new Size(LogicalToDeviceUnits(24), LogicalToDeviceUnits(24)),
+            Margin = new Padding(0),
+            Image = AppIcons.Drawn(icon, LogicalToDeviceUnits(15)),
+        };
+        Flatten(button);
+        button.BackColor = Color.Transparent;
+        button.Click += (_, _) => click();
+        _tips.SetToolTip(button, tip);
+        return button;
     }
 
     private LinkLabel SmallLink(string text, string tip, Action click)
@@ -1566,7 +1869,7 @@ public sealed class AssistantForm : Form
         foreach (Control c in _fileScroll.Controls.Cast<Control>().ToList()) c.Dispose();
         _fileScroll.Controls.Clear();
 
-        var rows = new List<Control> { Heading("In this conversation") };
+        var rows = new List<Control>();
         if (sent.Count == 0) rows.Add(Hint("None yet. A file sent with a question is listed here, to be left out of the questions after it."));
         foreach (var (question, file) in sent)
         {
@@ -1602,7 +1905,7 @@ public sealed class AssistantForm : Form
         }
 
         rows.Add(Heading("With the next question"));
-        if (pending.Count == 0) rows.Add(Hint("Nothing waiting. Attach Files…, a paste or a drop puts one here."));
+        if (pending.Count == 0) rows.Add(Hint("None. Attach one with the paperclip, paste a picture into the box, or drop files here."));
         foreach (AiAttachment file in pending)
         {
             var line = new TableLayoutPanel { Dock = DockStyle.Top, ColumnCount = 2, RowCount = 1, Height = _body.Height + LogicalToDeviceUnits(8), Margin = new Padding(0) };
@@ -1626,7 +1929,7 @@ public sealed class AssistantForm : Form
     private Label Heading(string text) => new()
     {
         Text = text,
-        Font = _bold,
+        Font = _smallBold,
         Dock = DockStyle.Top,
         AutoSize = true,
         Padding = new Padding(0, 8, 0, 4),
@@ -1655,31 +1958,106 @@ public sealed class AssistantForm : Form
 
     // ------------------------------------------------------------------- what the model is told about
 
+    /// <summary>What the title bar and the opening words say this window is working on, and what the next question will carry.</summary>
     private void ShowContext()
     {
-        _benchNow = BenchNow();
-        _context.Text = AssistantPrompt.Context(_benchNow);
-        FitLabelWidths();
+        string working;
+        if (_writer is ScriptWriterJob)
+        {
+            MeasureWriter();
+            working = BenchLineNow();
+        }
+        else
+        {
+            _benchNow = BenchNow();
+            working = AssistantPrompt.BenchLine(_benchNow);
+        }
+        Text = working.Length == 0 ? Named : $"{Named}  ·  {working}";
+
+        if (Visible && _chat.Turns.Count == 0 && IntroKey() != _introDrawn) DrawCardsOnly();
         ShowEstimate();
     }
 
+    private string IntroKey() => _writer is null ? AssistantPrompt.Context(_benchNow) : WriterSummary() + _book.Items.Count;
+
+    private string EditorScript() => _writer is { Editor.IsDisposed: false } job ? job.CurrentScript() : "";
+
+    private string EditorOutput() => _writer is { Editor.IsDisposed: false } job ? job.RecentOutput() : "";
+
+    /// <summary>What goes with every request whatever is asked. Measured when it can change, not at every key: it is the catalogs.</summary>
+    private void MeasureWriter()
+    {
+        if (_writer is not ScriptWriterJob job) return;
+
+        string script = EditorScript();
+        string output = EditorOutput();
+        if (script.Trim().Length == 0) _revise.Checked = false;
+        if (output.Trim().Length == 0) _includeOutput.Checked = false;
+        _revise.Enabled = !_chat.Generating && script.Trim().Length > 0;
+        _includeOutput.Enabled = !_chat.Generating && output.Trim().Length > 0;
+
+        _promptCharacters = new ScriptAuthor(new AiClient()).PromptCharacters(
+            job.Instruments, job.IsSequence, _revise.Checked ? script : null, _includeOutput.Checked ? output : null);
+    }
+
+    private string WriterSummary()
+    {
+        if (_writer is not ScriptWriterJob job) return "";
+        var lines = new List<string>();
+        foreach (ScriptContextInstrument i in job.Instruments)
+        {
+            int count = i.Reference?.Commands.Count ?? 0;
+            string name = i.Alias.Length > 0 ? $"{i.Alias}: {i.Model}" : i.Model;
+            lines.Add(count > 0
+                ? $"• {name}: {count:N0} documented commands"
+                : $"• {name}: no catalog, so only *IDN?, *RST, *CLS and *OPC? can be checked");
+        }
+        return string.Join("\r\n", lines);
+    }
+
     /// <summary>
-    /// What the next question will carry, before it is sent (the instructions, the tools, the
-    /// conversation and its files, the box), in tokens and, where the model has a rate, dollars.
-    /// Said as what it is: a tool loop sends it again every round, and how many rounds is not knowable.
+    /// What the next question will carry, before it is sent (the instructions, the tools or the
+    /// catalogs, the conversation and its files, the box), in tokens and, where the model has a
+    /// rate, dollars; what has been spent; and where the rates are published.
     /// </summary>
     private void ShowEstimate()
     {
         if (_connection is null)
         {
             _estimate.Text = NoConnection;
+            _spent.Visible = _rates.Visible = false;
+            _tips.SetToolTip(_meterToggle, NoConnection);
             return;
         }
-        string system = AssistantPrompt.Build(_benchNow, _chat.Mode, _chat.ToolsOff, Where, DateTime.Now);
-        long tokens = _chat.EstimateTokens(system, _tools.Tools, _connection, _prompt.Text);
+
+        long tokens;
+        if (_writer is null)
+        {
+            string system = AssistantPrompt.Build(_benchNow, _chat.Mode, _chat.ToolsOff, Where, DateTime.Now);
+            tokens = _chat.EstimateTokens(system, _tools.Tools, _connection, _prompt.Text);
+        }
+        else
+        {
+            tokens = AiEstimate.TokensIn(_promptCharacters) + _chat.EstimateTokens("", [], _connection, _prompt.Text);
+        }
+
         LlmPrice? price = AiPricing.For(_connection, Today);
-        string cost = price is null ? "" : $" ({AiPricing.AboutMoney(price.CostOfInput(tokens))} to read)";
-        _estimate.Text = $"The next question sends about {AiPricing.About(tokens)} tokens{cost}, and again with every round of tool calls.";
+        string cost = price is null ? "" : $", {AiPricing.Money(price.CostOfInput(tokens))} to send";
+        string line = $"Next request: about {AiPricing.About(tokens)} tokens{cost}";
+        _estimate.Text = line;
+        _tips.SetToolTip(_estimate, _writer is null ? "Sent again with every round of tool calls." : "The catalogs, the conversation so far, its files and the box.");
+
+        LlmUsage used = _chat.Used;
+        _spent.Visible = used.Reported;
+        _spent.Text = _chat.Cost is decimal dollars
+            ? $"Spent: {AiPricing.Money(dollars)}"
+            : $"Spent: {AiPricing.Count(used.InputTokens)} tokens in, {AiPricing.Count(used.OutputTokens)} out";
+        _rates.Visible = AiPricing.PricingPage(_connection) is not null;
+
+        string about = line + (used.Reported ? "\n" + _spent.Text : "");
+        _tips.SetToolTip(_meterToggle, about + (_meterOn
+            ? "\nPress to take the costs off the line under the box."
+            : "\nPress to keep the costs on a line under the box."));
     }
 
     /// <summary>The suggestion to compact, when it is worth it, priced both ways.</summary>
@@ -1733,12 +2111,16 @@ public sealed class AssistantForm : Form
     {
         bool busy = _chat.Generating;
         bool slash = _prompt.Text.TrimStart().StartsWith('/');
-        _send.Text = busy ? "Stop" : "Send";
         _send.Enabled = busy || (_prompt.Text.Trim().Length > 0 && (slash || (_connection is not null && WhyNotSend() is null)));
-        _using.Enabled = !busy;
+        ShowSendFace();
+        _model.Enabled = !busy;
         _toolsButton.Enabled = !busy;
         _newChat.Enabled = !busy;
-        _progress.Visible = busy;
+        if (_writer is not null)
+        {
+            _revise.Enabled = !busy && EditorScript().Trim().Length > 0;
+            _includeOutput.Enabled = !busy && EditorOutput().Trim().Length > 0;
+        }
         ShowToolCount();
 
         // A file the picked connection cannot be sent holds Send back, and says so over the box
@@ -1795,6 +2177,7 @@ public sealed class AssistantForm : Form
         _cards.Controls.Clear();
         _cards.RowStyles.Clear();
         _wrapping.RemoveAll(l => l.IsDisposed);
+        _scripts.Clear();
 
         // A copy: the run goes on adding to the conversation while this draws.
         IReadOnlyList<ChatTurn> turns = _chat.Turns;
@@ -1809,14 +2192,15 @@ public sealed class AssistantForm : Form
             if (_showFolded)
             {
                 _dimming = true;
-                for (int i = 0; i < folded; i++) _cards.Controls.Add(Card(turns[i]));
+                for (int i = 0; i < folded; i++) AddTurn(turns[i]);
                 _dimming = false;
             }
         }
-        for (int i = folded; i < turns.Count; i++)
-            _cards.Controls.Add(Card(turns[i]));
-        if (turns.Count == 0)
-            _cards.Controls.Add(Note("Nothing asked yet. Ask about the bench, attach a datasheet or a screenshot, ask for a script, or type / for the window's commands."));
+        for (int i = folded; i < turns.Count; i++) AddTurn(turns[i]);
+        if (turns.Count == 0) _cards.Controls.Add(Intro());
+
+        if (_chat.Compacting) _cards.Controls.Add(Note("Compacting the conversation…"));
+        else if (_chat.Generating) _cards.Controls.Add(Note("Thinking…"));
 
         _cards.ResumeLayout();
         _scroll.ResumeLayout();
@@ -1824,10 +2208,83 @@ public sealed class AssistantForm : Form
         if (atBottom) _scroll.AutoScrollPosition = new Point(0, _scroll.DisplayRectangle.Height);
     }
 
+    private void AddTurn(ChatTurn turn)
+    {
+        if (turn.Kind == ChatTurn.Assistant && _writer is not null && WrittenScript.Read(turn.Text) is WrittenScript written)
+        {
+            _cards.Controls.Add(WrittenCard(written));
+            if (written.Notes.Length > 0 || AiChat.UsageLine(turn).Length > 0) _cards.Controls.Add(Reply(written.Notes, turn));
+            return;
+        }
+        _cards.Controls.Add(Card(turn));
+    }
+
+    /// <summary>What an empty conversation says: what the window works on, and something to start from.</summary>
+    private Control Intro()
+    {
+        _introDrawn = IntroKey();
+        var intro = Stack(ChatLook.Paper);
+
+        if (_writer is ScriptWriterJob job)
+        {
+            intro.Controls.Add(Words(
+                "The model is given the command catalogs below and told to use nothing else. Check what it writes before you run it. "
+              + "Attach a photo of the wiring, a datasheet or a screenshot, or type / for the window's commands.", _body));
+            intro.Controls.Add(Words(WriterSummary(), _body));
+            intro.Controls.Add(Pill(job.IsSequence
+                ? "Sweep the generator from 100 Hz to 100 kHz in 20 log steps and record the scope's peak-to-peak voltage at each one."
+                : "Set a 1 kHz sine at 2 Vpp on channel 1, turn the output on, wait a second, then read it back."));
+            intro.Controls.Add(Words("What comes back appears here, and each new request is asked with everything above it, so a follow-up like “now do the same at 5 V” means something.", _body));
+        }
+        else
+        {
+            intro.Controls.Add(Words(
+                "Ask about the bench, or have the assistant work it: it reads the instruments with the bench's own tools, and can write a script for you to run. "
+              + "Attach a datasheet or a screenshot, or type / for the window's commands.", _body));
+            foreach (string example in Examples) intro.Controls.Add(Pill(example));
+            intro.Controls.Add(Words(AssistantPrompt.Context(_benchNow), _body, _benchNow.Count == 0 ? Warning : null));
+            intro.Controls.Add(Words(
+                "What you type, and what the assistant reads from the instruments, pictures of their screens included, "
+              + "is sent to the provider of the model picked below. Nothing is sent until you press Send.", _body));
+        }
+
+        if (_book.Items.Count == 0)
+            intro.Controls.Add(Link("There is no model yet. Add one, with your own key, under AI Connection.", "Open AI Connection", () => SettingsRequested?.Invoke(), this.Scaled(0, 6, 0, 0)));
+        return intro;
+    }
+
+    /// <summary>An example to start from: put in the box by a press rather than sent.</summary>
+    private Control Pill(string example)
+    {
+        var pill = new Bubble
+        {
+            BackColor = ChatLook.Paper,
+            Edge = ChatLook.Rule,
+            Radius = 12,
+            Padding = this.Scaled(10, 4, 10, 3),
+            Margin = this.Scaled(0, 4, 0, 6),
+            Cursor = Cursors.Hand,
+        };
+        Label words = Words(example, _body);
+        words.Cursor = Cursors.Hand;
+        pill.Controls.Add(words);
+        void Put(object? sender, EventArgs e)
+        {
+            _prompt.Text = example;
+            _prompt.SelectionStart = _prompt.TextLength;
+            _prompt.Focus();
+        }
+        pill.Click += Put;
+        words.Click += Put;
+        _tips.SetToolTip(pill, "Put this in the box, to send or change first");
+        _tips.SetToolTip(words, "Put this in the box, to send or change first");
+        return pill;
+    }
+
     private Control Card(ChatTurn turn) => turn.Kind switch
     {
         ChatTurn.User => Question(turn),
-        ChatTurn.Assistant => Answer(turn),
+        ChatTurn.Assistant => Reply(turn.Text, turn),
         ChatTurn.Tool => ToolCard(turn),
         ChatTurn.Error => Problem(turn),
         ChatTurn.Paused => PausedCard(turn),
@@ -1835,42 +2292,69 @@ public sealed class AssistantForm : Form
         _ => Note(turn.Text),
     };
 
+    /// <summary>A question: on the right in blue, with the files it went with over it.</summary>
     private Control Question(ChatTurn turn)
     {
-        var box = Stack(SystemColors.Window);
-        box.Controls.Add(Words("You", _bold));
-        box.Controls.Add(Words(turn.Text, _body));
+        FlowLayoutPanel column = Column(right: true);
         if (turn.Attachments.Count > 0)
-            box.Controls.Add(Words(string.Join("   ", turn.Attachments.Select(a => $"📎 {a.Name} ({AiAttachment.Size(a.Data.Length)}){(a.Excluded ? ", left out" : "")}")), _small, SystemColors.GrayText));
-        return box;
+        {
+            var files = new FlowLayoutPanel { AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, WrapContents = false, Anchor = AnchorStyles.Right, Margin = this.Scaled(0, 0, 0, 3) };
+            foreach (AiAttachment file in turn.Attachments)
+            {
+                Bubble pill = Balloon(ChatLook.Paper, ChatLook.ChangeEdge, 9);
+                pill.Padding = this.Scaled(7, 1, 7, 0);
+                pill.Margin = this.Scaled(4, 0, 0, 0);
+                pill.Controls.Add(Words(file.Name + (file.Excluded ? ", left out" : ""), _small, file.Excluded ? SystemColors.GrayText : null));
+                files.Controls.Add(pill);
+            }
+            column.Controls.Add(files);
+        }
+        Bubble bubble = Balloon(ChatLook.AskedFill);
+        bubble.Anchor = AnchorStyles.Right;
+        bubble.Controls.Add(Words(turn.Text, _body, wide: false));
+        column.Controls.Add(bubble);
+        return column;
     }
 
-    private Control Answer(ChatTurn turn)
+    /// <summary>An answer: on the left in grey, and what it was billed under it.</summary>
+    private Control Reply(string text, ChatTurn turn)
     {
-        var box = Stack(Color.Transparent);
-        box.Controls.Add(Words(turn.Text, _body));
-        if (AiChat.UsageLine(turn) is { Length: > 0 } usage)
-            box.Controls.Add(Words(usage, _small, SystemColors.GrayText));
-        return box;
+        FlowLayoutPanel column = Column(right: false);
+        if (text.Length > 0)
+        {
+            Bubble bubble = Balloon(ChatLook.AnsweredFill);
+            bubble.Controls.Add(Words(text, _body, wide: false));
+            column.Controls.Add(bubble);
+        }
+        AddUsage(column, turn);
+        return column;
+    }
+
+    private void AddUsage(Control to, ChatTurn turn)
+    {
+        if (AiChat.UsageLine(turn) is not { Length: > 0 } usage) return;
+        Label line = Words(usage, _small, SystemColors.GrayText);
+        line.Margin = this.Scaled(2, 3, 0, 0);
+        to.Controls.Add(line);
     }
 
     private Control Problem(ChatTurn turn)
     {
-        var box = Stack(Color.Transparent);
-        box.Controls.Add(Words(turn.Text, _body, Warning));
-        if (AiChat.UsageLine(turn) is { Length: > 0 } usage)
-            box.Controls.Add(Words(usage, _small, SystemColors.GrayText));
+        Bubble box = CardBox(ChatLook.ErrorFill, ChatLook.ErrorEdge);
+        box.Controls.Add(Words(turn.Text, _body, ChatLook.ErrorInk));
+        AddUsage(box, turn);
         return box;
     }
 
     private Control PausedCard(ChatTurn turn)
     {
-        var box = Stack(Waiting);
+        Bubble box = CardBox(ChatLook.ReadFill, ChatLook.ReadEdge);
         box.Controls.Add(Words(turn.Text, _body));
         var go = new Button();
         ButtonStyle.Apply(go, "Continue", (_, _) => _ = SendAsync("Continue", fromBox: false));
         go.Enabled = !_chat.Generating && ReferenceEquals(turn, _chat.Turns.LastOrDefault());
         _tips.SetToolTip(go, "Carry on for as many rounds again. Each round sends the conversation again.");
+        Primary(go);
         box.Controls.Add(go);
         return box;
     }
@@ -1878,37 +2362,49 @@ public sealed class AssistantForm : Form
     /// <summary>The briefing a compaction put in place of the conversation before it, and the files it keeps unticked.</summary>
     private Control Briefing(ChatTurn turn)
     {
-        var box = Stack(SystemColors.Window);
+        Bubble box = CardBox(ChatLook.SuggestFill, ChatLook.SuggestEdge);
         box.Controls.Add(Words("Briefing: the conversation above, compacted. The model is sent this in its place.", _bold));
         box.Controls.Add(Words(turn.Text, _body));
         if (turn.Attachments.Count > 0)
             box.Controls.Add(Words("Kept from before it, unticked in the files panel: " + string.Join(", ", turn.Attachments.Select(a => a.Name)), _small, SystemColors.GrayText));
-        if (AiChat.UsageLine(turn) is { Length: > 0 } usage)
-            box.Controls.Add(Words(usage, _small, SystemColors.GrayText));
+        AddUsage(box, turn);
         return box;
     }
 
+    /// <summary>What a card says happened, which depends on the kind of call and on how it ended.</summary>
+    private static string CardTitle(ChatTurn turn)
+    {
+        string what = turn.ToolName.Replace('_', ' ');
+        if (turn.Proposes && turn.Decision is not false) return turn.Decision is null ? $"Wants to {what}" : "Proposed a script";
+        if (turn.Decision is null) return turn.Changes ? $"Wants to change an instrument: {what}" : $"Wants to look: {what}";
+        if (turn.Decision == false) return $"Asked to {what}";
+        return turn.Changes ? $"Changed an instrument: {what}" : $"Looked: {what}";
+    }
+
     /// <summary>
-    /// A tool call: what the model asked for, as it asked for it; whether it ran on its own, waits
-    /// for an answer here, or was answered; and what the model was told, the picture it was shown
-    /// included. A proposed script carries its own Use This Script.
+    /// A tool call: amber for one that reads, blue for one that changes an instrument. What the
+    /// model asked for, as it asked for it; whether it ran on its own, waits for an answer here, or
+    /// was answered; and what the model was told, the picture it was shown included. A proposed
+    /// script carries its own Use This Script.
     /// </summary>
     private Control ToolCard(ChatTurn turn)
     {
         bool waiting = AssistantPrompt.Waiting(turn);
-        var box = Stack(waiting ? Waiting : SystemColors.Window);
+        Bubble box = turn.Changes ? CardBox(ChatLook.ChangeFill, ChatLook.ChangeEdge) : CardBox(ChatLook.ReadFill, ChatLook.ReadEdge);
 
         string state = AssistantPrompt.CallState(turn);
+        box.Controls.Add(Words(CardTitle(turn), _bold));
         box.Controls.Add(Words($"{turn.ToolName}   {AssistantPrompt.CallLine(turn.ArgumentsJson)}", _code));
         if (state.Length > 0) box.Controls.Add(Words(state, _small, turn.Decision == false ? Warning : SystemColors.GrayText));
 
         if (waiting)
         {
-            var row = new FlowLayoutPanel { AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, WrapContents = false, Margin = new Padding(0, 4, 0, 0) };
+            var row = new FlowLayoutPanel { AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, WrapContents = false, Margin = this.Scaled(0, 4, 0, 0) };
             var approve = new Button();
             var decline = new Button();
             ButtonStyle.Apply(approve, turn.Changes ? "Approve and Send" : "Approve", (_, _) => _chat.Decide(turn, true));
             ButtonStyle.Apply(decline, "Decline", (_, _) => _chat.Decide(turn, false));
+            Primary(approve);
             row.Controls.Add(approve);
             row.Controls.Add(decline);
             box.Controls.Add(row);
@@ -1926,34 +2422,111 @@ public sealed class AssistantForm : Form
                 SizeMode = PictureBoxSizeMode.Zoom,
                 Width = width,
                 Height = (int)(width * (double)image.Height / Math.Max(1, image.Width)),
-                Margin = new Padding(0, 4, 0, 0),
+                Margin = this.Scaled(0, 4, 0, 0),
             });
         }
 
         if (turn.Proposal is string script)
         {
-            // Every line shown up to twenty, and a scroll bar down the side only past that; one
-            // along the foot always, since a script's lines are not wrapped.
-            int lines = script.Split('\n').Length;
-            var text = new TextBox
-            {
-                Multiline = true,
-                ReadOnly = true,
-                WordWrap = false,
-                ScrollBars = lines > 20 ? ScrollBars.Both : ScrollBars.Horizontal,
-                Font = _code,
-                Text = script.Replace("\r\n", "\n").Replace("\n", "\r\n"),
-                Height = Math.Min(20, lines) * _code.Height + SystemInformation.HorizontalScrollBarHeight + LogicalToDeviceUnits(8),
-                Width = LogicalToDeviceUnits(600),
-                Margin = new Padding(0, 4, 0, 0),
-            };
-            box.Controls.Add(text);
+            box.Controls.Add(ScriptBox(script));
             var use = new Button();
             ButtonStyle.Apply(use, "Use This Script", async (_, _) => await UseScriptAsync(turn.ArgumentsJson, script));
             _tips.SetToolTip(use, "Put it in the script editor, to read and run there. Nothing runs until you press Run.");
+            Primary(use);
             box.Controls.Add(use);
         }
         return box;
+    }
+
+    /// <summary>
+    /// What the writer wrote: the script, the button that takes it under the script it takes, and
+    /// what the catalog check said. The check before the model's own note, which comes after the
+    /// card: what must be read is what the catalog says, not what the thing being checked says about itself.
+    /// </summary>
+    private Control WrittenCard(WrittenScript written)
+    {
+        Bubble card = CardBox(ChatLook.ReadFill, ChatLook.ReadEdge);
+        card.Controls.Add(Words("Proposed a script", _bold));
+        card.Controls.Add(ScriptBox(written.Script));
+
+        var use = new Button();
+        ButtonStyle.Apply(use, "Use This Script", (_, _) => UseWritten(written.Script));
+        _tips.SetToolTip(use, "Put this script into the editor. It is not run: you still press Run yourself.");
+        Primary(use);
+        card.Controls.Add(use);
+
+        if (written.Undocumented.Count > 0)
+        {
+            card.Controls.Add(Words(
+                $"⚠ {written.Undocumented.Count} line(s) use commands that are in no catalog here. Check them against the instrument's guide before running: "
+              + string.Join(", ", written.Undocumented.Take(8)) + (written.Undocumented.Count > 8 ? ", …" : ""),
+                _small, ChatLook.ErrorInk));
+        }
+        else
+        {
+            card.Controls.Add(Words("Every command header here is in the catalog. The values after them were not checked: read the script before you run it.", _small));
+        }
+        return card;
+    }
+
+    private void UseWritten(string script)
+    {
+        if (_writer is not ScriptWriterJob job) return;
+        if (job.Editor.IsDisposed)
+        {
+            Say("That editor has been closed. Copy the script from the card instead.");
+            return;
+        }
+        Hide();
+        job.Editor.Activate();
+        job.Use(script);
+    }
+
+    /// <summary>Every line of a script shown up to twenty, and a scroll bar down the side only past that; one along the foot only when a line is wider than the box (<see cref="FitScriptBox"/>).</summary>
+    private TextBox ScriptBox(string script)
+    {
+        int lines = script.Split('\n').Length;
+        var text = new TextBox
+        {
+            Multiline = true,
+            ReadOnly = true,
+            WordWrap = false,
+            ScrollBars = lines > 20 ? ScrollBars.Vertical : ScrollBars.None,
+            BorderStyle = BorderStyle.FixedSingle,
+            Font = _code,
+            BackColor = ChatLook.Paper,
+            Text = script.Replace("\r\n", "\n").Replace("\n", "\r\n"),
+            Height = Math.Min(20, lines) * _code.Height + LogicalToDeviceUnits(8),
+            Width = LogicalToDeviceUnits(600),
+            Margin = this.Scaled(0, 4, 0, 6),
+            TabStop = false,
+        };
+        _scripts.Add(text);
+        return text;
+    }
+
+    private void FitScriptBox(TextBox box, int width)
+    {
+        string[] lines = box.Lines;
+        int widest = lines.Length == 0 ? 0 : lines.Max(l => TextRenderer.MeasureText(l, _code, Size.Empty, TextFormatFlags.NoPrefix).Width);
+        bool wide = widest > width - LogicalToDeviceUnits(10) - (lines.Length > 20 ? SystemInformation.VerticalScrollBarWidth : 0);
+
+        box.Width = width;
+        ScrollBars wanted = (lines.Length > 20 ? ScrollBars.Vertical : ScrollBars.None) | (wide ? ScrollBars.Horizontal : ScrollBars.None);
+        if (box.ScrollBars != wanted) box.ScrollBars = wanted;
+        box.Height = Math.Min(20, lines.Length) * _code.Height + (wide ? SystemInformation.HorizontalScrollBarHeight : 0) + LogicalToDeviceUnits(8);
+    }
+
+    private void Primary(Button button)
+    {
+        button.FlatStyle = FlatStyle.Flat;
+        button.UseVisualStyleBackColor = false;
+        button.BackColor = ChatLook.Accent;
+        button.ForeColor = Color.White;
+        button.FlatAppearance.BorderSize = 0;
+        button.FlatAppearance.MouseOverBackColor = ChatLook.AccentDown;
+        button.FlatAppearance.MouseDownBackColor = ChatLook.AccentDown;
+        button.Margin = this.Scaled(0, 2, 6, 4);
     }
 
     private async Task UseScriptAsync(string argumentsJson, string script)
@@ -1963,7 +2536,7 @@ public sealed class AssistantForm : Form
         BenchInstrument? instrument = sequence ? null : await _tools.FindInstrumentAsync(named, CancellationToken.None);
         if (!sequence && instrument is null)
         {
-            _status.Text = "That script's instrument is not open any more. Copy it from the card instead.";
+            Say("That script's instrument is not open any more. Copy it from the card instead.");
             return;
         }
         ScriptUsed?.Invoke(sequence ? "sequence" : "instrument", instrument, script);
@@ -1988,10 +2561,13 @@ public sealed class AssistantForm : Form
 
     private Control Note(string text)
     {
-        var box = Stack(Color.Transparent);
+        var box = Stack(ChatLook.Paper);
         box.Controls.Add(Words(text, _small, SystemColors.GrayText));
         return box;
     }
+
+    // Everything from here is built at run time, after the window's scaling pass, so its sizes are
+    // scaled by hand (SPEC §14).
 
     private FlowLayoutPanel Stack(Color back) => new()
     {
@@ -2000,12 +2576,44 @@ public sealed class AssistantForm : Form
         AutoSize = true,
         AutoSizeMode = AutoSizeMode.GrowAndShrink,
         Dock = DockStyle.Top,
-        BackColor = _dimming ? Color.Transparent : back,
-        Padding = new Padding(8, 6, 8, 6),
-        Margin = new Padding(0, 0, 0, 6),
+        BackColor = _dimming ? ChatLook.Paper : back,
+        Padding = this.Scaled(2, 2, 2, 2),
+        Margin = this.Scaled(0, 0, 0, 8),
     };
 
-    private Label Words(string text, Font font, Color? color = null)
+    /// <summary>A turn that sits to one side of the conversation and is as wide as what it says.</summary>
+    private FlowLayoutPanel Column(bool right) => new()
+    {
+        FlowDirection = FlowDirection.TopDown,
+        WrapContents = false,
+        AutoSize = true,
+        AutoSizeMode = AutoSizeMode.GrowAndShrink,
+        Anchor = (right ? AnchorStyles.Right : AnchorStyles.Left) | AnchorStyles.Top,
+        BackColor = ChatLook.Paper,
+        Padding = new Padding(0),
+        Margin = this.Scaled(0, 0, 0, 8),
+    };
+
+    private Bubble Balloon(Color fill, Color? edge = null, int radius = 10) => new()
+    {
+        BackColor = _dimming ? ChatLook.Paper : fill,
+        Edge = _dimming ? ChatLook.Rule : edge,
+        Radius = radius,
+        Padding = this.Scaled(10, 6, 10, 5),
+        Margin = new Padding(0),
+    };
+
+    /// <summary>A card the width of the conversation.</summary>
+    private Bubble CardBox(Color fill, Color edge)
+    {
+        Bubble box = Balloon(fill, edge, 4);
+        box.Dock = DockStyle.Top;
+        box.Margin = this.Scaled(0, 0, 0, 8);
+        return box;
+    }
+
+    /// <summary>Words that wrap: to the conversation's width, or, in a bubble (<paramref name="wide"/> false), four fifths of it.</summary>
+    private Label Words(string text, Font font, Color? color = null, bool wide = true)
     {
         var label = new Label
         {
@@ -2013,8 +2621,9 @@ public sealed class AssistantForm : Form
             Font = font,
             AutoSize = true,
             ForeColor = _dimming ? SystemColors.GrayText : color ?? SystemColors.ControlText,
-            Margin = new Padding(0, 0, 0, 2),
+            Margin = this.Scaled(0, 0, 0, 2),
             UseMnemonic = false,
+            Tag = wide ? null : "bubble",
         };
         _wrapping.Add(label);
         return label;
@@ -2022,19 +2631,26 @@ public sealed class AssistantForm : Form
 
     private void FitLabelWidths()
     {
-        int width = Math.Max(200, _scroll.ClientSize.Width - LogicalToDeviceUnits(48));
-        int across = Math.Max(200, _scroll.Width + LogicalToDeviceUnits(4));
+        int width = Math.Max(LogicalToDeviceUnits(200), _scroll.ClientSize.Width - LogicalToDeviceUnits(48));
+        int across = Math.Max(LogicalToDeviceUnits(200), ClientSize.Width - LogicalToDeviceUnits(40));
         foreach (Label label in _wrapping.Where(l => !l.IsDisposed))
         {
-            bool composer = label == _context || label == _estimate || label == _attachProblem || label == _compactText;
-            label.MaximumSize = new Size(composer ? across - (label == _compactText ? LogicalToDeviceUnits(220) : 0) : width, 0);
+            int most = label == _notice || label == _attachProblem ? across
+                     : label == _estimate ? across - LogicalToDeviceUnits(260)
+                     : label == _compactText ? across - LogicalToDeviceUnits(220)
+                     : label.Tag is "bubble" ? width * 4 / 5
+                     : width;
+            label.MaximumSize = new Size(most, 0);
         }
+        // The conversation's padding and the card's, each side.
+        int inside = Math.Max(LogicalToDeviceUnits(200), _scroll.ClientSize.Width - LogicalToDeviceUnits(44));
+        foreach (TextBox box in _scripts.Where(b => !b.IsDisposed)) FitScriptBox(box, inside);
     }
 
     private void FitPrompt()
     {
         int lines = Math.Clamp(_prompt.GetLineFromCharIndex(_prompt.TextLength) + 1, 1, PromptMaxLines);
-        _prompt.Height = lines * _prompt.Font.Height + LogicalToDeviceUnits(10);
+        _prompt.Height = lines * _prompt.Font.Height + LogicalToDeviceUnits(6);
         _prompt.ScrollBars = _prompt.GetLineFromCharIndex(_prompt.TextLength) + 1 > PromptMaxLines ? ScrollBars.Vertical : ScrollBars.None;
     }
 }

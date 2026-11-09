@@ -143,7 +143,7 @@ public sealed class LecMcpTests : IDisposable
             await server.StandardInput.WriteLineAsync("""{"jsonrpc":"2.0","method":"notifications/initialized"}""");
 
             JsonElement listed = await Ask(2, "tools/list", "{}");
-            Assert.Equal(BenchToolRunner.All.Count, listed.GetProperty("tools").GetArrayLength());
+            Assert.Equal(BenchToolRunner.All.Count + 2, listed.GetProperty("tools").GetArrayLength()); // and link_tab and unlink_tab
 
             JsonElement answered = await Ask(3, "tools/call", """{"name":"query","arguments":{"command":"*IDN?"}}""");
             Assert.Contains(Generator, answered.GetProperty("content")[0].GetProperty("text").GetString());

@@ -71,6 +71,9 @@ public sealed class AnthropicProvider : ILlmProvider
 
     public string Model { get; }
 
+    /// <summary>The cap on one answer: the connection's own, or <see cref="DefaultMaxTokens"/>.</summary>
+    private int MaxTokens => _connection.MaxTokens is > 0 and int cap ? cap : DefaultMaxTokens;
+
     public LlmUsage Spent { get; } = new();
 
     public LlmPrice? Price { get; }
@@ -323,7 +326,7 @@ public sealed class AnthropicProvider : ILlmProvider
 
     public async Task<LlmResult> CompleteAsync(string systemPrompt, IReadOnlyList<LlmMessage> conversation, CancellationToken ct)
     {
-        string body = BuildRequestBody(Model, DefaultMaxTokens, systemPrompt, ToWireMessages(conversation, _connection),
+        string body = BuildRequestBody(Model, MaxTokens, systemPrompt, ToWireMessages(conversation, _connection),
                                        tools: null, cache: false, _effort, _fast);
 
         var (json, problem) = await LlmProviders.SendAsync(_http, Request(body), Label, ct).ConfigureAwait(false);
@@ -343,7 +346,7 @@ public sealed class AnthropicProvider : ILlmProvider
 
         for (int round = 0; round < maxRounds; round++)
         {
-            string body = BuildRequestBody(Model, DefaultMaxTokens, systemPrompt, messages, toolsArray,
+            string body = BuildRequestBody(Model, MaxTokens, systemPrompt, messages, toolsArray,
                                            cache: true, _effort, _fast);
 
             var (json, problem) = await LlmProviders.SendAsync(_http, Request(body), Label, ct).ConfigureAwait(false);
@@ -377,7 +380,7 @@ public sealed class AnthropicProvider : ILlmProvider
                 // running a guess — on a bench, a guess at a voltage.
                 if (StopReason(root) == "max_tokens")
                     return LlmResult.Failure(
-                        $"The model ran into its limit of {DefaultMaxTokens.ToString("N0", CultureInfo.InvariantCulture)} "
+                        $"The model ran into its limit of {MaxTokens.ToString("N0", CultureInfo.InvariantCulture)} "
                       + "tokens partway through a call, so the call was not run. Ask for less in one go.");
 
                 // Its reply goes back as it came, tool_use blocks and all, followed by an answer

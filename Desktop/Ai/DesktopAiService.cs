@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Net.Http;
 using System.Threading.Tasks;
 
@@ -17,6 +18,11 @@ internal sealed class DesktopAiService : IAiService
 {
     // One client for the process, with no clock of its own: each request carries five minutes.
     private static readonly HttpClient Http = LlmProviders.NewHttpClient();
+
+    private static DesktopAiService? _app;
+
+    /// <summary>The app's one, for the assistant and the two script writers, which share a picked connection and its keys.</summary>
+    public static DesktopAiService App => _app ??= new DesktopAiService(new FileChatStore(FileChatStore.DefaultFolder));
 
     private AiConnections _book;
     private IReadOnlyDictionary<string, string> _keys;
@@ -54,6 +60,34 @@ internal sealed class DesktopAiService : IAiService
     {
         (_book, _keys) = AiBookStore.Load();
         if (ConnectionsChanged is Func<Task> changed) await changed();
+    }
+
+    /// <summary>The key kept for a connection, for what calls the model some other way than <see cref="CreateProvider"/>: the script writer.</summary>
+    public string KeyFor(AiConnection connection) => Key(connection);
+
+    /// <summary>This service with its chats in a folder of their own, as a script writer's are.</summary>
+    public IAiService KeptIn(string folder)
+        => new ChatsElsewhere(this, new FileChatStore(Path.Combine(FileChatStore.DefaultFolder, folder)));
+
+    private sealed class ChatsElsewhere(DesktopAiService app, IChatStore chats) : IAiService
+    {
+        public string KeptWhere => app.KeptWhere;
+
+        public IChatStore Chats => chats;
+
+        public event Func<Task>? ConnectionsChanged
+        {
+            add => app.ConnectionsChanged += value;
+            remove => app.ConnectionsChanged -= value;
+        }
+
+        public Task<AiConnections> LoadConnectionsAsync() => app.LoadConnectionsAsync();
+
+        public Task SelectAsync(string id) => app.SelectAsync(id);
+
+        public string? WhyNotAsk(AiConnection connection) => app.WhyNotAsk(connection);
+
+        public ILlmProvider CreateProvider(AiConnection connection, string effort) => app.CreateProvider(connection, effort);
     }
 
     private string Key(AiConnection connection)

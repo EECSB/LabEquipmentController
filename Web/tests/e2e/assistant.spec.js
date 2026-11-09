@@ -82,7 +82,7 @@ async function removeKeyless(request) {
 async function openAssistant(page) {
     const menu = await openSettings(page);
     await menu.getByRole('button', { name: /AI assistant/ }).click();
-    const window = page.locator('dialog.tool[open][aria-label="AI Assistant"]');
+    const window = page.locator('dialog.tool[open][aria-label="AI assistant"]');
     await expect(window).toBeVisible();
     await settle(page);
     return window;
@@ -90,7 +90,7 @@ async function openAssistant(page) {
 
 ///A question typed and sent with Enter, as a person sends one.
 async function ask(window, question) {
-    const box = window.locator('textarea.prompt');
+    const box = window.locator('#aiPrompt');
     await box.fill(question);
     await box.press('Enter');
 }
@@ -109,27 +109,82 @@ test.afterEach(async ({ request }) => {
 
 test.describe('the window', () => {
     ///
-    ///Under the gear, beside the connection it spends, as the desktop has it under Tools beside AI
-    ///Connection: the chats, the conversation and the box, and the row under the box.
+    ///Under the gear, beside the connection it spends: GDS Viewer's window, with the chats and the
+    ///files open beside the conversation and everything about the next question in the box's frame.
     ///
-    test('opens from the gear with the chats, the conversation and the row', async ({ page }) => {
+    test('opens from the gear with the chats, the files and the box', async ({ page }) => {
         const window = await openAssistant(page);
 
-        await expect(window.locator('.chats-panel')).toContainText('Chats');
-        await expect(window.getByRole('button', { name: 'New Chat' })).toBeVisible();
-        await expect(window.locator('.kept')).toHaveText("Kept by the bench's server.");
-        await expect(window.locator('.context')).toContainText('SDM3065X');
+        await expect(window.locator('#aiChats')).toContainText('Chats');
+        await expect(window.locator('#aiChatsNew')).toBeVisible();
+        await expect(window.locator('.aiChatsKept')).toHaveText("Kept by the bench's server");
+        await expect(window.locator('#aiFiles')).toContainText('In this conversation');
+        await expect(window.locator('#aiContext')).toContainText('SDM3065X');
+        await expect(window.locator('.tool-head')).toContainText('SDM3065X');
 
-        //The box opens on a question that works as it stands.
-        await expect(window.locator('textarea.prompt')).toHaveValue('What is open on the bench, and what does each instrument read right now?');
+        //The box starts empty, its placeholder saying what to do.
+        await expect(window.locator('#aiPrompt')).toHaveValue('');
 
-        for (const label of ['Using:', 'Effort:', 'Changes:'])
-            await expect(window.locator('.assistant-row')).toContainText(label);
-        for (const name of ['Attach Files…', 'Screenshot', 'Tools…', 'Send'])
-            await expect(window.locator('.assistant-row').getByRole('button', { name, exact: true })).toBeVisible();
+        const frame = window.locator('.aiBox');
+        for (const name of ['Attach files', 'Take a picture with the camera', 'Attach a screenshot', 'Tools and compacting', 'AI model', 'Send', 'Speak your question'])
+            await expect(frame.getByRole('button', { name, exact: true })).toBeVisible();
 
         //Every visit starts on the middle rung.
-        await expect(window.locator('.assistant-row select').nth(2)).toHaveValue('AutoRead');
+        await expect(window.locator('#aiMode')).toHaveValue('AutoRead');
+
+        //What the next question costs, under the box.
+        await expect(window.locator('#aiMeter')).toContainText('Next request: about');
+    });
+
+    ///
+    ///The window's own proportions, which is the whole point of having copied them: the words and
+    ///the row are one frame, the row is one line, and the panels' arrows sit in the margins, centred.
+    ///
+    test('keeps the box and its row in one frame, and the arrows in the margins', async ({ page }) => {
+        const window = await openAssistant(page);
+
+        const frame = await window.locator('.aiBox').boundingBox();
+        const words = await window.locator('#aiPrompt').boundingBox();
+        const bar = await window.locator('.aiBoxBar').boundingBox();
+        const talk = await window.locator('#aiTranscript').boundingBox();
+
+        expect(words.y).toBeGreaterThan(frame.y);
+        expect(bar.y).toBeGreaterThanOrEqual(words.y + words.height - 1);
+        expect(bar.y + bar.height).toBeLessThanOrEqual(frame.y + frame.height);
+        expect(bar.height).toBeLessThan(40);
+        expect(talk.y + talk.height).toBeLessThanOrEqual(frame.y);
+
+        await window.locator('#aiChatsClose').click();
+        await window.locator('#aiFilesClose').click();
+
+        const body = await window.locator('.aiBody').boundingBox();
+        const row = await window.locator('.aiChatRow').boundingBox();
+        const left = await window.locator('#aiChatsToggle').boundingBox();
+        const right = await window.locator('#aiFilesToggle').boundingBox();
+
+        //In the margins rather than over the conversation, the same distance from each edge.
+        expect(left.x + left.width).toBeLessThanOrEqual(row.x);
+        expect(right.x).toBeGreaterThanOrEqual(row.x + row.width);
+        expect(left.x - body.x).toBeCloseTo(body.x + body.width - (right.x + right.width), 0);
+
+        //Centred top to bottom, and big enough to see and to aim at.
+        expect(left.y + left.height / 2).toBeCloseTo(row.y + row.height / 2, 0);
+        expect(left.width).toBeGreaterThanOrEqual(20);
+        expect(left.height).toBeGreaterThanOrEqual(44);
+    });
+
+    ///An example goes in the box with the keyboard there, and nothing is sent.
+    test('an example goes in the box to send or change first', async ({ page }) => {
+        const sent = await scriptedModel(page, said('Not asked.'));
+        const window = await openAssistant(page);
+
+        const example = window.locator('.aiExample').first();
+        const words = await example.textContent();
+        await example.click();
+
+        await expect(window.locator('#aiPrompt')).toHaveValue(words);
+        await expect(window.locator('#aiPrompt')).toBeFocused();
+        expect(sent).toHaveLength(0);
     });
 
     ///
@@ -145,11 +200,12 @@ test.describe('the window', () => {
 
         await ask(window, 'Which meter is this?');
 
-        await expect(window.locator('.turn.answer')).toContainText('The meter is the SDM3065X');
-        const cards = window.locator('.turn.tool');
+        await expect(window.locator('.aiBubbleUser')).toHaveText('Which meter is this?');
+        await expect(window.locator('.aiBubbleAssistant')).toContainText('The meter is the SDM3065X');
+        const cards = window.locator('.aiCard');
         await expect(cards).toHaveCount(2);
-        await expect(cards.nth(0)).toContainText('list_instruments');
-        await expect(cards.nth(0)).toContainText('ran without asking');
+        await expect(cards.nth(0)).toContainText('Looked: list instruments');
+        await expect(cards.nth(0).locator('.aiBadge')).toHaveText('auto');
         await expect(cards.nth(1)).toContainText('dmm · *IDN?');
         await expect(cards.nth(1)).toContainText('LEC-E2E-0001');
 
@@ -161,7 +217,11 @@ test.describe('the window', () => {
         //What reached the instrument is the one query.
         expect(instrument.asked(/^\*IDN\?/).length).toBeGreaterThanOrEqual(2);
 
-        await expect(window.locator('.chat-row.on .title')).toHaveText('Which meter is this?');
+        await expect(window.locator('.aiChatItemOn .aiChatTitle')).toHaveText('Which meter is this?');
+
+        //And what it was billed is under the answer, and in the line under the box.
+        await expect(window.locator('.aiUsage')).toContainText('3 requests');
+        await expect(window.locator('#aiSpent')).toContainText('Spent:');
     });
 
     ///
@@ -175,14 +235,78 @@ test.describe('the window', () => {
 
         await ask(window, 'Set the meter to DC volts.');
 
-        const card = window.locator('.turn.tool.waiting');
-        await expect(card).toContainText('waits for you: this changes the instrument');
+        const card = window.locator('.aiCardChange');
+        await expect(card).toContainText('Wants to change an instrument: send');
         await expect(card.getByRole('button', { name: 'Approve and Send' })).toBeVisible();
         await card.getByRole('button', { name: 'Decline' }).click();
 
-        await expect(window.locator('.turn.tool')).toContainText('declined');
-        await expect(window.locator('.turn.answer')).toContainText('Left as it was.');
+        await expect(card).toContainText('Declined');
+        await expect(window.locator('.aiBubbleAssistant')).toContainText('Left as it was.');
         expect(instrument.asked(/CONF:VOLT:DC/)).toHaveLength(0);
+    });
+});
+
+test.describe('the box', () => {
+    ///
+    ///The model and its effort are one button, and its menu goes away as a menu should: a level
+    ///chosen closes it, Escape steps back out of the levels first, a press elsewhere closes it.
+    ///
+    test('the model button opens the models and the effort, and goes away', async ({ page }) => {
+        const window = await openAssistant(page);
+        const toggle = window.locator('.aiModelToggle');
+        const menu = window.locator('.aiModelMenu');
+
+        await toggle.click();
+        await expect(menu.locator('[role=menuitemradio][aria-checked=true]')).toHaveCount(1);
+        await expect(menu.locator('.aiModelMenuManage')).toBeVisible();
+
+        await page.keyboard.press('Escape');
+        await expect(menu).toHaveCount(0);
+        //Esc in the menu is the menu's: the window is still up.
+        await expect(window).toBeVisible();
+
+        await toggle.click();
+        await expect(menu).toBeVisible();
+        await window.locator('#aiTranscript').click();
+        await expect(menu).toHaveCount(0);
+
+        await toggle.click();
+        await menu.locator('.aiModelMenuManage').click();
+        await expect(menu).toHaveCount(0);
+        await expect(page.locator('dialog[open]', { hasText: 'API key' }).first()).toBeVisible();
+    });
+
+    ///The picker counts what is off on its switch, and a press elsewhere puts it away.
+    test('the tool picker switches tools off and counts them', async ({ page }) => {
+        const window = await openAssistant(page);
+        const toggle = window.locator('#aiToolPickerToggle');
+
+        await toggle.click();
+        const picker = window.locator('#aiToolPicker');
+        await expect(picker).toContainText('Changing an instrument');
+
+        await picker.locator('input[data-tool="send"]').uncheck();
+        await expect(window.locator('#aiToolPickerCount')).toHaveText('1');
+
+        await window.locator('#aiTranscript').click();
+        await expect(picker).toHaveCount(0);
+
+        await toggle.click();
+        await picker.locator('input[data-tool="send"]').check();
+        await expect(window.locator('#aiToolPickerCount')).toHaveCount(0);
+    });
+
+    ///The (i) takes the costs off the line under the box; the card says them while it is pointed at.
+    test('the (i) moves the costs between the line and its card', async ({ page }) => {
+        const window = await openAssistant(page);
+
+        await expect(window.locator('#aiMeter')).toBeVisible();
+        await window.locator('#aiMeterToggle').click();
+        await expect(window.locator('#aiMeter')).toHaveCount(0);
+
+        await window.locator('#aiMeterToggle').hover();
+        await expect(window.locator('#aiMeterCard')).toBeVisible();
+        await expect(window.locator('#aiMeterCard')).toContainText('Next request: about');
     });
 });
 
@@ -193,11 +317,11 @@ test.describe('the commands', () => {
     ///
     test('a slash lists them, Esc puts them away, and one written out runs', async ({ page }) => {
         const window = await openAssistant(page);
-        const box = window.locator('textarea.prompt');
+        const box = window.locator('#aiPrompt');
 
         await box.fill('/');
-        const list = window.locator('.slash li');
-        await expect(list).toHaveCount(9);
+        const list = window.locator('.aiSlashItem');
+        await expect(list).toHaveCount(10);
         await expect(list.first()).toContainText('/new');
 
         await box.fill('/co');
@@ -212,14 +336,13 @@ test.describe('the commands', () => {
         await box.press('Tab');
         await expect(box).toHaveValue('/new ');
         await box.press('Enter');
-        await expect(window.locator('.assistant-status')).toContainText('New conversation.');
         await expect(box).toHaveValue('');
     });
 });
 
 test.describe('kept chats', () => {
     ///
-    ///New Chat starts another; the kept one opens again from its row, with the line saying so, and
+    ///New chat starts another; the kept one opens again from its row, with the line saying so, and
     ///carries on.
     ///
     test('a kept chat opens again with a line saying so', async ({ page }) => {
@@ -228,14 +351,15 @@ test.describe('kept chats', () => {
         const question = `What kind of instrument is it? (${Date.now()})`;
 
         await ask(window, question);
-        await expect(window.locator('.turn.answer')).toContainText('It is a multimeter.');
+        await expect(window.locator('.aiBubbleAssistant')).toContainText('It is a multimeter.');
 
-        await window.getByRole('button', { name: 'New Chat' }).click();
-        await expect(window.locator('.turn')).toHaveCount(0);
+        await window.locator('#aiChatsNew').click();
+        await expect(window.locator('.aiBubbleUser')).toHaveCount(0);
+        await expect(window.locator('#aiChatNow')).toContainText('Not kept yet');
 
-        await window.locator('.chat-row', { hasText: question }).click();
-        await expect(window.locator('.turn.you')).toContainText(question);
-        await expect(window.locator('.turn.note')).toContainText('This chat was opened again on');
+        await window.locator('.aiChatItem', { hasText: question }).click();
+        await expect(window.locator('.aiBubbleUser')).toContainText(question);
+        await expect(window.locator('.aiTurnNote')).toContainText('This chat was opened again on');
     });
 
     ///Closing the window is not clearing it: the conversation is there when it opens again.
@@ -244,14 +368,14 @@ test.describe('kept chats', () => {
         let window = await openAssistant(page);
 
         await ask(window, 'Remember this.');
-        await expect(window.locator('.turn.answer')).toContainText('Still here.');
+        await expect(window.locator('.aiBubbleAssistant')).toContainText('Still here.');
 
         await window.locator('.tool-head button.shut').click();
         await expect(window).toHaveCount(0);
 
         window = await openAssistant(page);
-        await expect(window.locator('.turn.you')).toContainText('Remember this.');
-        await expect(window.locator('.turn.answer')).toContainText('Still here.');
+        await expect(window.locator('.aiBubbleUser')).toContainText('Remember this.');
+        await expect(window.locator('.aiBubbleAssistant')).toContainText('Still here.');
     });
 });
 
@@ -267,8 +391,8 @@ test.describe('scripts and files', () => {
         const window = await openAssistant(page);
 
         await ask(window, 'Write a sequence that prints a line.');
-        const card = window.locator('.turn.tool', { hasText: 'propose_script' });
-        await expect(card.locator('pre.script')).toHaveText('PRINT "from the assistant"');
+        const card = window.locator('.aiCard[data-tool="propose_script"]');
+        await expect(card.locator('.aiCodeScript')).toHaveText('PRINT "from the assistant"');
 
         page.once('dialog', (dialog) => dialog.accept());
         await card.getByRole('button', { name: 'Use This Script' }).click();
@@ -279,7 +403,7 @@ test.describe('scripts and files', () => {
 
     ///
     ///A file chosen goes to the box as a chip; sent, it is listed in the files panel, ticked, and the
-    ///arrow in the margin counts it.
+    ///arrow in the margin counts it once the panel is closed.
     ///
     test('a file goes with the question and is listed in the files panel', async ({ page }) => {
         const sent = await scriptedModel(page, said('Read it.'));
@@ -288,15 +412,18 @@ test.describe('scripts and files', () => {
         await window.locator('input[type=file]').setInputFiles({
             name: 'settings.csv', mimeType: 'text/csv', buffer: Buffer.from('channel,volts\n1,5.0\n')
         });
-        await expect(window.locator('.chip')).toContainText('settings.csv');
+        await expect(window.locator('#aiPending .aiChip')).toContainText('settings.csv');
 
         await ask(window, 'What does the file say?');
-        await expect(window.locator('.turn.answer')).toContainText('Read it.');
+        await expect(window.locator('.aiBubbleAssistant')).toContainText('Read it.');
         expect(JSON.stringify(sent[0].messages)).toContain('channel,volts');
 
-        await expect(window.locator('.margin-arrow.right .count')).toHaveText('1');
-        await window.locator('.margin-arrow.right').click();
-        const row = window.locator('.files-panel .file-row', { hasText: 'settings.csv' });
+        const row = window.locator('#aiFiles .aiFileRow', { hasText: 'settings.csv' });
+        await expect(row.locator('input[type=checkbox]')).toBeChecked();
+
+        await window.locator('#aiFilesClose').click();
+        await expect(window.locator('#aiFilesCount')).toHaveText('1');
+        await window.locator('#aiFilesToggle').click();
         await expect(row.locator('input[type=checkbox]')).toBeChecked();
     });
 });

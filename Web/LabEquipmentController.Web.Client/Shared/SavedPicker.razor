@@ -1,0 +1,319 @@
+@implements IAsyncDisposable
+@inject IJSRuntime JS
+
+@* The picker for a saved list that manages its own entries, GDS Viewer's: the chosen entry's name
+   heads it and is renamed in place, and its menu lists the entries by name, with Rename, Duplicate
+   and Delete on each and New at the end. It only shows and asks: what a pick, a new name or a
+   delete means is the parent's. *@
+<div id="@Id" class="savedPicker" @ref="_root">
+    <div class="savedPickerHeadRow">
+        <div class="savedPickerHead @(Error is not null ? "savedPickerInvalid" : null)">
+            @if (Current() is SavedPickerItem chosen)
+            {
+                @if (_renaming)
+                {
+                    <input id="@(Id)Name" class="savedPickerNameBox" value="@(_typedName ?? chosen.Name)" aria-label="Name" data-popup
+                           @oninput="NameInput" @onchange="e => CommitAsync(chosen.Key, e)" @onkeydown="e => NameKeyDownAsync(chosen.Key, e)" @ref="_nameBox" />
+                    @ConfirmName(chosen.Key)
+                }
+                else
+                {
+                    <button id="@(Id)Face" type="button" class="savedPickerFace" @onclick="Toggle" aria-haspopup="listbox" aria-expanded="@(_open ? "true" : "false")"
+                            title="Your saved @(Noun)s">
+                        <span class="savedPickerName">@chosen.Name</span>
+                    </button>
+
+                    <button id="@(Id)Rename" type="button" class="savedPickerAct" @onclick="BeginRename" title="Rename" aria-label="Rename">
+                        <RenameIcon />
+                    </button>
+                }
+            }
+            else
+            {
+                @* Not saved yet: its name is typed straight into the head, where a saved one's is shown. *@
+                <input id="@(Id)Name" class="savedPickerNameBox" value="@(_typedName ?? UnsavedName)" placeholder="@NamePlaceholder" aria-label="Name"
+                       @oninput="NameInput" @onchange="e => CommitAsync(null, e)" @onkeydown="e => NameKeyDownAsync(null, e)" @ref="_nameBox" />
+                @ConfirmName(null)
+            }
+
+            <button id="@(Id)Chevron" type="button" class="savedPickerAct" @onclick="Toggle" title="Your saved @(Noun)s" aria-label="Your saved @(Noun)s">
+                <svg viewBox="0 0 16 16" aria-hidden="true">
+                    <path d="@(_open ? "M3.5 10.25 8 5.75l4.5 4.5" : "M3.5 5.75 8 10.25l4.5-4.5")" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" />
+                </svg>
+            </button>
+        </div>
+
+        @HeadEnd
+    </div>
+
+    @if (Error is not null)
+    {
+        <div id="@(Id)Error" class="aiFormError">@Error</div>
+    }
+
+    @if (_open)
+    {
+        <div class="savedPickerSheet" @onclick="Close"></div>
+
+        <div id="@(Id)Menu" class="savedPickerMenu" role="listbox" data-popup>
+            @if (Items.Count == 0)
+            {
+                <div class="savedPickerEmpty">No saved @(Noun)s yet.</div>
+            }
+
+            @foreach (SavedPickerItem item in Items)
+            {
+                bool on = item.Key == SelectedKey;
+
+                <div class="savedPickerRow @(on ? "savedPickerRowOn" : null)" role="option" aria-selected="@(on ? "true" : "false")" data-key="@item.Key" @key="item.Key"
+                     @onclick="() => PickAsync(item.Key)">
+                    <span class="savedPickerName">@item.Name</span>
+
+                    <span class="savedPickerRowActs">
+                        <button type="button" class="savedPickerAct" data-act="rename" title="Rename" aria-label="Rename @item.Name"
+                                @onclick="() => RenameRowAsync(item.Key)" @onclick:stopPropagation="true">
+                            <RenameIcon />
+                        </button>
+                        <button type="button" class="savedPickerAct" data-act="duplicate" title="Duplicate" aria-label="Duplicate @item.Name"
+                                @onclick="() => DuplicateAsync(item.Key)" @onclick:stopPropagation="true">
+                            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
+                                <rect x="5.2" y="1.8" width="9" height="9" rx="1.4" />
+                                <path d="M10.8 13.2v0.6a1.4 1.4 0 0 1-1.4 1.4H3.2a1.4 1.4 0 0 1-1.4-1.4V6.6a1.4 1.4 0 0 1 1.4-1.4h0.6" stroke-linecap="round" stroke-linejoin="round" />
+                            </svg>
+                        </button>
+                        <button type="button" class="savedPickerAct savedPickerDelete" data-act="delete" title="Delete" aria-label="Delete @item.Name"
+                                @onclick="() => DeleteAsync(item.Key)" @onclick:stopPropagation="true">
+                            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                                <path d="M2.6 4.1h10.8M6.4 4.1V2.6h3.2v1.5M4.2 4.1l0.7 9.1a1.3 1.3 0 0 0 1.3 1.2h3.6a1.3 1.3 0 0 0 1.3-1.2l0.7-9.1" />
+                                <path d="M6.7 6.7v5M9.3 6.7v5" />
+                            </svg>
+                        </button>
+                    </span>
+                </div>
+            }
+
+            <button id="@AddId" type="button" class="savedPickerAdd" @onclick="AddAsync" title="@AddTitle">
+                <svg viewBox="0 0 16 16" aria-hidden="true">
+                    <path d="M8 2.6v10.8M2.6 8h10.8" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" />
+                </svg>
+                New @Noun
+            </button>
+        </div>
+    }
+</div>
+
+@code {
+    /// <summary>The picker's id, and the start of its parts': Name, Face, Rename, Chevron, Menu, Error.</summary>
+    [Parameter] public string Id { get; set; } = "savedPicker";
+
+    /// <summary>New's id at the end of the menu.</summary>
+    [Parameter] public string AddId { get; set; } = "savedPickerAdd";
+
+    /// <summary>The saved entries, in the order they are listed.</summary>
+    [Parameter] public IReadOnlyList<SavedPickerItem> Items { get; set; } = [];
+
+    /// <summary>The chosen entry's key, or null while the one being edited is not saved yet.</summary>
+    [Parameter] public string? SelectedKey { get; set; }
+
+    /// <summary>What one entry is called, in the menu's words.</summary>
+    [Parameter] public string Noun { get; set; } = "item";
+
+    /// <summary>The name typed so far for an entry that is not saved yet.</summary>
+    [Parameter] public string UnsavedName { get; set; } = "";
+
+    [Parameter] public string NamePlaceholder { get; set; } = "";
+    [Parameter] public string AddTitle { get; set; } = "";
+
+    /// <summary>Shown under the head: why a name was not taken, or what has to be named first.</summary>
+    [Parameter] public string? Error { get; set; }
+
+    /// <summary>A button joined to the head's end: the models' Save.</summary>
+    [Parameter] public RenderFragment? HeadEnd { get; set; }
+
+    [Parameter] public EventCallback<string> OnPick { get; set; }
+
+    /// <summary>A new name for an entry, the key null for the one not saved yet. Answers why it was refused, or null.</summary>
+    [Parameter] public Func<string?, string, Task<string?>>? OnRename { get; set; }
+
+    [Parameter] public EventCallback<string> OnDuplicate { get; set; }
+    [Parameter] public EventCallback<string> OnDelete { get; set; }
+    [Parameter] public EventCallback OnAdd { get; set; }
+
+    private ElementReference _root;
+    private ElementReference _nameBox;
+    private DotNetObjectReference<SavedPicker>? _self;
+    private bool _open;
+    private bool _renaming;
+    private bool _focusName;
+
+    // What is in the name box so far, null until something is typed there. Enter and the pencil have no value of their own.
+    private string? _typedName;
+    private bool _confirming;
+    private string? _seenKey;
+    private string? _seenUnsavedName;
+
+    /// <summary>
+    /// The pencil at the end of a name box, where Rename stands outside it. Pressing it leaves the
+    /// focus in the box, whose blur would otherwise commit the name and put Rename under the
+    /// pointer, for the click to land on.
+    /// </summary>
+    private RenderFragment ConfirmName(string? key)
+    {
+        return @<button id="@(Id)Confirm" type="button" class="savedPickerAct" @onmousedown:preventDefault="true" @onclick="() => ConfirmNameAsync(key)"
+                        title="Confirm the name" aria-label="Confirm the name">
+                    <RenameIcon />
+                </button>;
+    }
+
+    private SavedPickerItem? Current() => SelectedKey is null ? null : Items.FirstOrDefault(item => item.Key == SelectedKey);
+
+    /// <summary>Puts the name box in the head and the cursor in it: after New, or when a save needs a name first.</summary>
+    public void BeginRename()
+    {
+        _open = false;
+        _renaming = Current() is not null;
+        _typedName = null;
+        _focusName = true;
+        StateHasChanged();
+    }
+
+    protected override void OnParametersSet()
+    {
+        // A rename belongs to the entry it was begun on; another one chosen from outside ends it.
+        if (_renaming && Current() is null) _renaming = false;
+
+        // What was typed belongs to the name it was typed over.
+        if (SelectedKey != _seenKey || UnsavedName != _seenUnsavedName) _typedName = null;
+
+        _seenKey = SelectedKey;
+        _seenUnsavedName = UnsavedName;
+    }
+
+    protected override async Task OnAfterRenderAsync(bool first)
+    {
+        if (first)
+        {
+            _self = DotNetObjectReference.Create(this);
+            await JS.InvokeVoidAsync("lec.assistant.escape", _root, _self, nameof(EscapePressed));
+        }
+
+        if (!_focusName) return;
+        _focusName = false;
+
+        try
+        {
+            await _nameBox.FocusAsync();
+        }
+        catch (InvalidOperationException)
+        {
+            // The box went between the render and this: nothing to put the cursor in.
+        }
+    }
+
+    private void Toggle() => _open = !_open;
+
+    private void Close() => _open = false;
+
+    /// <summary>Esc with the menu up or a name being typed: that goes, and the window stays.</summary>
+    [JSInvokable]
+    public void EscapePressed()
+    {
+        _open = false;
+        _renaming = false;
+        _typedName = null;
+        StateHasChanged();
+    }
+
+    private void NameInput(ChangeEventArgs e) => _typedName = e.Value?.ToString();
+
+    private async Task NameKeyDownAsync(string? key, KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter") await ConfirmNameAsync(key);
+    }
+
+    private async Task PickAsync(string key)
+    {
+        _open = false;
+        _renaming = false;
+        _typedName = null;
+        await OnPick.InvokeAsync(key);
+    }
+
+    private async Task CommitAsync(string? key, ChangeEventArgs e)
+    {
+        // The browser's change event after an Enter that has already saved the unsaved entry.
+        if (key is null && SelectedKey is not null) return;
+
+        _typedName = e.Value?.ToString();
+        await ConfirmNameAsync(key);
+    }
+
+    /// <summary>
+    /// Takes what is in the name box: on Enter, on the pencil, and on the box's change when the
+    /// focus leaves it. The browser sends that change after an Enter too, so one that comes while
+    /// the first is being answered is dropped.
+    /// </summary>
+    private async Task ConfirmNameAsync(string? key)
+    {
+        if (_confirming) return;
+
+        string? name = _typedName;
+        if (name is null && key is null) name = UnsavedName;
+        else if (name is null) name = Current()?.Name;
+        name = name?.Trim() ?? "";
+
+        // A saved entry's name left as it was, or emptied, is no rename.
+        if (key is not null && (name.Length == 0 || name == Current()?.Name))
+        {
+            _renaming = false;
+            _typedName = null;
+            return;
+        }
+
+        string? refused = null;
+        _confirming = true;
+        try
+        {
+            if (OnRename is not null) refused = await OnRename(key, name);
+        }
+        finally
+        {
+            _confirming = false;
+        }
+
+        if (refused is null)
+        {
+            _renaming = false;
+            _typedName = null;
+        }
+    }
+
+    private async Task RenameRowAsync(string key)
+    {
+        if (key != SelectedKey) await OnPick.InvokeAsync(key);
+        BeginRename();
+    }
+
+    private async Task DuplicateAsync(string key)
+    {
+        _open = false;
+        await OnDuplicate.InvokeAsync(key);
+    }
+
+    private async Task DeleteAsync(string key) => await OnDelete.InvokeAsync(key);
+
+    private async Task AddAsync()
+    {
+        _open = false;
+        _renaming = false;
+        _typedName = null;
+        await OnAdd.InvokeAsync();
+        _focusName = true;
+    }
+
+    public ValueTask DisposeAsync()
+    {
+        _self?.Dispose();
+        return ValueTask.CompletedTask;
+    }
+}

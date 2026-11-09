@@ -647,11 +647,20 @@ public static class Commands
     /// There is no approval gate here. The client the model runs in asks the person before each
     /// call it has not been allowed, and a second gate would be two questions about one thing —
     /// so <c>--read-only</c> is how a bench is served that nothing may change.
+    ///
+    /// The addresses are optional while the live link is on: a person with the bench page open has
+    /// the instruments there, and <c>link_tab</c> works those (<see cref="TabLink"/>). The port is
+    /// listened on from the start, and <c>--link-port 0</c> turns the link off.
     /// </remarks>
     public static async Task<int> Mcp(ParsedCommand cmd, TextWriter stderr, CancellationToken ct)
     {
-        if (cmd.Operands.Count < 1)
-            return Fail(stderr, "Usage: lec mcp <address> [<address>...] [--read-only] [--timeout <ms>]", Misused);
+        int linkPort = TabLink.DefaultPort;
+        if (cmd.Value("link-port") is string typedPort
+            && (!int.TryParse(typedPort, System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out linkPort) || linkPort > 65535))
+            return Fail(stderr, "--link-port must be a port number, or 0 to turn the link to the bench page off.", Misused);
+
+        if (cmd.Operands.Count < 1 && linkPort == 0)
+            return Fail(stderr, "Usage: lec mcp [<address>...] [--read-only] [--timeout <ms>] [--link-port <port>]", Misused);
         if (!cmd.TryInt("timeout", 5000, out int timeout))
             return Fail(stderr, "--timeout must be a positive number of milliseconds.", Misused);
 
@@ -676,17 +685,38 @@ public static class Commands
 
         await stderr.WriteAsync($"lec mcp: serving {addresses.Count} address{(addresses.Count == 1 ? "" : "es")}"
                               + $"{(readOnly ? ", read-only" : "")}, on standard input and output.\n");
-        await McpServing.RunAsync(tools, McpInstructions(addresses, readOnly), new ModelContextProtocol.Server.StdioServerTransport("lec"), ct);
+        await using TabLink? link = linkPort == 0 ? null : new TabLink(linkPort) { Log = line => stderr.WriteLine("lec mcp: " + line) };
+        if (link is not null)
+        {
+            // Taken is the usual why: one lec mcp per Claude window, and the first one up has the port.
+            await stderr.WriteLineAsync(link.TryListen(out string why)
+                ? $"lec mcp: a bench page can link on port {link.Port}."
+                : $"lec mcp: {why} It will be tried again when link_tab is called.");
+        }
+
+        await McpServing.RunAsync(tools, McpInstructions(addresses, readOnly, link is not null), new ModelContextProtocol.Server.StdioServerTransport("lec"), ct, link);
         return Ok;
     }
 
     /// <summary>What the client is told at the handshake: what it can reach, then the bench's conventions.</summary>
-    internal static string McpInstructions(IReadOnlyList<Endpoint> addresses, bool readOnly)
+    internal static string McpInstructions(IReadOnlyList<Endpoint> addresses, bool readOnly, bool linking = false)
     {
         var text = new StringBuilder();
-        text.Append("lec serves the instruments it was started for, and only those: ");
-        text.Append(string.Join(", ", addresses.Select(a => a.ToString())));
-        text.Append(". An instrument that was off when the server started is tried again whenever the instruments are listed.\n\n");
+        if (addresses.Count > 0)
+        {
+            text.Append("lec serves the instruments it was started for, and only those: ");
+            text.Append(string.Join(", ", addresses.Select(a => a.ToString())));
+            text.Append(". An instrument that was off when the server started is tried again whenever the instruments are listed.\n\n");
+        }
+        else
+        {
+            text.Append("lec was started for no instruments of its own: link_tab reaches the ones the person has open on a bench page.\n\n");
+        }
+        if (linking)
+        {
+            text.Append("With link_tab these same tools work the instruments open on a bench page instead, the page the person is looking at: ");
+            text.Append("they press Start under MCP server in AI settings under its gear and give you the code it shows.\n\n");
+        }
         text.Append(BenchToolRunner.Conventions);
         text.Append(readOnly
             ? "\nThis server was started read-only: nothing here can change an instrument, and send is not offered. Say so if a change is asked for."

@@ -97,13 +97,14 @@ opens only what you picked, and asserts DTR and RTS on the way in, which resets 
 
 ### Optional: the AI features
 
-Unset, the AI pages simply say they are not configured.
+Set a key here, or add connections later in the page's AI settings. With neither, the AI
+pages simply say they are not configured.
 
 ```bash
 -e Ai__ApiKey=… -e Ai__Provider=Gemini
 ```
 
-It is **one key shared by everyone who can reach the page** — there is no per-user
+It is **one set of keys shared by everyone who can reach the page** — there is no per-user
 credential store in a Linux container. Fine on a bench LAN, wrong on a public one.
 
 ### What persists
@@ -135,7 +136,9 @@ the bench VLAN and be the thing that runs it.
 Scan and discovery, a console per instrument with that family's quick commands — detachable
 into its own browser tab — the results table and plot, waveform and screen capture, the live
 meter readout, single- and multi-instrument script runners with live output, the command
-library with the vendor's guide beside it, and the script-language reference.
+library with the vendor's guide beside it, the script-language reference, and the AI tools: an
+assistant that works the bench with your approval, Write a Script with AI, and catalog
+extraction from a datasheet.
 
 Behind it: **36 curated command catalogs, 23,978 commands**, covering Rohde & Schwarz, Rigol,
 Siglent, Keysight, Chroma, B&K Precision, GW Instek, Keithley, Tektronix and Fluke. Every one

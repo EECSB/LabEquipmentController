@@ -456,9 +456,8 @@ public sealed class ScriptForm : Form
         ScriptContextInstrument instrument =
             ScriptContext.ForScript(_identity, _instrument ?? "the connected instrument");
 
-        string? written = ScriptAiForm.Ask(
-            this, new[] { instrument }, isSequence: false, _editor.Text, _output.Text);
-        if (written != null) TakeWritten(written);
+        ScriptWriters.Open(this, new[] { instrument }, isSequence: false,
+            () => _editor.Text, () => _output.Text, TakeWritten);
     }
 
     /// <summary>

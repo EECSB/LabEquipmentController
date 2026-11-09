@@ -312,6 +312,10 @@ public sealed class BenchClient(HttpClient http, AiHttp ai) : IAsyncDisposable
     public async Task<AiSettingsReply> AiAddAsync(string provider)
         => await Sent(await http.PostAsync($"api/ai/connections?provider={Uri.EscapeDataString(provider)}", null));
 
+    /// <summary>A copy of a connection, key and all, right after it and in use.</summary>
+    public async Task<AiSettingsReply> AiDuplicateAsync(string id)
+        => await Sent(await http.PostAsync($"api/ai/connections/{Uri.EscapeDataString(id)}/duplicate", null));
+
     /// <summary>Forget a connection, and its key with it.</summary>
     public async Task<AiSettingsReply> AiRemoveAsync(string id)
         => await Sent(await http.DeleteAsync($"api/ai/connections/{Uri.EscapeDataString(id)}"));
@@ -358,6 +362,21 @@ public sealed class BenchClient(HttpClient http, AiHttp ai) : IAsyncDisposable
             return new AiScriptReply("", [],
                 $"The server did not reply within {wait.TotalSeconds:0} s — longer than the AI connection "
               + "is allowed — so this page stopped waiting. The server may have stopped answering.");
+        }
+    }
+
+    /// <summary>How long a request to the writer is before the conversation, the files and the box. 0 when it cannot be said: this only feeds an estimate.</summary>
+    public async Task<int> AiScriptSizeAsync(AiScriptRequest req)
+    {
+        try
+        {
+            using var response = await ai.Http.PostAsJsonAsync("api/ai/script/size", req);
+            if (!response.IsSuccessStatusCode) return 0;
+            return (await response.Content.ReadFromJsonAsync<AiScriptSize>())?.Characters ?? 0;
+        }
+        catch (Exception e) when (e is HttpRequestException or TaskCanceledException or System.Text.Json.JsonException)
+        {
+            return 0;
         }
     }
 

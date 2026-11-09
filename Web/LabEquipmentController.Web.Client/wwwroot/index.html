@@ -6,6 +6,7 @@
     <title>Lab Equipment Controller</title>
     <base href="/" />
     <link rel="stylesheet" href="app.css" />
+    <link rel="stylesheet" href="assistant.css" />
     <link rel="icon" href="app-icon.png" />
 
     <script>
@@ -155,6 +156,7 @@
     <script src="js/monaco.js"></script>
     <!-- The AI assistant window's interop: its box's keys and paste, a drop on the window, and a
          screenshot, each ending in the window's one file input. -->
+    <script src="js/speechWav.js"></script>
     <script src="js/assistant.js"></script>
     <script>
         // Things the browser can do that a .NET component cannot ask for directly. Added to
@@ -379,24 +381,11 @@
                 // without the other and the box is a border short of its own text, which is a
                 // scrollbar on a box holding one line.
                 el.style.height = (el.scrollHeight + el.offsetHeight - el.clientHeight) + 'px';
-            },
-
-            chatbox: (el, ref) => {
-                if (!el || el.dataset.lecChat === '1') return;
-                el.dataset.lecChat = '1';
-
-                const fit = () => window.lec.fitBox(el);
-                el.addEventListener('input', fit);
-
-                el.addEventListener('keydown', (e) => {
-                    // isComposing: an IME's Enter accepts the candidate, it does not send.
-                    if (e.key !== 'Enter' || e.shiftKey || e.altKey || e.ctrlKey
-                        || e.metaKey || e.isComposing) return;
-                    e.preventDefault();
-                    ref.invokeMethodAsync('SendRequest');
-                });
-
-                fit();
+                // Only a box at its ceiling scrolls. Below it the content is a fraction of a pixel
+                // taller than the whole number scrollHeight reports, which draws a scrollbar on a
+                // box that fits.
+                const most = parseFloat(getComputedStyle(el).maxHeight);
+                el.style.overflowY = el.scrollHeight > most ? 'auto' : 'hidden';
             },
 
             // Focus, which markup cannot ask for either. Used when a menu opens: the key

@@ -47,6 +47,7 @@ namespace LabEquipmentController
         public MainForm()
         {
             InitializeComponent();
+            ScriptWriters.Configure(this, _sessions, ShowAiSettings);
             LoadAppIcon();
         }
 
@@ -435,14 +436,11 @@ namespace LabEquipmentController
 
             AiBookStore.Save(dlg.Book, dlg.ApiKeys);
             AiConnectionChanged?.Invoke(this, EventArgs.Empty);
-            if (_aiService is not null) _ = _aiService.ReloadAsync();
+            _ = DesktopAiService.App.ReloadAsync();
         }
 
         /// <summary>Raised when the AI connection is edited, so open consoles can re-enable.</summary>
         public event EventHandler? AiConnectionChanged;
-
-        /// <summary>What the assistant stands on (IAiService): made with its window, and told when AI Connection is applied.</summary>
-        private DesktopAiService? _aiService;
 
         private AssistantForm? _assistant;
 
@@ -464,8 +462,7 @@ namespace LabEquipmentController
                 return;
             }
 
-            _aiService ??= new DesktopAiService(new FileChatStore(FileChatStore.DefaultFolder));
-            _assistant = new AssistantForm(_aiService, _sessions, (session, command, reply) =>
+            _assistant = new AssistantForm(DesktopAiService.App, _sessions, (session, command, reply) =>
             {
                 InstrumentConsole? console = ConsoleFor(session);
                 if (console is null) return;
