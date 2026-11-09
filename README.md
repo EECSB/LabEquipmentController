@@ -107,7 +107,7 @@ letting silence read as "verified".
 
 It is a conversation: every exchange stays on screen and goes back with the next request,
 which is what makes the follow-up below — *"now do the same at 5 Vpp and 10 kHz"* — a
-request at all. The line above the transcript says what that history costs to send, and
+request at all. The line under the box says what the next request will cost to send, and
 **New chat** starts again without it and keeps the old one in a list beside it. It is the AI
 assistant's window, so you can attach a photo of the wiring, a screenshot or a datasheet. Nothing is run: a draft reaches the editor when you
 press **Use This Script**, and runs when you press Run.
