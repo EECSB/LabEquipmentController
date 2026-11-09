@@ -88,8 +88,8 @@ docker run -d --name lec-web --network host \
 The address typed into the page is the **container's** name for the port —
 `serial:///dev/ttyUSB0` — which is why the mapping keeps both sides identical. `ls
 /dev/ttyUSB* /dev/ttyACM*` on the host says which node the adapter came up as; `docker exec
-lec-web lec ports` says what actually arrived. Linux only, for the same reason host
-networking is.
+lec-web sh -c 'ls /dev/ttyUSB* /dev/ttyACM*'` says what actually arrived. Linux only, for the
+same reason host networking is.
 
 Switching the scan card's heading to **Serial** lists those ports and, on `Scan`, asks the
 ones you choose for an identity at the baud rates you name. Listing opens nothing; scanning
